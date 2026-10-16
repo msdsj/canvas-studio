@@ -10,6 +10,10 @@ from app.state import runtime_config
 from app.upstream import chatgpt2api_client, chatgpt2api_headers
 from app.utils.errors import ErrorCode, GatewayError
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 _FALLBACK_CODES = {
     ErrorCode.PROXY_UNREACHABLE,
     ErrorCode.UPSTREAM_ERROR,
@@ -74,12 +78,14 @@ async def image_generations(payload: dict) -> dict:
         if not images:
             raise GatewayError(ErrorCode.UPSTREAM_ERROR, "上游未返回图片")
         return _normalize(data, images)
-    except GatewayError:
+    except GatewayError as exc:
+        logger.warning("生图上游失败（demo 回退前）: %s %s", exc.code, exc)
         if mode == "auto":
             return demo_service.demo_image_result(prompt, size, n)
         raise
     except Exception as exc:  # noqa: BLE001
         mapped = classify_exception(exc)
+        logger.warning("生图上游异常（demo 回退前）: %s -> %s", exc, mapped.code)
         if mode == "auto" and mapped.code in _FALLBACK_CODES:
             return demo_service.demo_image_result(prompt, size, n)
         raise mapped

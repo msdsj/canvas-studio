@@ -1,11 +1,11 @@
-"""APScheduler 定时任务：号池自动刷新、孤儿任务回收、临时文件清理。"""
+"""APScheduler 定时任务：号池自动刷新、孤儿任务回收、临时文件清理、网关配置同步。"""
 from __future__ import annotations
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.config import settings
 from app.database import AsyncSessionLocal
-from app.services import pool_service, storage_service, task_service
+from app.services import config_service, pool_service, storage_service, task_service
 from app.utils.logging import get_logger
 
 logger = get_logger("app.scheduler")
@@ -19,6 +19,13 @@ async def _reclaim_job() -> None:
         count = await task_service.reclaim_orphans(db)
     if count:
         logger.info("孤儿任务回收：%s 个任务已超时回滚", count)
+
+
+async def _config_sync_job() -> None:
+    """周期同步网关配置：网关重启后运行时配置会丢失（内部令牌/上游地址/Key/Demo 模式），
+    靠本任务在 60s 内自动恢复，避免"重启网关 → 上游 401 → 全部退化 demo 占位图"。"""
+    async with AsyncSessionLocal() as db:
+        await config_service.push_to_gateway(db)
 
 
 async def _pool_refresh_job() -> None:
@@ -71,9 +78,18 @@ def start_scheduler() -> AsyncIOScheduler:
         coalesce=True,
         max_instances=1,
     )
+    scheduler.add_job(
+        _config_sync_job,
+        "interval",
+        seconds=60,
+        id="gateway_config_sync",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+    )
     scheduler.start()
     _scheduler = scheduler
-    logger.info("调度器已启动：孤儿回收/%ss，号池刷新/%smin", settings.task_orphan_scan_seconds, settings.pool_autorefresh_minutes)
+    logger.info("调度器已启动：孤儿回收/%ss，号池刷新/%smin，网关配置同步/60s", settings.task_orphan_scan_seconds, settings.pool_autorefresh_minutes)
     return scheduler
 
 

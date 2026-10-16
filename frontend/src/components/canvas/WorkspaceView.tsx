@@ -15,6 +15,7 @@ import {
   buildMultiRegionSelection,
   buildRegionSelection,
   normalizeScene,
+  viewportCenterScene,
   type ExcalidrawApiLike,
 } from './canvas-helpers'
 import { useCanvasAutosave } from './useCanvasAutosave'
@@ -103,6 +104,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     dataUrl: string
     width: number
     height: number
+    imgRect?: { x: number; y: number; w: number; h: number } | null
   } | null>(null)
   const [doodleInstruction, setDoodleInstruction] = useState('')
   const [doodleSubmitting, setDoodleSubmitting] = useState(false)
@@ -129,6 +131,8 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   const refreshPhRef = useRef<() => void>(() => {})
   const apiRef = useRef<ExcalidrawApiLike | null>(null)
   apiRef.current = api
+  // 临时诊断钩子（排查"图不显示"用，定位完即移除）
+  ;(window as unknown as { __canvasApi?: unknown }).__canvasApi = api
   const lastSelectedFileIdRef = useRef<string | null>(null)
 
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -274,6 +278,32 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     a.remove()
   }
 
+  /** 计算图片在画布容器中的显示矩形（scene → viewport），使涂鸦层精确贴合原图、不缩放不位移。 */
+  const computeImgRect = (el: CanvasElement) => {
+    const inst = apiRef.current
+    if (!inst) return null
+    try {
+      const appState = inst.getAppState() as {
+        zoom?: { value?: number }
+        scrollX?: number
+        scrollY?: number
+      }
+      const zoom = appState.zoom?.value ?? 1
+      const scrollX = appState.scrollX ?? 0
+      const scrollY = appState.scrollY ?? 0
+      const sx = (el as { scale?: [number, number] }).scale?.[0] ?? 1
+      const sy = (el as { scale?: [number, number] }).scale?.[1] ?? 1
+      return {
+        x: (el.x + scrollX) * zoom,
+        y: (el.y + scrollY) * zoom,
+        w: (el.width ?? 320) * zoom * sx,
+        h: (el.height ?? 320) * zoom * sy,
+      }
+    } catch {
+      return null
+    }
+  }
+
   /** 进入涂鸦编辑模式（基于当前选中的图片）。 */
   const handleStartDoodle = () => {
     const el = selectedImageRef.current
@@ -286,7 +316,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     }
     const open = (w: number, h: number) => {
       setDoodleInstruction('')
-      setDoodleTarget({ dataUrl, width: w, height: h })
+      setDoodleTarget({ dataUrl, width: w, height: h, imgRect: computeImgRect(el) })
     }
     if (selectedImageInfo?.dataUrl === dataUrl) {
       open(selectedImageInfo.width, selectedImageInfo.height)
@@ -336,23 +366,26 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     }
   }
 
-  /** 结果卡「编辑」：载入生成图到内置编辑画布（免下载上传，含尺寸读取与状态提示）。 */
+  /** 结果卡「编辑」：直接载入图片进入涂鸦编辑器（下载好的图原样涂鸦，不做任何落画布/缩放处理）。 */
   useEffect(() => {
     const onOpen = (payload: { url: string }) => {
       if (!payload?.url) return
       const probe = new Image()
       probe.onload = () => {
-        const info = {
+        setSelectedImageInfo({
           dataUrl: payload.url,
           width: probe.naturalWidth,
           height: probe.naturalHeight,
-        }
-        setSelectedImageInfo(info)
+        })
         setDoodleInstruction('')
-        setDoodleTarget(info)
+        setDoodleTarget({
+          dataUrl: payload.url,
+          width: probe.naturalWidth,
+          height: probe.naturalHeight,
+        })
         toast.success(
           t('region.doodle_ready', { defaultValue: '已载入编辑画布' }),
-          `${info.width} × ${info.height} px`
+          `${probe.naturalWidth} × ${probe.naturalHeight} px`
         )
       }
       probe.onerror = () => {
@@ -375,12 +408,12 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     }
   }
 
-  /** 双击画布图片 = 进入编辑框选模式（贴近主流设计工具的双击习惯）。 */
+  /** 双击画布图片 = 打开编辑器（涂鸦标注）。 */
   const handleCanvasDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (editTarget) return
+    if (editTarget || doodleTarget) return
     const target = e.target as HTMLElement | null
     if (!target || target.tagName !== 'CANVAS') return
-    if (selectedImageRef.current) handleMagicEdit()
+    if (selectedImageRef.current) handleStartDoodle()
   }
 
   const cancelEditMode = useCallback(() => {
@@ -391,7 +424,8 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     editDragStartRef.current = null
   }, [])
 
-  const handleMagicEdit = () => {
+  /** 多区域标注（框选编号模式）：一次框选多个区域，按编号分别写指令后统一提交。 */
+  const handleEnterMarkMode = () => {
     if (!api) return
     const el = selectedImageRef.current
     if (!el || !el.fileId) {
@@ -650,7 +684,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   const handleAddResultToCanvas = async (url: string, taskIdInner: string) => {
     if (!api) return
     try {
-      await addImageToCanvas(api, { url })
+      await addImageToCanvas(api, { url, ...viewportCenterScene(api, 320, 320) })
       markTaskPlaced(taskIdInner)
       toast.success(t('task.add_to_canvas'))
     } catch (error) {
@@ -688,7 +722,11 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
         for (const task of pending) {
           try {
             for (const url of task.result_urls) {
-              await addImageToCanvas(api, { url })
+              // 落在当前视口中心：保证结果一出现就在眼前（顺排网格会落到可视区外）
+              await addImageToCanvas(api, {
+                url,
+                ...viewportCenterScene(api, 320, 320),
+              })
             }
             markTaskPlaced(task.id)
           } catch {
@@ -704,8 +742,12 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     void placeResults()
     const onTasksChanged = () => void placeResults()
     events.on('tasks:changed', onTasksChanged)
+    // 兜底轮询：任务完成时前端并不一定会 emit('tasks:changed')（轮询只更新 UI），
+    // 没有这个兜底会导致"生成成功但图没落到画布"。配合上方 3s 节流实际约 8s 检查一次。
+    const timer = window.setInterval(() => void placeResults(), 8000)
     return () => {
       cancelled = true
+      window.clearInterval(timer)
       events.off('tasks:changed', onTasksChanged)
     }
   }, [api, canvasId, sessionId])
@@ -899,24 +941,13 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   return (
     <div className="flex h-full flex-col">
       <MobileSegmented />
-      <CanvasDoodle
-        open={!!doodleTarget}
-        imageDataUrl={doodleTarget?.dataUrl ?? ''}
-        imageWidth={doodleTarget?.width ?? 1}
-        imageHeight={doodleTarget?.height ?? 1}
-        submitting={doodleSubmitting}
-        instruction={doodleInstruction}
-        onInstructionChange={setDoodleInstruction}
-        onCancel={() => setDoodleTarget(null)}
-        onSubmit={(result) => void handleDoodleSubmit(result)}
-        onError={(message) => toast.error(message)}
-      />
       <div className="flex min-h-0 flex-1">
         {mobileSegment === 'canvas' && (
           <WorkspaceLeftbar
             collapsed={leftbarCollapsed}
             onAddImage={openAssetPicker}
             onUpload={() => uploadInputRef.current?.click()}
+            onMarkAll={handleEnterMarkMode}
           />
         )}
 
@@ -933,6 +964,20 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
               </button>
             </div>
             <div className="relative min-h-0 flex-1 bg-bg-subtle" onDoubleClick={handleCanvasDoubleClick}>
+              {/* 编辑（涂鸦）层：仅覆盖画布区域，不改动页面布局 */}
+              <CanvasDoodle
+                open={!!doodleTarget}
+                imageDataUrl={doodleTarget?.dataUrl ?? ''}
+                imageWidth={doodleTarget?.width ?? 1}
+                imageHeight={doodleTarget?.height ?? 1}
+                imgRect={doodleTarget?.imgRect ?? null}
+                submitting={doodleSubmitting}
+                instruction={doodleInstruction}
+                onInstructionChange={setDoodleInstruction}
+                onCancel={() => setDoodleTarget(null)}
+                onSubmit={(result) => void handleDoodleSubmit(result)}
+                onError={(message) => toast.error(message)}
+              />
               {initialData !== undefined ? (
                 <CanvasExcali
                   initialData={initialData}
@@ -961,8 +1006,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
               ))}
               {hasSelection && !editTarget && (
                 <CanvasMagicGenerator
-                  onMagicEdit={handleMagicEdit}
-                  onDoodle={handleStartDoodle}
+                  onMagicEdit={handleStartDoodle}
                   onDownload={handleDownloadImage}
                   onDelete={handleDeleteSelected}
                 />

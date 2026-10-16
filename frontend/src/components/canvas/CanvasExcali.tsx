@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { Excalidraw } from '@excalidraw/excalidraw'
+import { Excalidraw, restoreElements } from '@excalidraw/excalidraw'
 import '@excalidraw/excalidraw/index.css'
 import type { ExcalidrawInitialDataState } from '@excalidraw/excalidraw/types'
 import type { ExcalidrawApiLike } from './canvas-helpers'
@@ -51,7 +51,29 @@ export function CanvasExcali({ initialData, theme = 'light', viewMode, onApiRead
     }
   }, [theme])
 
-  const data = useMemo(() => initialRef.current ?? null, [])
+  /**
+ * 初始数据用 Excalidraw 官方 restoreElements 规范化。
+ * 我们持久化的是自造的元素对象（缺 index/fractionalIndex 等 0.18 必需字段），
+ * 直接塞给 Excalidraw 会被 restore 阶段整体丢弃 → 刷新后画布一片空白。
+ */
+const data = useMemo(() => {
+    const src = initialRef.current as unknown as
+      | { elements?: unknown[]; files?: Record<string, unknown>; appState?: Record<string, unknown> }
+      | undefined
+    if (!src) return null
+    try {
+      const elements = Array.isArray(src.elements)
+        ? restoreElements(src.elements as never[], null)
+        : []
+      return {
+        elements,
+        appState: (src.appState ?? {}) as never,
+        files: (src.files ?? {}) as never,
+      }
+    } catch {
+      return { elements: [], appState: {} as never, files: {} as never }
+    }
+  }, [])
 
   return (
     <div className="h-full w-full">

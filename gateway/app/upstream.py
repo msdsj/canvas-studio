@@ -11,6 +11,17 @@ from app.state import runtime_config
 from app.utils.errors import ErrorCode
 
 
+def _is_loopback(base_url: str) -> bool:
+    """本地回环地址（localhost/127.0.0.1）判断：平台→上游为本地回环调用，永不走代理。"""
+    try:
+        from urllib.parse import urlparse
+
+        host = urlparse(base_url).hostname or ""
+        return host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def make_client(base_url: str, *, read_timeout: float | None = None) -> httpx.AsyncClient:
     """按运行时配置创建 httpx 客户端（含代理与超时分离）。"""
     timeout = httpx.Timeout(
@@ -19,7 +30,9 @@ def make_client(base_url: str, *, read_timeout: float | None = None) -> httpx.As
         write=settings.read_timeout,
         pool=settings.connect_timeout,
     )
-    proxy = runtime_config.proxy_url or None
+    # 代理仅用于"出外网"的调用；本地回环上游（如本机 chatgpt2api）直连，
+    # 否则回环请求被劫持到 VPN 代理，代理不可用时整条生图链路退化为 demo 占位图。
+    proxy = None if _is_loopback(base_url) else (runtime_config.proxy_url or None)
     return httpx.AsyncClient(
         base_url=base_url.rstrip("/"),
         timeout=timeout,

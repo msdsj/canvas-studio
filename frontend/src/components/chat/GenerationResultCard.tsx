@@ -36,7 +36,7 @@ export function GenerationResultCard({
   const inProgress = task.status === 'queued' || task.status === 'running' || task.status === 'paused'
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-3">
+    <div className="w-full min-w-0 rounded-lg border border-border bg-surface p-3">
       <div className="mb-2 flex items-center gap-2">
         <span className="truncate text-sm text-text-secondary">{task.prompt.slice(0, 40)}</span>
         {task.demo && <Badge variant="warning">{t('task.result_demo')}</Badge>}

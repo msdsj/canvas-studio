@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Eraser, PenLine, Redo2, RotateCcw, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 
 /** 一笔涂鸦（坐标均为原图坐标系，与分辨率解耦） */
 interface DoodleStroke {
@@ -23,6 +22,8 @@ interface CanvasDoodleProps {
   imageDataUrl: string
   imageWidth: number
   imageHeight: number
+  /** 图片在画布容器内的显示矩形（画布内涂鸦时精确贴合原图位置，不缩放不位移） */
+  imgRect?: { x: number; y: number; w: number; h: number } | null
   submitting?: boolean
   instruction: string
   onInstructionChange: (value: string) => void
@@ -46,7 +47,7 @@ export function CanvasDoodle({
   imageDataUrl,
   imageWidth,
   imageHeight,
-  submitting = false,
+  imgRect,
   instruction,
   onInstructionChange,
   onCancel,
@@ -335,20 +336,52 @@ export function CanvasDoodle({
     }
   }
 
-  if (!open) return null
+if (!open) return null
+
+  // 定位：给定 imgRect = 精确贴合画布上的图片（画布内涂鸦，不改变任何布局）；
+  // 未给定（外部图片）= 在画布区域内居中显示
+  const overlayStyle: React.CSSProperties = imgRect
+    ? { position: 'absolute', left: imgRect.x, top: imgRect.y, width: imgRect.w, height: imgRect.h }
+    : {
+        position: 'absolute',
+        left: '50%',
+        top: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: `min(100%, ${Math.min(imageWidth, 720)}px)`,
+        aspectRatio: `${imageWidth} / ${imageHeight}`,
+      }
 
   return (
-    <div className="absolute inset-0 z-40 flex flex-col bg-surface/95 backdrop-blur-sm">
-      {/* 工具条 */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface px-3 py-2">
-        <span className="text-xs font-medium text-text-secondary">图片编辑</span>
-        {/* 画笔 / 橡皮擦 */}
-        <div className="flex items-center gap-1 rounded-full bg-bg-subtle p-0.5">
+    // 画布区内的透明叠加层：不改动页面布局、主题或任何既有参数
+    <div className="absolute inset-0 z-30">
+      {/* 图片 + 画笔层（贴合原图位置，不缩放不位移） */}
+      <div className="pointer-events-auto" style={overlayStyle}>
+        <img
+          ref={imgRef}
+          src={safeSrc}
+          alt="编辑基准"
+          className="absolute inset-0 h-full w-full select-none"
+          draggable={false}
+        />
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 h-full w-full touch-none"
+          style={{ cursor: tool === 'eraser' ? 'cell' : 'crosshair' }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        />
+      </div>
+
+      {/* 浮动工具条（画布内顶部居中，轻量半透明，不遮挡整页） */}
+      <div className="absolute left-1/2 top-3 z-10 flex max-w-[calc(100%-24px)] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded-full border border-border bg-surface/95 px-2.5 py-1.5 shadow-md backdrop-blur">
+        <div className="flex items-center gap-0.5">
           <button
             type="button"
             onClick={() => setTool('pen')}
             title="画笔"
-            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] transition-colors ${
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] transition-colors ${
               tool === 'pen' ? 'bg-brand-subtle text-brand-text' : 'text-text-tertiary hover:text-text-secondary'
             }`}
           >
@@ -358,15 +391,14 @@ export function CanvasDoodle({
             type="button"
             onClick={() => setTool('eraser')}
             title="橡皮擦"
-            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] transition-colors ${
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] transition-colors ${
               tool === 'eraser' ? 'bg-brand-subtle text-brand-text' : 'text-text-tertiary hover:text-text-secondary'
             }`}
           >
             <Eraser size={12} /> 橡皮
           </button>
         </div>
-        {/* 颜色（橡皮擦时置灰） */}
-        <div className={`flex items-center gap-1 ${tool === 'eraser' ? 'opacity-40' : ''}`}>
+        <div className={`flex items-center gap-0.5 ${tool === 'eraser' ? 'opacity-40' : ''}`}>
           {COLORS.map((c) => (
             <button
               key={c}
@@ -376,21 +408,20 @@ export function CanvasDoodle({
                 setColor(c)
                 setTool('pen')
               }}
-              className={`h-6 w-6 rounded-full border transition-transform ${
+              className={`h-5 w-5 rounded-full border transition-transform ${
                 color === c && tool === 'pen' ? 'scale-110 border-brand ring-2 ring-brand/40' : 'border-border'
               }`}
               style={{ background: c }}
             />
           ))}
         </div>
-        {/* 粗细 */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           {SIZES.map((s) => (
             <button
               key={s.value}
               type="button"
               onClick={() => setSize(s.value)}
-              className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
+              className={`rounded px-1.5 py-0.5 text-[11px] transition-colors ${
                 size === s.value ? 'bg-brand-subtle text-brand-text' : 'text-text-tertiary hover:bg-surface-hover'
               }`}
             >
@@ -398,70 +429,67 @@ export function CanvasDoodle({
             </button>
           ))}
         </div>
-        {/* 编辑状态实时显示 */}
-        <span className="rounded-full bg-bg-subtle px-2 py-0.5 text-[11px] text-text-secondary">
-          {strokeCount} 笔 · {tool === 'eraser' ? `橡皮擦 ${Math.round(size * ERASE_SCALE)}px` : `画笔 ${color} ${size}px`}
+        <span className="whitespace-nowrap rounded-full bg-bg-subtle px-2 py-0.5 text-[11px] text-text-secondary">
+          {strokeCount} 笔 · {tool === 'eraser' ? `橡皮 ${Math.round(size * ERASE_SCALE)}px` : `${size}px`}
         </span>
-        <div className="ml-auto flex items-center gap-1.5">
-          <Button variant="ghost" size="sm" className="h-7 text-xs" disabled={!strokeCount} onClick={handleUndo}>
-            <RotateCcw size={13} /> 撤销
-          </Button>
-          <Button variant="ghost" size="sm" className="h-7 text-xs" disabled={!canRedo} onClick={handleRedo}>
-            <Redo2 size={13} /> 重做
-          </Button>
-          <Button variant="ghost" size="sm" className="h-7 text-xs" disabled={!strokeCount} onClick={handleClear}>
-            <Eraser size={13} /> 清空
-          </Button>
-          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onCancel}>
-            <X size={13} /> 退出
-          </Button>
-          <Button
-            size="sm"
-            className="h-7 text-xs"
-            loading={submitting}
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            disabled={!strokeCount}
+            onClick={handleUndo}
+            title="撤销"
+            className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+          >
+            <RotateCcw size={12} />
+          </button>
+          <button
+            type="button"
+            disabled={!canRedo}
+            onClick={handleRedo}
+            title="重做"
+            className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+          >
+            <Redo2 size={12} />
+          </button>
+          <button
+            type="button"
+            disabled={!strokeCount}
+            onClick={handleClear}
+            title="清空"
+            className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+          >
+            <Eraser size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            title="退出编辑"
+            className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover"
+          >
+            <X size={12} />
+          </button>
+          <button
+            type="button"
             disabled={!strokeCount || !instruction.trim()}
             onClick={() => void handleSubmit()}
+            className="inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-[11px] font-medium text-text-inverse transition-opacity hover:opacity-90 disabled:opacity-50"
           >
-            <Check size={13} /> 提交
-          </Button>
+            <Check size={12} /> 提交
+          </button>
         </div>
       </div>
 
-      {/* 画布区（保持原图宽高比，桌面/移动端自适应） */}
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-3 sm:p-4">
-        <div
-          className="relative w-full overflow-hidden rounded-lg border border-border shadow-lg"
-          style={{ maxWidth: '100%', maxHeight: '100%', aspectRatio: `${imageWidth} / ${imageHeight}` }}
-        >
-          <img
-            ref={imgRef}
-            src={safeSrc}
-            alt="编辑基准"
-            className="absolute inset-0 h-full w-full select-none"
-            draggable={false}
-          />
-          <canvas
-            ref={canvasRef}
-            className="absolute inset-0 h-full w-full touch-none"
-            style={{ cursor: tool === 'eraser' ? 'cell' : 'crosshair' }}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-          />
-        </div>
-      </div>
-
-      <div className="border-t border-border px-3 py-2">
+      {/* 悬浮指令输入（画布底部居中，不占布局） */}
+      <div className="absolute bottom-3 left-1/2 z-10 flex w-[min(520px,calc(100%-24px))] -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface/95 px-3 py-1.5 shadow-md backdrop-blur">
         <input
           value={instruction}
           onChange={(e) => onInstructionChange(e.target.value)}
-          placeholder="描述要如何修改图中标注的部分（如：把红圈里的人物换成一位穿红裙的女性）"
-          className="w-full rounded-md border border-border bg-bg-subtle px-2.5 py-1.5 text-sm text-text placeholder:text-text-tertiary focus:border-brand focus:outline-none"
+          placeholder="描述要修改的地方（如：把圈里的人物换成一位穿红裙的女性）"
+          className="min-w-0 flex-1 bg-transparent text-xs text-text placeholder:text-text-tertiary focus:outline-none"
         />
-        <div className="mt-1 text-[11px] text-text-tertiary">
-          编辑完成后点【提交】，将按原图分辨率（{imageWidth} × {imageHeight} px）合成后发送；标注范围即编辑区域
-        </div>
+        <span className="shrink-0 whitespace-nowrap font-mono text-[10px] text-text-tertiary">
+          {imageWidth} × {imageHeight}
+        </span>
       </div>
     </div>
   )

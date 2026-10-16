@@ -10,6 +10,7 @@ import {
   Shield,
   ImagePlus,
   Upload,
+  Pencil,
 } from 'lucide-react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
@@ -70,11 +71,13 @@ export function AppSidebar() {
 interface WorkspaceLeftbarProps {
   onAddImage?: () => void
   onUpload?: () => void
+  /** 多区域标注（框选模式） */
+  onMarkAll?: () => void
   collapsed?: boolean
 }
 
 /** 工作台左栏：项目切换 + 工具区 + 账户额度。 */
-export function WorkspaceLeftbar({ onAddImage, onUpload, collapsed }: WorkspaceLeftbarProps) {
+export function WorkspaceLeftbar({ onAddImage, onUpload, onMarkAll, collapsed }: WorkspaceLeftbarProps) {
   const { t } = useTranslation('workspace')
   const items = useNavItems()
 
@@ -107,6 +110,11 @@ export function WorkspaceLeftbar({ onAddImage, onUpload, collapsed }: WorkspaceL
         <div className="flex flex-col gap-1">
           <ToolButton icon={<ImagePlus size={18} />} label={t('leftbar.add_image')} onClick={onAddImage} />
           <ToolButton icon={<Upload size={18} />} label={t('leftbar.upload')} onClick={onUpload} />
+          <ToolButton
+            icon={<Pencil size={18} />}
+            label={t('leftbar.mark_all', { defaultValue: '多区域标注' })}
+            onClick={onMarkAll}
+          />
         </div>
       </div>
 

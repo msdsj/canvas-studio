@@ -91,11 +91,11 @@ export function buildImageElement(params: {
   }
 }
 
-/** 往画布添加一张图片（可指定精确位置，用于"占位处渲染"）。 */
+/** 往画布添加一张图片（可指定精确位置，用于"占位处渲染"），返回新建的元素以便滚动定位。 */
 export async function addImageToCanvas(
   api: ExcalidrawApiLike,
   params: { url: string; assetId?: string; width?: number; height?: number; x?: number; y?: number }
-): Promise<void> {
+): Promise<CanvasElement> {
   const dataURL = await urlToDataUrl(params.url)
   const mimeType = dataURL.slice(5, dataURL.indexOf(';')) || 'image/png'
   const fileId = nanoid()
@@ -110,6 +110,35 @@ export async function addImageToCanvas(
       : nextPosition(elements)
   const element = buildImageElement({ fileId, ...pos, width, height, assetId: params.assetId })
   api.updateScene({ elements: [...elements, element] })
+  return element
+}
+
+/**
+ * 计算「当前视口中心」对应的 scene 坐标。
+ * 新图落在视口中心 = 用户一定能立刻看到（网格顺排会在图变多后落到可视区之外）。
+ * scene = screen / zoom - scroll
+ */
+export function viewportCenterScene(
+  api: ExcalidrawApiLike,
+  elementWidth: number,
+  elementHeight: number
+): { x: number; y: number } {
+  const appState = api.getAppState() as {
+    zoom?: { value?: number }
+    scrollX?: number
+    scrollY?: number
+    width?: number
+    height?: number
+  }
+  const zoom = appState.zoom?.value ?? 1
+  const scrollX = appState.scrollX ?? 0
+  const scrollY = appState.scrollY ?? 0
+  const vw = appState.width ?? 800
+  const vh = appState.height ?? 600
+  return {
+    x: Math.round(vw / 2 / zoom - scrollX - elementWidth / 2),
+    y: Math.round(vh / 2 / zoom - scrollY - elementHeight / 2),
+  }
 }
 
 /** 空画布 scene。 */

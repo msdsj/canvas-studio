@@ -13,7 +13,9 @@ export function WorkspaceRightPanel({ children, className, open = true }: Worksp
   return (
     <aside
       className={cn(
-        'flex w-[380px] shrink-0 flex-col border-l border-border bg-surface',
+        // overflow-hidden + min-w-0：flex 子项默认 min-width:auto，内部图片的自然宽度（如 1254px）
+        // 会把本栏从内部顶宽、导致右栏内容被视口裁切；显式裁切后 w-full 图片才能正常收缩
+        'flex w-[380px] min-w-0 shrink-0 flex-col overflow-hidden border-l border-border bg-surface',
         className
       )}
     >
