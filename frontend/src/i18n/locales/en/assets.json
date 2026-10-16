@@ -1,0 +1,28 @@
+{
+  "title": "Assets",
+  "upload": "Upload image",
+  "upload_hint": "png / jpg / webp, up to 20MB each",
+  "filter": {
+    "all": "All",
+    "generated": "Generated",
+    "uploaded": "Uploaded"
+  },
+  "empty": {
+    "title": "No assets yet",
+    "desc": "Generate or upload your first asset in the workspace.",
+    "cta": "Create"
+  },
+  "card": {
+    "use": "Use in canvas",
+    "download": "Download",
+    "delete": "Delete",
+    "demo_badge": "Demo"
+  },
+  "delete_confirm": "Remove this asset from the library? (Canvas references are unaffected)",
+  "preview": {
+    "info": "Asset info",
+    "size": "Size",
+    "created_at": "Created",
+    "prompt": "Prompt"
+  }
+}

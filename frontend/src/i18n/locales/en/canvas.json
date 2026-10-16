@@ -1,0 +1,41 @@
+{
+  "title": "Canvas",
+  "untitled": "Untitled canvas",
+  "default_project_canvas": "Default canvas",
+  "toolbar": {
+    "select": "Select",
+    "pan": "Pan",
+    "zoom_in": "Zoom in",
+    "zoom_out": "Zoom out",
+    "fit": "Fit to screen",
+    "add_image": "Add image to canvas",
+    "delete_selected": "Delete selected",
+    "delete_short": "Delete",
+    "download": "Download",
+    "align": "Align"
+  },
+  "save": {
+    "saving": "Saving…",
+    "saved": "Saved",
+    "dirty": "Unsaved changes",
+    "error": "Save failed"
+  },
+  "share": {
+    "title": "Share canvas",
+    "enable": "Enable share link",
+    "disable": "Disable share",
+    "copy_link": "Copy link",
+    "enabled_hint": "Anyone with the link can view (read-only)",
+    "readonly": "Read-only share"
+  },
+  "export": {
+    "title": "Export",
+    "png": "Export PNG",
+    "json": "Export JSON"
+  },
+  "empty": {
+    "title": "Start your first creation",
+    "desc": "Type a prompt in the chat panel on the right, or drop an image to begin."
+  },
+  "minimap": "Navigator"
+}

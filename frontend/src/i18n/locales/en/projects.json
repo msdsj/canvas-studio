@@ -1,0 +1,25 @@
+{
+  "title": "My Projects",
+  "create": "New project",
+  "create_dialog": {
+    "title": "New project",
+    "name": "Project name",
+    "description": "Description (optional)",
+    "placeholder": "e.g. Spring campaign poster"
+  },
+  "rename_dialog": {
+    "title": "Rename project",
+    "name": "Project name"
+  },
+  "delete_confirm": "Delete this project? Canvas inside will be removed too.",
+  "open": "Open",
+  "empty": {
+    "title": "No projects yet",
+    "desc": "Create your first project to start creating.",
+    "cta": "New project"
+  },
+  "card": {
+    "updated": "Updated {{time}}",
+    "canvas_count": "{{count}} canvases"
+  }
+}

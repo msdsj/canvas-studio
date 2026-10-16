@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>canvas-studio · 登录 / 注册</title>
+<style>
+  :root{
+    --bg:#FFFFFF; --bg-subtle:#F7F8FA; --surface:#FFFFFF; --surface-hover:#F2F4F7;
+    --border:#E4E7EC; --border-strong:#D0D5DD;
+    --text:#101828; --text-secondary:#475467; --text-tertiary:#98A2B3; --text-inverse:#FFFFFF;
+    --brand:#0D9488; --brand-hover:#0F766E; --brand-active:#115E59; --brand-subtle:#E6F4F2; --brand-text:#0F766E;
+    --danger:#DC2626; --danger-subtle:#FDECEC;
+    --shadow-sm:0 1px 3px rgba(16,24,40,.10),0 1px 2px rgba(16,24,40,.06);
+    --shadow-lg:0 12px 32px rgba(16,24,40,.14);
+    --radius-md:8px; --radius-lg:12px; --radius-xl:16px;
+  }
+  [data-theme="dark"]{
+    --bg:#0B0D10; --bg-subtle:#111418; --surface:#16191E; --surface-hover:#22262D;
+    --border:#262B33; --border-strong:#343A44;
+    --text:#ECEDEF; --text-secondary:#A6ADB8; --text-tertiary:#6C7480; --text-inverse:#0B0D10;
+    --brand:#2DD4BF; --brand-hover:#5EEAD4; --brand-active:#99F6E4; --brand-subtle:#123A38; --brand-text:#5EEAD4;
+    --danger:#F87171; --danger-subtle:#2E1618;
+    --shadow-sm:0 1px 3px rgba(0,0,0,.4); --shadow-lg:0 12px 32px rgba(0,0,0,.55);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Inter","PingFang SC","Microsoft YaHei",-apple-system,sans-serif;
+    background:var(--bg);color:var(--text);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  a{color:var(--brand-text);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .shell{display:flex;min-height:100vh}
+  /* 左侧品牌区 */
+  .brand-pane{flex:0 0 42%;background:var(--bg-subtle);border-right:1px solid var(--border);
+    padding:48px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden}
+  .brand-pane::after{content:"";position:absolute;right:-120px;bottom:-120px;width:380px;height:380px;
+    border-radius:50%;border:1px solid var(--border);background:
+      radial-gradient(circle at 30% 30%, var(--brand-subtle), transparent 62%)}
+  .logo{display:flex;align-items:center;gap:10px;font-weight:600;font-size:17px;letter-spacing:-.01em}
+  .logo .mark{width:26px;height:26px;border-radius:7px;background:var(--brand);display:grid;place-items:center;
+    color:var(--text-inverse);font-size:14px;font-weight:700}
+  .brand-copy{position:relative;z-index:1;max-width:400px}
+  .brand-copy h1{font-size:30px;line-height:1.25;font-weight:600;letter-spacing:-.02em;margin-bottom:14px}
+  .brand-copy p{color:var(--text-secondary);font-size:15px}
+  .brand-copy ul{list-style:none;margin-top:26px;display:flex;flex-direction:column;gap:12px}
+  .brand-copy li{display:flex;gap:10px;align-items:flex-start;color:var(--text-secondary);font-size:13.5px}
+  .dot{width:18px;height:18px;border-radius:5px;background:var(--brand-subtle);color:var(--brand-text);
+    display:grid;place-items:center;font-size:11px;flex:0 0 18px;margin-top:1px}
+  .brand-foot{color:var(--text-tertiary);font-size:12px}
+  /* 右侧表单区 */
+  .form-pane{flex:1;display:flex;align-items:center;justify-content:center;padding:40px 24px;position:relative}
+  .theme-toggle{position:absolute;top:22px;right:24px;width:36px;height:36px;border-radius:var(--radius-md);
+    border:1px solid var(--border);background:var(--surface);color:var(--text-secondary);cursor:pointer;
+    display:grid;place-items:center;font-size:15px}
+  .theme-toggle:hover{background:var(--surface-hover)}
+  .form-card{width:100%;max-width:400px}
+  .form-card h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin-bottom:6px}
+  .form-card .sub{color:var(--text-secondary);font-size:13.5px;margin-bottom:24px}
+  .tabs{display:flex;gap:4px;background:var(--bg-subtle);border:1px solid var(--border);
+    border-radius:var(--radius-md);padding:3px;margin-bottom:22px}
+  .tabs button{flex:1;height:34px;border:none;background:transparent;border-radius:6px;cursor:pointer;
+    font-size:13.5px;font-weight:500;color:var(--text-secondary);font-family:inherit}
+  .tabs button.active{background:var(--surface);color:var(--text);box-shadow:var(--shadow-sm)}
+  .field{margin-bottom:16px}
+  .field label{display:block;font-size:13px;color:var(--text-secondary);margin-bottom:6px;font-weight:500}
+  .input{display:flex;align-items:center;height:38px;border:1px solid var(--border-strong);border-radius:var(--radius-md);
+    background:var(--surface);padding:0 12px;gap:8px;transition:border-color .15s,box-shadow .15s}
+  .input:focus-within{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-subtle)}
+  .input input{flex:1;border:none;outline:none;background:transparent;color:var(--text);font-size:14px;font-family:inherit}
+  .input input::placeholder{color:var(--text-tertiary)}
+  .input .suffix{color:var(--text-tertiary);cursor:pointer;font-size:13px}
+  .hint{font-size:12px;color:var(--danger);margin-top:6px;display:none}
+  .field.error .input{border-color:var(--danger)}
+  .field.error .hint{display:block}
+  .row-between{display:flex;justify-content:space-between;align-items:center;margin:2px 0 20px}
+  .check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);cursor:pointer}
+  .check input{width:15px;height:15px;accent-color:var(--brand)}
+  .btn{width:100%;height:40px;border:none;border-radius:var(--radius-md);font-size:14px;font-weight:500;
+    cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px}
+  .btn-primary{background:var(--brand);color:var(--text-inverse)}
+  .btn-primary:hover{background:var(--brand-hover)}
+  .btn-ghost{background:transparent;border:1px solid var(--border-strong);color:var(--text);margin-top:10px}
+  .btn-ghost:hover{background:var(--surface-hover)}
+  .divider{display:flex;align-items:center;gap:12px;color:var(--text-tertiary);font-size:12px;margin:20px 0}
+  .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--border)}
+  .foot{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:22px}
+  /* 确认邮件态 */
+  .verify{display:none;text-align:center}
+  .verify .mail-icon{width:60px;height:60px;border-radius:var(--radius-lg);background:var(--brand-subtle);
+    color:var(--brand-text);display:grid;place-items:center;font-size:26px;margin:0 auto 20px}
+  .verify h3{font-size:18px;font-weight:600;margin-bottom:8px}
+  .verify p{color:var(--text-secondary);font-size:13.5px;margin-bottom:4px}
+  .verify .email{font-weight:600;color:var(--text)}
+  .countdown{margin:18px auto;padding:10px 14px;background:var(--bg-subtle);border:1px solid var(--border);
+    border-radius:var(--radius-md);font-size:13px;color:var(--text-secondary);display:inline-block}
+  .countdown b{color:var(--brand-text);font-variant-numeric:tabular-nums}
+  .note{font-size:12px;color:var(--text-tertiary);margin-top:16px;line-height:1.7}
+  @media (max-width:1024px){
+    .brand-pane{display:none}
+    .form-pane{background:var(--bg)}
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <!-- 品牌区 -->
+  <aside class="brand-pane">
+    <div class="logo"><span class="mark">C</span> canvas-studio</div>
+    <div class="brand-copy">
+      <h1>在无限画布上<br/>用对话创作视觉</h1>
+      <p>一句话生成、多轮迭代、随心排布。你的 AI 视觉创作工作台。</p>
+      <ul>
+        <li><span class="dot">✦</span> 对话即创作，无需提示词工程</li>
+        <li><span class="dot">✦</span> 无限画布，多图编排与复用</li>
+        <li><span class="dot">✦</span> 额度透明，用量实时可见</li>
+      </ul>
+    </div>
+    <div class="brand-foot">© 2026 canvas-studio · 专业视觉创作平台</div>
+  </aside>
+
+  <!-- 表单区 -->
+  <main class="form-pane">
+    <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">◐</button>
+
+    <!-- 登录 / 注册 -->
+    <div class="form-card" id="authView">
+      <h2>欢迎回来</h2>
+      <p class="sub">登录你的 canvas-studio 账号，或创建一个新的。</p>
+
+      <div class="tabs">
+        <button class="active" id="tabLogin" onclick="switchTab('login')">登录</button>
+        <button id="tabReg" onclick="switchTab('reg')">注册</button>
+      </div>
+
+      <div class="field">
+        <label>邮箱</label>
+        <div class="input"><input type="email" placeholder="you@example.com" value="designer@canvas.studio" /></div>
+      </div>
+      <div class="field">
+        <label>密码</label>
+        <div class="input">
+          <input type="password" placeholder="请输入密码" value="••••••••" />
+          <span class="suffix" onclick="void 0">显示</span>
+        </div>
+      </div>
+      <div class="field" id="confirmField" style="display:none">
+        <label>确认密码</label>
+        <div class="input"><input type="password" placeholder="请再次输入密码" /></div>
+      </div>
+      <div class="field error" id="demoErr" style="display:none">
+        <label>密码</label>
+        <div class="input"><input type="password" value="123" /></div>
+        <div class="hint">密码至少 8 位，且同时包含字母和数字。</div>
+      </div>
+
+      <div class="row-between" id="rowBetween">
+        <label class="check"><input type="checkbox" checked /> 保持登录</label>
+        <a href="#">忘记密码？</a>
+      </div>
+
+      <button class="btn btn-primary" id="submitBtn" onclick="switchTab('verify')">登录</button>
+      <div class="foot" id="switchHint">还没有账号？<a href="#" onclick="switchTab('reg');return false">立即注册</a></div>
+    </div>
+
+    <!-- 邮箱确认态 -->
+    <div class="form-card verify" id="verifyView">
+      <div class="mail-icon">✉</div>
+      <h3>确认你的邮箱</h3>
+      <p>我们已向 <span class="email">designer@canvas.studio</span> 发送了一封确认邮件。</p>
+      <p>请点击邮件中的链接完成激活。</p>
+      <div class="countdown">链接有效期剩余 <b>23:47</b></div>
+      <button class="btn btn-ghost" onclick="void 0">重新发送确认邮件</button>
+      <p class="note">没有收到？请检查垃圾邮件文件夹，或 60 秒后重发。<br/>已完成确认？<a href="#" onclick="switchTab('login');return false">返回登录</a></p>
+    </div>
+  </main>
+</div>
+
+<script>
+  function toggleTheme(){
+    var el=document.documentElement;
+    el.dataset.theme = el.dataset.theme==='dark' ? 'light' : 'dark';
+  }
+  function switchTab(mode){
+    var reg = mode==='reg', verify = mode==='verify';
+    document.getElementById('authView').style.display = verify?'none':'block';
+    document.getElementById('verifyView').style.display = verify?'block':'none';
+    document.getElementById('tabLogin').classList.toggle('active', !reg);
+    document.getElementById('tabReg').classList.toggle('active', reg);
+    document.getElementById('confirmField').style.display = reg?'block':'none';
+    document.getElementById('rowBetween').style.display = reg?'none':'flex';
+    document.getElementById('switchHint').style.display = reg?'none':'block';
+    document.getElementById('submitBtn').textContent = reg?'创建账号':'登录';
+  }
+</script>
+</body>
+</html>

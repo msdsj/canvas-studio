@@ -1,0 +1,131 @@
+{
+  "title": "管理后台",
+  "sidebar": {
+    "overview": "概览",
+    "users": "用户管理",
+    "pool": "号池管理",
+    "config": "系统配置",
+    "invites": "邀请码",
+    "announcements": "公告",
+    "logs": "操作日志"
+  },
+  "overview": {
+    "users_total": "用户总数",
+    "users_active": "活跃用户",
+    "quota_consumed_today": "今日消耗",
+    "pool_normal": "号池正常",
+    "pool_total": "账号总数",
+    "pool_limited": "限流账号",
+    "pool_problem": "异常/禁用"
+  },
+  "users": {
+    "search": "搜索邮箱",
+    "role": "角色",
+    "status": "状态",
+    "balance": "余额",
+    "created_at": "注册时间",
+    "actions": "操作",
+    "assign_quota": "分配额度",
+    "ban": "封禁",
+    "unban": "解封",
+    "reset_password": "重置密码",
+    "resend": "重发确认",
+    "ban_reason": "封禁原因",
+    "reset_result": "临时密码：{{password}}",
+    "empty": "没有匹配的用户",
+    "role_all": "全部角色",
+    "status_all": "全部状态"
+  },
+  "quota_dialog": {
+    "title": "分配额度",
+    "mode": "调整方式",
+    "increase": "增加",
+    "decrease": "扣减",
+    "set": "设置为",
+    "amount": "数值",
+    "note": "备注",
+    "success": "额度已更新"
+  },
+  "pool": {
+    "import": "批量导入",
+    "refresh": "刷新额度",
+    "re_login": "重新登录",
+    "export": "导出",
+    "delete": "删除",
+    "delete_confirm": "确定删除选中的账号？",
+    "status_filter": "状态筛选",
+    "status_all": "全部状态",
+    "search": "搜索标识",
+    "token": "标识",
+    "type": "类型",
+    "quota": "额度",
+    "last_refresh": "最后刷新",
+    "empty": "号池暂无账号",
+    "import_title": "批量导入账号",
+    "method": "导入方式",
+    "method_token": "Access Token",
+    "method_session": "Session",
+    "method_codex_auth": "Codex Auth",
+    "method_account_json": "账号 JSON",
+    "method_oauth": "OAuth 登录",
+    "paste_hint": "每行一个，支持逗号或换行分隔",
+    "import_result": "导入完成：新增 {{added}}，跳过 {{skipped}}，失败 {{errors}}",
+    "refreshing": "刷新中 {{done}}/{{total}}",
+    "refresh_done": "刷新完成",
+    "status": {
+      "normal": "正常",
+      "limited": "限流",
+      "abnormal": "异常",
+      "disabled": "已禁用"
+    }
+  },
+  "config": {
+    "category": {
+      "integration": "上游集成",
+      "network": "网络代理",
+      "demo": "演示模式",
+      "registration": "注册开关",
+      "quota": "额度计费",
+      "pool": "号池"
+    },
+    "secret_hint": "敏感值已掩码，留空或不修改则保持不变",
+    "save": "保存并推送",
+    "saved": "配置已保存并推送至网关",
+    "test": "连通性测试",
+    "test_ok": "连通正常（{{latency}}ms）",
+    "test_fail": "连通失败：{{message}}"
+  },
+  "invites": {
+    "create": "生成邀请码",
+    "code": "邀请码",
+    "max_uses": "可用次数",
+    "used": "已使用",
+    "status": "状态",
+    "expires_at": "过期时间",
+    "copy": "复制",
+    "empty": "暂无邀请码"
+  },
+  "announcements": {
+    "create": "新建公告",
+    "title_field": "标题",
+    "content": "内容",
+    "level": "级别",
+    "level_info": "常规",
+    "level_warning": "警告",
+    "status": "状态",
+    "publish": "发布",
+    "archive": "下线",
+    "edit": "编辑",
+    "empty": "暂无公告"
+  },
+  "logs": {
+    "actor": "操作人",
+    "action": "动作",
+    "target": "对象",
+    "time": "时间",
+    "detail": "详情",
+    "empty": "暂无日志",
+    "search": "搜索操作人",
+    "action_all": "全部动作"
+  }
+}

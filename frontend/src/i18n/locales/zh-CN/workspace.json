@@ -1,0 +1,38 @@
+{
+  "quota": {
+    "label": "额度",
+    "balance": "余额 {{balance}} 积分",
+    "normal": "额度充足",
+    "warning": "额度不足预警",
+    "exhausted": "额度已耗尽",
+    "recharge_hint": "请联系管理员补充额度",
+    "view_detail": "查看明细"
+  },
+  "quota_modal": {
+    "title": "额度不足",
+    "desc": "当前余额不足以完成本次操作。请联系管理员补充额度，或查看额度明细。",
+    "go_usage": "前往额度中心"
+  },
+  "notifications": {
+    "title": "通知",
+    "empty": "暂无通知",
+    "unread_results": "你有 {{count}} 个未查看的生成结果",
+    "view_tasks": "查看任务"
+  },
+  "topbar": {
+    "switch_project": "切换项目",
+    "save_status": "保存状态"
+  },
+  "leftbar": {
+    "tools": "工具",
+    "add_image": "添加图片",
+    "upload": "上传图片",
+    "assets": "资产库",
+    "projects": "项目",
+    "account": "账户"
+  },
+  "maintenance": {
+    "title": "系统维护中",
+    "desc": "平台正在维护，请稍后再试。"
+  }
+}

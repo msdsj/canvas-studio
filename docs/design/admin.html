@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>canvas-studio · 管理后台</title>
+<style>
+  :root{
+    --bg:#FFFFFF; --bg-subtle:#F7F8FA; --surface:#FFFFFF; --surface-hover:#F2F4F7;
+    --border:#E4E7EC; --border-strong:#D0D5DD;
+    --text:#101828; --text-secondary:#475467; --text-tertiary:#98A2B3; --text-inverse:#FFFFFF;
+    --brand:#0D9488; --brand-hover:#0F766E; --brand-subtle:#E6F4F2; --brand-text:#0F766E;
+    --success:#16A34A; --success-subtle:#E7F6EC;
+    --warning:#D97706; --warning-subtle:#FEF3E2;
+    --danger:#DC2626; --danger-subtle:#FDECEC;
+    --radius-md:8px; --radius-lg:12px; --radius-xl:16px;
+    --shadow-sm:0 1px 3px rgba(16,24,40,.10),0 1px 2px rgba(16,24,40,.06);
+    --shadow-lg:0 12px 32px rgba(16,24,40,.14);
+  }
+  [data-theme="dark"]{
+    --bg:#0B0D10; --bg-subtle:#111418; --surface:#16191E; --surface-hover:#22262D;
+    --border:#262B33; --border-strong:#343A44;
+    --text:#ECEDEF; --text-secondary:#A6ADB8; --text-tertiary:#6C7480; --text-inverse:#0B0D10;
+    --brand:#2DD4BF; --brand-hover:#5EEAD4; --brand-subtle:#123A38; --brand-text:#5EEAD4;
+    --success:#34D399; --success-subtle:#12291F;
+    --warning:#FBBF24; --warning-subtle:#2E2410;
+    --danger:#F87171; --danger-subtle:#2E1618;
+    --shadow-sm:0 1px 3px rgba(0,0,0,.4); --shadow-lg:0 12px 32px rgba(0,0,0,.55);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Inter","PingFang SC",-apple-system,sans-serif;background:var(--bg-subtle);color:var(--text);
+    font-size:13.5px;line-height:1.5;min-height:100vh;-webkit-font-smoothing:antialiased}
+  a{color:var(--brand-text);text-decoration:none}
+  .layout{display:flex;min-height:100vh}
+  /* 侧栏 */
+  .side{flex:0 0 236px;background:var(--surface);border-right:1px solid var(--border);
+    display:flex;flex-direction:column;padding:16px 12px;gap:4px;position:sticky;top:0;height:100vh}
+  .logo{display:flex;align-items:center;gap:9px;font-weight:600;font-size:15px;padding:4px 8px;margin-bottom:18px}
+  .logo .mark{width:24px;height:24px;border-radius:6px;background:var(--brand);display:grid;place-items:center;
+    color:var(--text-inverse);font-size:13px;font-weight:700}
+  .logo .tag{font-size:10px;color:var(--text-tertiary);border:1px solid var(--border);padding:1px 5px;border-radius:5px}
+  .nav{display:flex;flex-direction:column;gap:2px}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-md);
+    color:var(--text-secondary);cursor:pointer;font-size:13.5px}
+  .nav-item:hover{background:var(--surface-hover)}
+  .nav-item.active{background:var(--brand-subtle);color:var(--brand-text);font-weight:500}
+  .nav-item .ic{width:18px;text-align:center}
+  .side-foot{margin-top:auto;border-top:1px solid var(--border);padding-top:12px;
+    display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--text-secondary)}
+  .avatar{width:30px;height:30px;border-radius:50%;background:var(--brand-subtle);color:var(--brand-text);
+    display:grid;place-items:center;font-weight:600;font-size:12px}
+  /* 主区 */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:56px;flex:0 0 56px;background:var(--surface);border-bottom:1px solid var(--border);
+    display:flex;align-items:center;padding:0 24px;gap:14px;position:sticky;top:0;z-index:5}
+  .crumb{color:var(--text-tertiary);font-size:13px}
+  .crumb b{color:var(--text);font-weight:600}
+  .topbar .spacer{flex:1}
+  .search{display:flex;align-items:center;gap:7px;height:34px;padding:0 12px;border:1px solid var(--border-strong);
+    border-radius:var(--radius-md);background:var(--bg-subtle);color:var(--text-tertiary);width:220px}
+  .icon-btn{width:34px;height:34px;border-radius:var(--radius-md);border:1px solid var(--border);
+    background:var(--surface);color:var(--text-secondary);cursor:pointer;display:grid;place-items:center;font-size:15px}
+  .icon-btn:hover{background:var(--surface-hover)}
+  .content{padding:24px;display:flex;flex-direction:column;gap:24px}
+  .page-title{font-size:20px;font-weight:600;letter-spacing:-.01em}
+  .page-title + .desc{color:var(--text-secondary);font-size:13px;margin-top:4px}
+  /* 号池指标卡 */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px}
+  .kpi .k{font-size:12.5px;color:var(--text-secondary);display:flex;align-items:center;gap:7px}
+  .kpi .dot{width:8px;height:8px;border-radius:50%}
+  .kpi .v{font-size:26px;font-weight:700;margin-top:8px;letter-spacing:-.02em}
+  .kpi .s{font-size:11.5px;color:var(--text-tertiary);margin-top:2px}
+  .d-success{background:var(--success)} .d-warning{background:var(--warning)} .d-danger{background:var(--danger)}
+  /* 面板 */
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+  .panel-head{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border)}
+  .panel-head h3{font-size:14.5px;font-weight:600}
+  .panel-head .spacer{flex:1}
+  .btn{height:32px;padding:0 13px;border-radius:var(--radius-md);border:1px solid var(--border-strong);
+    background:var(--surface);color:var(--text);font-size:12.5px;font-weight:500;cursor:pointer;font-family:inherit;
+    display:inline-flex;align-items:center;gap:6px}
+  .btn:hover{background:var(--surface-hover)}
+  .btn-primary{background:var(--brand);border-color:var(--brand);color:var(--text-inverse)}
+  .btn-primary:hover{background:var(--brand-hover);border-color:var(--brand-hover)}
+  .btn-sm{height:28px;padding:0 10px;font-size:12px}
+  .filters{display:flex;gap:8px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .sel{height:32px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--radius-md);
+    background:var(--surface);color:var(--text);font-size:12.5px;font-family:inherit}
+  /* 表格 */
+  table{width:100%;border-collapse:collapse}
+  thead th{background:var(--bg-subtle);color:var(--text-secondary);font-size:12px;font-weight:600;
+    text-align:left;padding:10px 18px;border-bottom:1px solid var(--border);white-space:nowrap}
+  tbody td{padding:0 18px;height:52px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle}
+  tbody tr:hover{background:var(--surface-hover)}
+  tbody tr:last-child td{border-bottom:none}
+  .cell-user{display:flex;align-items:center;gap:10px}
+  .cell-user .avatar{width:28px;height:28px;font-size:11px}
+  .cell-user .n{font-weight:500}
+  .cell-user .m{font-size:11.5px;color:var(--text-tertiary)}
+  .badge{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;
+    font-size:11.5px;font-weight:500}
+  .badge .dot{width:6px;height:6px;border-radius:50%}
+  .b-success{background:var(--success-subtle);color:var(--success)}
+  .b-warning{background:var(--warning-subtle);color:var(--warning)}
+  .b-danger{background:var(--danger-subtle);color:var(--danger)}
+  .b-gray{background:var(--bg-subtle);color:var(--text-tertiary)}
+  .b-brand{background:var(--brand-subtle);color:var(--brand-text)}
+  .q-cell b{font-variant-numeric:tabular-nums}
+  .q-cell.low b{color:var(--warning)}
+  .row-actions{display:flex;gap:6px;justify-content:flex-end}
+  .link-b{color:var(--brand-text);cursor:pointer;font-weight:500;font-size:12.5px}
+  .masked{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:12px;color:var(--text-secondary)}
+  /* 模态 */
+  .overlay{position:fixed;inset:0;background:rgba(16,24,40,.45);display:grid;place-items:center;z-index:20}
+  [data-theme="dark"] .overlay{background:rgba(0,0,0,.6)}
+  .modal{width:460px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);
+    box-shadow:var(--shadow-lg);padding:22px}
+  .modal h3{font-size:16px;font-weight:600;margin-bottom:4px}
+  .modal .sub{font-size:12.5px;color:var(--text-secondary);margin-bottom:18px}
+  .seg{display:flex;gap:4px;background:var(--bg-subtle);border:1px solid var(--border);padding:3px;
+    border-radius:var(--radius-md);margin-bottom:16px}
+  .seg button{flex:1;height:30px;border:none;background:transparent;border-radius:6px;cursor:pointer;
+    font-size:12.5px;color:var(--text-secondary);font-family:inherit}
+  .seg button.active{background:var(--surface);color:var(--text);box-shadow:var(--shadow-sm);font-weight:500}
+  .f{margin-bottom:14px}
+  .f label{display:block;font-size:12.5px;color:var(--text-secondary);margin-bottom:6px;font-weight:500}
+  .f .input{height:36px;border:1px solid var(--border-strong);border-radius:var(--radius-md);background:var(--surface);
+    display:flex;align-items:center;padding:0 12px;gap:8px}
+  .f .input input{flex:1;border:none;outline:none;background:transparent;color:var(--text);font-size:13.5px;font-family:inherit}
+  .modal-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+  @media (max-width:1080px){ .kpis{grid-template-columns:repeat(2,1fr)} }
+  @media (max-width:860px){ .side{display:none} .search{display:none} }
+</style>
+</head>
+<body>
+<div class="layout">
+  <!-- 侧栏 -->
+  <aside class="side">
+    <div class="logo"><span class="mark">C</span> canvas-studio <span class="tag">ADMIN</span></div>
+    <nav class="nav">
+      <div class="nav-item"><span class="ic">▤</span> 概览</div>
+      <div class="nav-item active"><span class="ic">👥</span> 用户管理</div>
+      <div class="nav-item"><span class="ic">🗄</span> 号池管理</div>
+      <div class="nav-item"><span class="ic">⚙</span> 系统配置</div>
+      <div class="nav-item"><span class="ic">🎟</span> 邀请码</div>
+      <div class="nav-item"><span class="ic">📢</span> 公告</div>
+      <div class="nav-item"><span class="ic">📜</span> 操作日志</div>
+    </nav>
+    <div class="side-foot"><div class="avatar">A</div><div>admin@canvas.studio<br/><span style="font-size:11px;color:var(--text-tertiary)">超级管理员</span></div></div>
+  </aside>
+
+  <!-- 主区 -->
+  <div class="main">
+    <header class="topbar">
+      <div class="crumb">管理后台 / <b>用户管理</b></div>
+      <div class="spacer"></div>
+      <div class="search">🔍 搜索邮箱…</div>
+      <button class="icon-btn" title="语言">中/EN</button>
+      <button class="icon-btn" title="切换主题" onclick="toggleTheme()">◐</button>
+    </header>
+
+    <div class="content">
+      <!-- 号池状态监控卡片 -->
+      <div>
+        <div class="page-title">号池状态监控</div>
+        <div class="desc">上游生图账号（chatgpt2api）实时健康度，数据自动刷新周期 30 分钟。</div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="k"><span class="dot d-success"></span>账号总数</div><div class="v">128</div><div class="s">已导入账号</div></div>
+        <div class="kpi"><div class="k"><span class="dot d-success"></span>正常</div><div class="v">97</div><div class="s">可正常生图</div></div>
+        <div class="kpi"><div class="k"><span class="dot d-warning"></span>限流</div><div class="v">18</div><div class="s">临时受限，稍后恢复</div></div>
+        <div class="kpi"><div class="k"><span class="dot d-danger"></span>异常 / 禁用</div><div class="v">13</div><div class="s">需人工处理</div></div>
+      </div>
+
+      <!-- 用户管理面板 -->
+      <div class="panel">
+        <div class="panel-head">
+          <h3>用户列表</h3>
+          <span class="badge b-gray">共 1,204 位用户</span>
+          <div class="spacer"></div>
+          <button class="btn">⬇ 导出</button>
+          <button class="btn btn-primary">＋ 分配额度</button>
+        </div>
+        <div class="filters">
+          <div class="search" style="width:240px">🔍 按邮箱 / 昵称搜索</div>
+          <select class="sel"><option>全部角色</option><option>普通用户</option><option>超级管理员</option></select>
+          <select class="sel"><option>全部状态</option><option>正常</option><option>已封禁</option><option>待确认</option></select>
+          <select class="sel"><option>额度：全部</option><option>额度偏低</option><option>额度耗尽</option></select>
+          <button class="btn">刷新</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>用户</th><th>角色</th><th>剩余额度</th><th>状态</th><th>注册时间</th><th style="text-align:right">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><div class="cell-user"><div class="avatar">D</div><div><div class="n">designer@canvas.studio</div><div class="m">设计师小林</div></div></div></td>
+              <td><span class="badge b-gray">普通用户</span></td>
+              <td class="q-cell low"><b>38</b> 积分</td>
+              <td><span class="badge b-success"><span class="dot d-success"></span>正常</span></td>
+              <td>2026-09-12</td>
+              <td><div class="row-actions"><span class="link-b">分配额度</span><span class="link-b" style="color:var(--text-secondary)">详情</span></div></td>
+            </tr>
+            <tr>
+              <td><div class="cell-user"><div class="avatar">M</div><div><div class="n">marketing@shop.com</div><div class="m">市场部</div></div></div></td>
+              <td><span class="badge b-gray">普通用户</span></td>
+              <td class="q-cell"><b>1,500</b> 积分</td>
+              <td><span class="badge b-success"><span class="dot d-success"></span>正常</span></td>
+              <td>2026-09-20</td>
+              <td><div class="row-actions"><span class="link-b">分配额度</span><span class="link-b" style="color:var(--text-secondary)">详情</span></div></td>
+            </tr>
+            <tr>
+              <td><div class="cell-user"><div class="avatar">L</div><div><div class="n">leo@studio.io</div><div class="m">Leo</div></div></div></td>
+              <td><span class="badge b-gray">普通用户</span></td>
+              <td class="q-cell low"><b>0</b> 积分 · 已耗尽</td>
+              <td><span class="badge b-warning"><span class="dot d-warning"></span>待确认</span></td>
+              <td>2026-10-15</td>
+              <td><div class="row-actions"><span class="link-b">重新发送确认</span><span class="link-b" style="color:var(--text-secondary)">详情</span></div></td>
+            </tr>
+            <tr>
+              <td><div class="cell-user"><div class="avatar">A</div><div><div class="n">admin@canvas.studio</div><div class="m">平台运营</div></div></div></td>
+              <td><span class="badge b-brand">超级管理员</span></td>
+              <td class="q-cell"><b>∞</b> 不限</td>
+              <td><span class="badge b-success"><span class="dot d-success"></span>正常</span></td>
+              <td>2026-08-01</td>
+              <td><div class="row-actions"><span class="link-b" style="color:var(--text-secondary)">详情</span></div></td>
+            </tr>
+            <tr>
+              <td><div class="cell-user"><div class="avatar">S</div><div><div class="n">spam@temp-mail.org</div><div class="m">—</div></div></div></td>
+              <td><span class="badge b-gray">普通用户</span></td>
+              <td class="q-cell"><b>200</b> 积分</td>
+              <td><span class="badge b-danger"><span class="dot d-danger"></span>已封禁</span></td>
+              <td>2026-10-10</td>
+              <td><div class="row-actions"><span class="link-b">解封</span><span class="link-b" style="color:var(--text-secondary)">详情</span></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 号池账号明细 -->
+      <div class="panel">
+        <div class="panel-head">
+          <h3>号池账号明细</h3>
+          <div class="spacer"></div>
+          <button class="btn">↻ 刷新额度</button>
+          <button class="btn btn-primary">⬆ 批量导入账号</button>
+        </div>
+        <table>
+          <thead>
+            <tr><th>账号标识</th><th>导入方式</th><th>状态</th><th>剩余额度</th><th>最后刷新</th><th style="text-align:right">操作</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="masked">acct_8f3a••••c21</td><td>oauth</td>
+              <td><span class="badge b-success"><span class="dot d-success"></span>正常</span></td>
+              <td class="q-cell"><b>182</b></td><td>2 分钟前</td>
+              <td><div class="row-actions"><span class="link-b">禁用</span><span class="link-b" style="color:var(--danger)">删除</span></div></td>
+            </tr>
+            <tr>
+              <td class="masked">acct_71bd••••9a4</td><td>account-json</td>
+              <td><span class="badge b-warning"><span class="dot d-warning"></span>限流</span></td>
+              <td class="q-cell"><b>0</b></td><td>2 分钟前</td>
+              <td><div class="row-actions"><span class="link-b">禁用</span><span class="link-b" style="color:var(--danger)">删除</span></div></td>
+            </tr>
+            <tr>
+              <td class="masked">acct_20cc••••7f1</td><td>token</td>
+              <td><span class="badge b-danger"><span class="dot d-danger"></span>异常</span></td>
+              <td class="q-cell"><b>—</b></td><td>1 小时前</td>
+              <td><div class="row-actions"><span class="link-b">重新登录</span><span class="link-b" style="color:var(--danger)">删除</span></div></td>
+            </tr>
+            <tr>
+              <td class="masked">acct_55aa••••3e0</td><td>session</td>
+              <td><span class="badge b-gray"><span class="dot" style="background:var(--text-tertiary)"></span>禁用</span></td>
+              <td class="q-cell"><b>64</b></td><td>3 小时前</td>
+              <td><div class="row-actions"><span class="link-b">启用</span><span class="link-b" style="color:var(--danger)">删除</span></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 分配额度模态（静态展示） -->
+<div class="overlay" id="quotaModal">
+  <div class="modal">
+    <h3>分配额度</h3>
+    <div class="sub">用户：designer@canvas.studio · 当前余额 38 积分</div>
+    <div class="seg">
+      <button class="active">增加额度</button>
+      <button>扣减额度</button>
+      <button>直接设置</button>
+    </div>
+    <div class="f">
+      <label>数量（积分）</label>
+      <div class="input"><input type="number" value="500" /><span style="color:var(--text-tertiary);font-size:12px">积分</span></div>
+    </div>
+    <div class="f">
+      <label>备注（可选）</label>
+      <div class="input"><input placeholder="如：市场部年度预算 / 活动补充" /></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="document.getElementById('quotaModal').style.display='none'">取消</button>
+      <button class="btn btn-primary" onclick="document.getElementById('quotaModal').style.display='none'">确认分配</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function toggleTheme(){
+    var el=document.documentElement;
+    el.dataset.theme = el.dataset.theme==='dark' ? 'light' : 'dark';
+  }
+</script>
+</body>
+</html>

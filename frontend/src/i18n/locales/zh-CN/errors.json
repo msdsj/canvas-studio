@@ -1,0 +1,18 @@
+{
+  "ok": "成功",
+  "quota_insufficient": "额度不足，请联系管理员或查看额度明细",
+  "unauthorized": "登录已过期，请重新登录",
+  "forbidden": "无权访问该资源",
+  "upstream_error": "上游服务繁忙或不可用，请稍后重试",
+  "pool_unavailable": "当前无可用生图账号，请稍后重试",
+  "proxy_unreachable": "网络代理不可达，请检查服务器 VPN",
+  "task_not_found": "任务不存在或已被清理",
+  "task_state_conflict": "任务当前状态不允许该操作",
+  "task_limit_exceeded": "并发任务数已达上限，请稍候或先取消",
+  "rate_limited": "操作过于频繁，请稍后再试",
+  "validation_error": "参数校验失败，请检查输入",
+  "not_found": "资源不存在",
+  "internal_error": "服务器内部错误，请稍后重试",
+  "network": "网络异常，请检查连接",
+  "unknown": "发生未知错误"
+}

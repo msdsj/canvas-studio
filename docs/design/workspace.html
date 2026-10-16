@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>canvas-studio · 工作台</title>
+<style>
+  :root{
+    --bg:#FFFFFF; --bg-subtle:#F7F8FA; --surface:#FFFFFF; --surface-hover:#F2F4F7;
+    --border:#E4E7EC; --border-strong:#D0D5DD;
+    --text:#101828; --text-secondary:#475467; --text-tertiary:#98A2B3; --text-inverse:#FFFFFF;
+    --brand:#0D9488; --brand-hover:#0F766E; --brand-subtle:#E6F4F2; --brand-text:#0F766E;
+    --warning:#D97706; --warning-subtle:#FEF3E2;
+    --radius-md:8px; --radius-lg:12px;
+    --shadow-sm:0 1px 3px rgba(16,24,40,.10),0 1px 2px rgba(16,24,40,.06);
+    --shadow-md:0 4px 12px rgba(16,24,40,.10);
+  }
+  [data-theme="dark"]{
+    --bg:#0B0D10; --bg-subtle:#111418; --surface:#16191E; --surface-hover:#22262D;
+    --border:#262B33; --border-strong:#343A44;
+    --text:#ECEDEF; --text-secondary:#A6ADB8; --text-tertiary:#6C7480; --text-inverse:#0B0D10;
+    --brand:#2DD4BF; --brand-hover:#5EEAD4; --brand-subtle:#123A38; --brand-text:#5EEAD4;
+    --warning:#FBBF24; --warning-subtle:#2E2410;
+    --shadow-sm:0 1px 3px rgba(0,0,0,.4); --shadow-md:0 4px 12px rgba(0,0,0,.5);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Inter","PingFang SC",-apple-system,sans-serif;background:var(--bg);color:var(--text);
+    font-size:13.5px;line-height:1.5;height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased}
+  a{color:var(--brand-text);text-decoration:none}
+  .app{display:flex;flex-direction:column;height:100vh}
+  /* 顶栏 */
+  .topbar{height:56px;flex:0 0 56px;border-bottom:1px solid var(--border);background:var(--surface);
+    display:flex;align-items:center;padding:0 16px;gap:14px}
+  .logo{display:flex;align-items:center;gap:9px;font-weight:600;font-size:15px}
+  .logo .mark{width:24px;height:24px;border-radius:6px;background:var(--brand);display:grid;place-items:center;
+    color:var(--text-inverse);font-size:13px;font-weight:700}
+  .proj{display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:var(--radius-md);
+    color:var(--text-secondary);border:1px solid var(--border)}
+  .proj b{color:var(--text);font-weight:500}
+  .save-state{font-size:12px;color:var(--text-tertiary);display:flex;align-items:center;gap:5px}
+  .topbar .spacer{flex:1}
+  .quota-badge{display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;
+    background:var(--warning-subtle);border:1px solid var(--warning);color:var(--warning);font-weight:500;font-size:12.5px}
+  .quota-badge .coin{width:14px;height:14px;border-radius:50%;background:var(--warning)}
+  .icon-btn{width:34px;height:34px;border-radius:var(--radius-md);border:1px solid var(--border);
+    background:var(--surface);color:var(--text-secondary);cursor:pointer;display:grid;place-items:center;font-size:15px}
+  .icon-btn:hover{background:var(--surface-hover)}
+  .avatar{width:32px;height:32px;border-radius:50%;background:var(--brand-subtle);color:var(--brand-text);
+    display:grid;place-items:center;font-weight:600;font-size:13px}
+  /* 预警条 */
+  .alertbar{flex:0 0 auto;background:var(--warning-subtle);color:var(--warning);font-size:12.5px;
+    padding:7px 16px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)}
+  /* 主体三栏 */
+  .body{flex:1;display:flex;min-height:0}
+  /* 左栏 */
+  .left{flex:0 0 250px;border-right:1px solid var(--border);background:var(--surface);
+    display:flex;flex-direction:column;padding:12px;gap:8px;overflow:auto}
+  .sec-title{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-tertiary);
+    font-weight:600;margin:6px 6px 2px}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-md);
+    color:var(--text-secondary);cursor:pointer}
+  .nav-item:hover{background:var(--surface-hover)}
+  .nav-item.active{background:var(--brand-subtle);color:var(--brand-text);font-weight:500}
+  .nav-item .ic{width:18px;text-align:center;font-size:14px}
+  .thumbs{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:2px 4px}
+  .thumb{aspect-ratio:1;border-radius:var(--radius-md);border:1px solid var(--border);
+    background:linear-gradient(135deg,var(--bg-subtle),var(--surface-hover));position:relative;overflow:hidden}
+  .thumb::after{content:"";position:absolute;inset:0;background:
+    radial-gradient(circle at 65% 30%, var(--brand-subtle), transparent 70%)}
+  .left-foot{margin-top:auto;border-top:1px solid var(--border);padding-top:10px;
+    display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--text-tertiary)}
+  /* 中央画布 */
+  .center{flex:1;position:relative;background:var(--bg-subtle);overflow:hidden}
+  .center .grid{position:absolute;inset:0;
+    background-image:radial-gradient(var(--border-strong) 1px, transparent 1px);
+    background-size:22px 22px;opacity:.55}
+  .canvas-toolbar{position:absolute;top:12px;left:12px;display:flex;gap:6px;
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);
+    padding:4px;box-shadow:var(--shadow-sm);z-index:3}
+  .tool{width:30px;height:30px;border-radius:6px;display:grid;place-items:center;color:var(--text-secondary);cursor:pointer;font-size:14px}
+  .tool:hover{background:var(--surface-hover)}
+  .tool.active{background:var(--brand-subtle);color:var(--brand-text)}
+  /* 画布上的图片节点 */
+  .node{position:absolute;border-radius:var(--radius-md);border:1px solid var(--border);
+    background:var(--surface);box-shadow:var(--shadow-md);overflow:hidden}
+  .node .img{width:100%;height:calc(100% - 26px);background:
+    linear-gradient(135deg,var(--brand-subtle),var(--surface-hover))}
+  .node .bar{height:26px;display:flex;align-items:center;padding:0 8px;font-size:11px;color:var(--text-tertiary);
+    border-top:1px solid var(--border);justify-content:space-between}
+  .node.sel{outline:2px solid var(--brand);outline-offset:2px}
+  .node .ph{position:absolute;inset:0;display:grid;place-items:center;color:var(--text-tertiary);font-size:12px}
+  /* 缩放控制 */
+  .zoombar{position:absolute;bottom:14px;left:14px;display:flex;align-items:center;gap:2px;
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);
+    padding:3px;box-shadow:var(--shadow-sm);font-size:12px;color:var(--text-secondary)}
+  .zoombar .z{padding:4px 8px;border-radius:6px;cursor:pointer}
+  .zoombar .z:hover{background:var(--surface-hover)}
+  .minimap{position:absolute;bottom:14px;right:14px;width:150px;height:100px;border-radius:var(--radius-md);
+    border:1px solid var(--border);background:var(--surface);box-shadow:var(--shadow-sm)}
+  .minimap .view{position:absolute;top:16px;left:22px;width:74px;height:44px;border:1.5px solid var(--brand);
+    border-radius:4px;background:var(--brand-subtle);opacity:.7}
+  /* 右栏对话 */
+  .right{flex:0 0 372px;border-left:1px solid var(--border);background:var(--surface);
+    display:flex;flex-direction:column}
+  .chat-head{height:48px;flex:0 0 48px;border-bottom:1px solid var(--border);display:flex;align-items:center;
+    padding:0 14px;gap:8px;font-weight:600;font-size:13.5px}
+  .chat-head .sess{flex:1;color:var(--text-secondary);font-weight:400;font-size:12.5px}
+  .chat-log{flex:1;overflow:auto;padding:16px 14px;display:flex;flex-direction:column;gap:14px}
+  .msg-u{align-self:flex-end;max-width:88%;background:var(--brand);color:var(--text-inverse);
+    padding:9px 12px;border-radius:12px 12px 3px 12px;font-size:13.5px}
+  .msg-a{align-self:flex-start;max-width:92%;display:flex;gap:9px}
+  .msg-a .av{width:26px;height:26px;border-radius:7px;background:var(--brand-subtle);color:var(--brand-text);
+    display:grid;place-items:center;font-size:12px;font-weight:700;flex:0 0 26px}
+  .msg-a .body{background:var(--bg-subtle);border:1px solid var(--border);border-radius:3px 12px 12px 12px;
+    padding:10px 12px;font-size:13.5px;color:var(--text)}
+  .gen-card{margin-top:9px;border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;background:var(--surface)}
+  .gen-card .ph{aspect-ratio:1;background:linear-gradient(135deg,var(--brand-subtle),var(--surface-hover));
+    display:grid;place-items:center;color:var(--text-tertiary);font-size:12px}
+  .gen-actions{display:flex;gap:6px;padding:8px}
+  .mini-btn{flex:1;height:28px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);
+    color:var(--text-secondary);font-size:12px;cursor:pointer;font-family:inherit}
+  .mini-btn:hover{background:var(--surface-hover)}
+  .mini-btn.primary{background:var(--brand-subtle);border-color:var(--brand);color:var(--brand-text);font-weight:500}
+  .loading-row{align-self:flex-start;display:flex;align-items:center;gap:8px;color:var(--text-tertiary);font-size:12.5px;padding-left:35px}
+  .spinner{width:14px;height:14px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--brand);
+    animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .chat-input{border-top:1px solid var(--border);padding:12px;flex:0 0 auto}
+  .chat-input .box{border:1px solid var(--border-strong);border-radius:var(--radius-md);padding:10px 12px;
+    background:var(--surface)}
+  .chat-input .box:focus-within{border-color:var(--brand)}
+  .chat-input textarea{width:100%;border:none;outline:none;resize:none;background:transparent;color:var(--text);
+    font-family:inherit;font-size:13.5px;height:44px}
+  .chat-input .row{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
+  .tools-inline{display:flex;gap:6px;color:var(--text-tertiary)}
+  .tools-inline .t{width:26px;height:26px;border-radius:6px;display:grid;place-items:center;cursor:pointer;font-size:13px}
+  .tools-inline .t:hover{background:var(--surface-hover)}
+  .send{width:32px;height:32px;border-radius:var(--radius-md);background:var(--brand);color:var(--text-inverse);
+    border:none;cursor:pointer;font-size:15px;display:grid;place-items:center}
+  .cost-tip{font-size:11px;color:var(--text-tertiary);text-align:right;margin-top:4px}
+  @media (max-width:1180px){ .left{flex-basis:72px} .left .label,.left .sec-title span,.thumbs,.left-foot .txt{display:none} }
+  @media (max-width:900px){ .right{flex-basis:320px} }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 顶栏 -->
+  <header class="topbar">
+    <div class="logo"><span class="mark">C</span> canvas-studio</div>
+    <div class="proj">📁 <b>柴犬插画系列</b> ▾</div>
+    <div class="save-state">● 已自动保存</div>
+    <div class="spacer"></div>
+    <div class="quota-badge"><span class="coin"></span> 剩余 38 积分</div>
+    <button class="icon-btn" title="通知">🔔</button>
+    <button class="icon-btn" title="语言">中/EN</button>
+    <button class="icon-btn" title="切换主题" onclick="toggleTheme()">◐</button>
+    <div class="avatar">D</div>
+  </header>
+  <div class="alertbar">⚠ 额度即将用尽（剩余 38，低于阈值 20%）。请及时联系管理员分配额度，以免创作中断。</div>
+
+  <!-- 三栏 -->
+  <div class="body">
+    <!-- 左栏 -->
+    <aside class="left">
+      <div class="sec-title"><span>工作区</span></div>
+      <div class="nav-item active"><span class="ic">🎨</span><span class="label">当前画布</span></div>
+      <div class="nav-item"><span class="ic">📦</span><span class="label">资产库</span></div>
+      <div class="nav-item"><span class="ic">🗂</span><span class="label">我的项目</span></div>
+      <div class="nav-item"><span class="ic">📊</span><span class="label">额度中心</span></div>
+      <div class="sec-title"><span>本画布素材</span></div>
+      <div class="thumbs">
+        <div class="thumb"></div><div class="thumb"></div>
+        <div class="thumb"></div><div class="thumb"></div>
+      </div>
+      <div class="left-foot">
+        <span class="txt">designer@canvas.studio</span>
+        <span>⚙</span>
+      </div>
+    </aside>
+
+    <!-- 中央画布 -->
+    <main class="center">
+      <div class="grid"></div>
+      <div class="canvas-toolbar">
+        <div class="tool active" title="选择">▢</div>
+        <div class="tool" title="平移">✥</div>
+        <div class="tool" title="添加图片">＋</div>
+        <div class="tool" title="上传">⬆</div>
+        <div class="tool" title="画笔">✎</div>
+        <div class="tool" title="文本">T</div>
+      </div>
+
+      <!-- 画布节点（缩略图占位） -->
+      <div class="node sel" style="left:120px;top:110px;width:220px;height:190px">
+        <div class="img"><div class="ph">生成结果 · 柴犬 · 扁平插画</div></div>
+        <div class="bar"><span>v1 · 1024×1024</span><span>···</span></div>
+      </div>
+      <div class="node" style="left:372px;top:150px;width:220px;height:190px">
+        <div class="img"><div class="ph">生成结果 · 夜晚版</div></div>
+        <div class="bar"><span>v2 · 1024×1024</span><span>···</span></div>
+      </div>
+      <div class="node" style="left:210px;top:330px;width:170px;height:150px">
+        <div class="img"><div class="ph">水彩风</div></div>
+        <div class="bar"><span>v3</span><span>···</span></div>
+      </div>
+
+      <div class="zoombar">
+        <div class="z">－</div><div class="z">100%</div><div class="z">＋</div><div class="z">⤢ 适配</div>
+      </div>
+      <div class="minimap"><div class="view"></div></div>
+    </main>
+
+    <!-- 右栏对话 -->
+    <aside class="right">
+      <div class="chat-head">
+        🪄 AI 创作助手
+        <span class="sess">会话 · 柴犬插画 ▾</span>
+        <span class="icon-btn" style="width:28px;height:28px">＋</span>
+      </div>
+      <div class="chat-log">
+        <div class="msg-u">一只在雨天打伞的柴犬，扁平插画风，柔和配色</div>
+
+        <div class="msg-a">
+          <div class="av">AI</div>
+          <div class="body">
+            已为你生成初版，扁平插画风、暖色背景。
+            <div class="gen-card">
+              <div class="ph">🖼 生成结果 · 1024×1024</div>
+              <div class="gen-actions">
+                <button class="mini-btn primary">加入画布</button>
+                <button class="mini-btn">再生成</button>
+              </div>
+            </div>
+            <div class="cost-tip">本次消耗 10 积分</div>
+          </div>
+        </div>
+
+        <div class="msg-u">把背景换成夜晚，保留主体，加一点雨滴光晕</div>
+
+        <div class="msg-a">
+          <div class="av">AI</div>
+          <div class="body">
+            已基于 v1 完成编辑，生成了夜晚版本 v2。
+            <div class="gen-card">
+              <div class="ph">🖼 编辑结果 · v2 · 夜晚版</div>
+              <div class="gen-actions">
+                <button class="mini-btn primary">加入画布</button>
+                <button class="mini-btn">对比原图</button>
+              </div>
+            </div>
+            <div class="cost-tip">本次消耗 8 积分</div>
+          </div>
+        </div>
+
+        <div class="loading-row"><span class="spinner"></span> 正在生成水彩风格版本…</div>
+      </div>
+
+      <div class="chat-input">
+        <div class="box">
+          <textarea placeholder="描述你想要的画面，或选中画布图片后输入修改指令…"></textarea>
+          <div class="row">
+            <div class="tools-inline">
+              <span class="t" title="参考图">🖼</span>
+              <span class="t" title="尺寸">▢</span>
+              <span class="t" title="风格">✎</span>
+            </div>
+            <button class="send" title="发送">➤</button>
+          </div>
+        </div>
+        <div class="cost-tip">生图约 10 积分 / 张 · 编辑 8 积分 / 次</div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+  function toggleTheme(){
+    var el=document.documentElement;
+    el.dataset.theme = el.dataset.theme==='dark' ? 'light' : 'dark';
+  }
+</script>
+</body>
+</html>

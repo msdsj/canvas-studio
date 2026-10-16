@@ -1,0 +1,30 @@
+{
+  "title": "Account Settings",
+  "profile": {
+    "title": "Profile",
+    "email": "Email",
+    "display_name": "Display name",
+    "locale": "Language",
+    "theme": "Theme",
+    "saved": "Profile saved"
+  },
+  "password": {
+    "title": "Change password",
+    "old": "Current password",
+    "new": "New password",
+    "confirm": "Confirm new password",
+    "submit": "Update password",
+    "success": "Password updated, please sign in again"
+  },
+  "sessions": {
+    "title": "Devices",
+    "desc": "Signing out all devices invalidates their sessions.",
+    "logout_all": "Sign out all devices",
+    "logout_all_confirm": "Sign out all devices?",
+    "logout_all_success": "Signed out all devices"
+  },
+  "danger": {
+    "title": "Account actions",
+    "logout": "Sign out"
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "app_name": "Canvas Studio",
+  "tagline": "AI 无限画布创作平台",
+  "action": {
+    "confirm": "确认",
+    "cancel": "取消",
+    "save": "保存",
+    "delete": "删除",
+    "edit": "编辑",
+    "create": "新建",
+    "close": "关闭",
+    "back": "返回",
+    "next": "下一步",
+    "submit": "提交",
+    "retry": "重试",
+    "download": "下载",
+    "upload": "上传",
+    "share": "分享",
+    "copy": "复制",
+    "copied": "已复制",
+    "refresh": "刷新",
+    "search": "搜索",
+    "reset": "重置",
+    "more": "更多",
+    "apply": "应用",
+    "enable": "启用",
+    "disable": "禁用"
+  },
+  "status": {
+    "loading": "加载中…",
+    "saving": "保存中…",
+    "saved": "已保存",
+    "dirty": "未保存",
+    "error": "出错了",
+    "success": "操作成功",
+    "empty": "暂无数据",
+    "enabled": "已启用",
+    "disabled": "已禁用"
+  },
+  "pagination": {
+    "total": "共 {{total}} 条",
+    "page": "第 {{page}} 页",
+    "prev": "上一页",
+    "next": "下一页",
+    "size": "每页 {{size}} 条"
+  },
+  "nav": {
+    "workspace": "工作台",
+    "projects": "我的项目",
+    "assets": "资产库",
+    "usage": "额度中心",
+    "settings": "账户设置",
+    "admin": "管理后台",
+    "tasks": "任务中心"
+  },
+  "unit": {
+    "credits": "积分",
+    "items": "项"
+  },
+  "logout": "退出登录",
+  "theme": {
+    "light": "浅色",
+    "dark": "深色",
+    "system": "跟随系统",
+    "toggle": "切换主题"
+  },
+  "language": {
+    "label": "语言",
+    "zh-CN": "简体中文",
+    "en": "English"
+  },
+  "error_boundary": {
+    "title": "页面出错了",
+    "description": "请刷新页面或稍后重试。",
+    "not_found_title": "页面不存在",
+    "not_found_desc": "你访问的页面可能已被移动或删除。"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "quota": {
+    "label": "Credits",
+    "balance": "{{balance}} credits",
+    "normal": "Credits OK",
+    "warning": "Low credits warning",
+    "exhausted": "Out of credits",
+    "recharge_hint": "Please contact your admin",
+    "view_detail": "View details"
+  },
+  "quota_modal": {
+    "title": "Insufficient credits",
+    "desc": "Your balance is not enough for this action. Contact your admin or view details.",
+    "go_usage": "Go to Usage"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "empty": "No notifications",
+    "unread_results": "You have {{count}} unseen results",
+    "view_tasks": "View tasks"
+  },
+  "topbar": {
+    "switch_project": "Switch project",
+    "save_status": "Save status"
+  },
+  "leftbar": {
+    "tools": "Tools",
+    "add_image": "Add image",
+    "upload": "Upload",
+    "assets": "Assets",
+    "projects": "Projects",
+    "account": "Account"
+  },
+  "maintenance": {
+    "title": "Under maintenance",
+    "desc": "The platform is under maintenance, please try again later."
+  }
+}

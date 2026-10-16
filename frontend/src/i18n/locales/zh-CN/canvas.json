@@ -1,0 +1,41 @@
+{
+  "title": "画布",
+  "untitled": "未命名画布",
+  "default_project_canvas": "默认画布",
+  "toolbar": {
+    "select": "选择",
+    "pan": "平移",
+    "zoom_in": "放大",
+    "zoom_out": "缩小",
+    "fit": "适应屏幕",
+    "add_image": "添加图片到画布",
+    "delete_selected": "删除选中",
+    "delete_short": "删除",
+    "download": "下载",
+    "align": "对齐"
+  },
+  "save": {
+    "saving": "保存中…",
+    "saved": "已保存",
+    "dirty": "有未保存的更改",
+    "error": "保存失败"
+  },
+  "share": {
+    "title": "分享画布",
+    "enable": "开启分享链接",
+    "disable": "关闭分享",
+    "copy_link": "复制链接",
+    "enabled_hint": "任何拥有链接的人都可以只读查看",
+    "readonly": "只读分享"
+  },
+  "export": {
+    "title": "导出",
+    "png": "导出 PNG",
+    "json": "导出 JSON"
+  },
+  "empty": {
+    "title": "开始你的第一个创作",
+    "desc": "在右侧对话框输入提示词，或拖入一张图片开始。"
+  },
+  "minimap": "导航"
+}

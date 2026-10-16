@@ -1,0 +1,35 @@
+{
+  "title": "Usage",
+  "current_balance": "Current balance",
+  "total_granted": "Total granted",
+  "threshold": "Warning threshold",
+  "prices": {
+    "title": "Prices",
+    "image_standard": "Standard image",
+    "image_hd": "HD image",
+    "edit": "Conversational edit",
+    "chat": "Text chat"
+  },
+  "transactions": {
+    "title": "Transactions",
+    "type": "Type",
+    "amount": "Change",
+    "balance_after": "Balance",
+    "note": "Note",
+    "time": "Time",
+    "empty": "No transactions yet",
+    "filter_all": "All types"
+  },
+  "type": {
+    "grant": "Grant",
+    "consume_image": "Image",
+    "consume_edit": "Edit",
+    "consume_chat": "Chat",
+    "admin_adjust": "Admin adjust"
+  },
+  "status": {
+    "processing": "Processing",
+    "success": "Success",
+    "refunded": "Refunded"
+  }
+}

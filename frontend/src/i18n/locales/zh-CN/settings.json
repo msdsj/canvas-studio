@@ -1,0 +1,30 @@
+{
+  "title": "账户设置",
+  "profile": {
+    "title": "个人资料",
+    "email": "邮箱",
+    "display_name": "昵称",
+    "locale": "界面语言",
+    "theme": "主题",
+    "saved": "资料已保存"
+  },
+  "password": {
+    "title": "修改密码",
+    "old": "当前密码",
+    "new": "新密码",
+    "confirm": "确认新密码",
+    "submit": "更新密码",
+    "success": "密码已更新，请重新登录"
+  },
+  "sessions": {
+    "title": "登录设备",
+    "desc": "登出所有设备会使其上的登录状态失效。",
+    "logout_all": "登出全部设备",
+    "logout_all_confirm": "确定登出所有设备？",
+    "logout_all_success": "已登出全部设备"
+  },
+  "danger": {
+    "title": "账号操作",
+    "logout": "退出登录"
+  }
+}

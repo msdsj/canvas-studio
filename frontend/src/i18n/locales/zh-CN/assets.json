@@ -1,0 +1,28 @@
+{
+  "title": "资产库",
+  "upload": "上传图片",
+  "upload_hint": "支持 png / jpg / webp，单个不超过 20MB",
+  "filter": {
+    "all": "全部",
+    "generated": "AI 生成",
+    "uploaded": "上传"
+  },
+  "empty": {
+    "title": "还没有作品",
+    "desc": "去工作台生成或上传属于你的第一个素材。",
+    "cta": "去创作"
+  },
+  "card": {
+    "use": "应用到画布",
+    "download": "下载",
+    "delete": "删除",
+    "demo_badge": "演示"
+  },
+  "delete_confirm": "确定从资产库移除该素材？（不影响画布中已引用的内容）",
+  "preview": {
+    "info": "素材信息",
+    "size": "尺寸",
+    "created_at": "创建时间",
+    "prompt": "提示词"
+  }
+}

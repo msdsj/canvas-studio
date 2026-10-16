@@ -1,0 +1,43 @@
+services:
+  backend:
+    build:
+      context: ../backend
+    environment:
+      CS_DATABASE_URL: sqlite+aiosqlite:///./data/canvas_studio.db
+      CS_STORAGE_DIR: ./data/storage
+      CS_FRONTEND_BASE_URL: http://localhost:5173
+      CS_CORS_ORIGINS: http://localhost:5173
+      CS_GATEWAY_BASE_URL: http://gateway:8100
+      CS_GATEWAY_INTERNAL_TOKEN: dev-internal-token
+      CS_DEMO_MODE: auto
+      SUB2API_BASE_URL: http://host.docker.internal:8080
+      CHATGPT2API_BASE_URL: http://host.docker.internal:3000
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+    volumes:
+      - ../backend:/app
+      - backend_data_dev:/app/data
+    ports:
+      - "8000:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      - gateway
+
+  gateway:
+    build:
+      context: ../gateway
+    environment:
+      CS_GATEWAY_INTERNAL_TOKEN: dev-internal-token
+      CS_DEMO_MODE: auto
+      SUB2API_BASE_URL: http://host.docker.internal:8080
+      CHATGPT2API_BASE_URL: http://host.docker.internal:3000
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+    volumes:
+      - ../gateway:/app
+    ports:
+      - "8100:8100"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8100 --reload
+
+volumes:
+  backend_data_dev:

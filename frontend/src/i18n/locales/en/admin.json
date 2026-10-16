@@ -1,0 +1,131 @@
+{
+  "title": "Admin",
+  "sidebar": {
+    "overview": "Overview",
+    "users": "Users",
+    "pool": "Account Pool",
+    "config": "System Config",
+    "invites": "Invite Codes",
+    "announcements": "Announcements",
+    "logs": "Audit Logs"
+  },
+  "overview": {
+    "users_total": "Total users",
+    "users_active": "Active users",
+    "quota_consumed_today": "Consumed today",
+    "pool_normal": "Pool normal",
+    "pool_total": "Accounts total",
+    "pool_limited": "Limited accounts",
+    "pool_problem": "Abnormal/disabled"
+  },
+  "users": {
+    "search": "Search email",
+    "role": "Role",
+    "status": "Status",
+    "balance": "Balance",
+    "created_at": "Registered",
+    "actions": "Actions",
+    "assign_quota": "Adjust credits",
+    "ban": "Ban",
+    "unban": "Unban",
+    "reset_password": "Reset password",
+    "resend": "Resend verification",
+    "ban_reason": "Ban reason",
+    "reset_result": "Temporary password: {{password}}",
+    "empty": "No matching users",
+    "role_all": "All roles",
+    "status_all": "All statuses"
+  },
+  "quota_dialog": {
+    "title": "Adjust credits",
+    "mode": "Mode",
+    "increase": "Increase",
+    "decrease": "Decrease",
+    "set": "Set to",
+    "amount": "Amount",
+    "note": "Note",
+    "success": "Credits updated"
+  },
+  "pool": {
+    "import": "Bulk import",
+    "refresh": "Refresh quota",
+    "re_login": "Re-login",
+    "export": "Export",
+    "delete": "Delete",
+    "delete_confirm": "Delete the selected accounts?",
+    "status_filter": "Status",
+    "status_all": "All statuses",
+    "search": "Search token",
+    "token": "Token",
+    "type": "Type",
+    "quota": "Quota",
+    "last_refresh": "Last refresh",
+    "empty": "No accounts in the pool",
+    "import_title": "Import accounts",
+    "method": "Method",
+    "method_token": "Access Token",
+    "method_session": "Session",
+    "method_codex_auth": "Codex Auth",
+    "method_account_json": "Account JSON",
+    "method_oauth": "OAuth login",
+    "paste_hint": "One per line, comma or newline separated",
+    "import_result": "Done: added {{added}}, skipped {{skipped}}, failed {{errors}}",
+    "refreshing": "Refreshing {{done}}/{{total}}",
+    "refresh_done": "Refresh complete",
+    "status": {
+      "normal": "Normal",
+      "limited": "Limited",
+      "abnormal": "Abnormal",
+      "disabled": "Disabled"
+    }
+  },
+  "config": {
+    "category": {
+      "integration": "Integration",
+      "network": "Network",
+      "demo": "Demo",
+      "registration": "Registration",
+      "quota": "Quota",
+      "pool": "Pool"
+    },
+    "secret_hint": "Secrets are masked; leave unchanged to keep the current value",
+    "save": "Save & push",
+    "saved": "Config saved and pushed to gateway",
+    "test": "Test connection",
+    "test_ok": "Connected ({{latency}}ms)",
+    "test_fail": "Failed: {{message}}"
+  },
+  "invites": {
+    "create": "Generate code",
+    "code": "Code",
+    "max_uses": "Max uses",
+    "used": "Used",
+    "status": "Status",
+    "expires_at": "Expires",
+    "copy": "Copy",
+    "empty": "No invite codes"
+  },
+  "announcements": {
+    "create": "New announcement",
+    "title_field": "Title",
+    "content": "Content",
+    "level": "Level",
+    "level_info": "Info",
+    "level_warning": "Warning",
+    "status": "Status",
+    "publish": "Publish",
+    "archive": "Archive",
+    "edit": "Edit",
+    "empty": "No announcements"
+  },
+  "logs": {
+    "actor": "Actor",
+    "action": "Action",
+    "target": "Target",
+    "time": "Time",
+    "detail": "Detail",
+    "empty": "No logs",
+    "search": "Search actor",
+    "action_all": "All actions"
+  }
+}

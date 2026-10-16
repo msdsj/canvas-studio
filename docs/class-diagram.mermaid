@@ -1,0 +1,220 @@
+%% canvas-studio 类图（实体 + 服务）
+%% 来源：docs/02-architecture.md §3.1
+
+classDiagram
+    class User {
+        +str id "uuid pk"
+        +str email "unique, lower"
+        +str password_hash
+        +str role "admin|user"
+        +str status "pending_verification|active|banned"
+        +str display_name
+        +str locale "zh-CN|en"
+        +str theme "light|dark|system"
+        +int balance "credits"
+        +int token_version
+        +datetime email_verified_at
+        +datetime last_login_at
+        +datetime created_at
+    }
+    class EmailToken {
+        +str id
+        +str user_id
+        +str token "unique"
+        +str type "verify|reset"
+        +datetime expires_at
+        +datetime used_at
+    }
+    class CanvasProject {
+        +str id
+        +str owner_id
+        +str name
+        +str description
+        +datetime created_at
+        +datetime updated_at
+        +datetime deleted_at
+    }
+    class Canvas {
+        +str id
+        +str project_id
+        +str owner_id
+        +str name
+        +json state "Excalidraw scene"
+        +str thumbnail_url
+        +str share_token "nullable unique"
+        +bool is_public
+        +datetime updated_at
+    }
+    class Asset {
+        +str id
+        +str owner_id
+        +str kind "generated|uploaded"
+        +str url
+        +str thumb_url
+        +int width
+        +int height
+        +int size_bytes
+        +str mime
+        +str source_prompt
+        +str generation_task_id
+        +datetime created_at
+        +datetime deleted_at
+    }
+    class ChatSession {
+        +str id
+        +str user_id
+        +str canvas_id
+        +str title
+        +datetime updated_at
+    }
+    class ChatMessage {
+        +str id
+        +str session_id
+        +str user_id
+        +str role "user|assistant|system"
+        +text content
+        +json attachments
+        +str generation_task_id
+        +datetime created_at
+    }
+    class GenerationTask {
+        +str id
+        +str user_id
+        +str session_id
+        +str canvas_id
+        +str type "generate|edit"
+        +str prompt
+        +json params
+        +str status "queued|running|paused|cancelled|succeeded|failed|timeout"
+        +int progress "0-100"
+        +json result_urls
+        +int cost
+        +str upstream_task_id
+        +bool demo
+        +bool result_seen
+        +str idempotency_key "UNIQUE(user_id,key)"
+        +datetime paused_at
+        +datetime timeout_at
+        +datetime last_activity_at
+        +str error_code
+        +datetime created_at
+        +datetime updated_at
+    }
+    class QuotaTransaction {
+        +str id
+        +str user_id
+        +str type "grant|consume_image|consume_edit|consume_chat|admin_adjust"
+        +int amount
+        +str status "processing|success|refunded"
+        +str ref_id
+        +str operator_id
+        +int balance_after
+        +str note
+        +datetime created_at
+    }
+    class SystemConfig {
+        +str key "pk"
+        +text value
+        +str value_type
+        +bool is_secret
+        +str category
+        +datetime updated_at
+    }
+    class AuditLog {
+        +str id
+        +str actor_id
+        +str action
+        +str target_type
+        +str target_id
+        +json detail
+        +datetime created_at
+    }
+    class Announcement {
+        +str id
+        +str title
+        +text content
+        +str level "info|warning"
+        +str status "draft|published|archived"
+        +datetime published_at
+    }
+    class InviteCode {
+        +str id
+        +str code "unique"
+        +int max_uses
+        +int used_count
+        +str status "active|disabled"
+        +datetime expires_at
+    }
+
+    User "1" --> "*" CanvasProject : owns
+    User "1" --> "*" Asset : owns
+    User "1" --> "*" ChatSession : owns
+    User "1" --> "*" QuotaTransaction : ledger
+    User "1" --> "*" EmailToken : verifies
+    User "1" --> "*" GenerationTask : requests
+    CanvasProject "1" --> "*" Canvas : contains
+    Canvas "1" --> "*" ChatSession : context
+    ChatSession "1" --> "*" ChatMessage : contains
+    GenerationTask "1" --> "*" Asset : produces
+    ChatMessage "*" --> "1" GenerationTask : references
+    User "1" --> "*" AuditLog : acts
+
+classDiagram
+    class AuthService {
+        +register(email,password,invite_code) User
+        +verify_email(token) User
+        +login(email,password) Token
+        +forgot_password(email)
+        +reset_password(token,new_password)
+        +logout_all(user_id)
+    }
+    class QuotaService {
+        +get_account(user_id) QuotaView
+        +pre_deduct(user_id,type,cost,ref_id) Tx
+        +confirm(tx_id) Tx
+        +refund(tx_id) Tx
+        +admin_adjust(user_id,mode,amount,note,operator) Tx
+    }
+    class TaskService {
+        +create_or_get(user_id,idempotency_key,payload) GenerationTask
+        +get(task_id) GenerationTask
+        +list_active(user_id) GenerationTask
+        +pause(task_id) GenerationTask
+        +resume(task_id) GenerationTask
+        +cancel(task_id) GenerationTask
+        +mark_progress(task_id,progress,upstream_id)
+        +fail_and_refund(task_id,error_code)
+        +reclaim_orphans() int
+        +count_active(user_id) int
+    }
+    class GenerateService {
+        +create_image_task(user,req) GenerationTask
+        +create_edit_task(user,req) GenerationTask
+        +run_task(task_id)
+        +resolve_upstream() UpstreamConfig
+    }
+    class GatewayClient {
+        +chat_completions(payload,stream) AsyncIterator
+        +image_generations(payload) dict
+        +image_edits(files,payload) dict
+        +pool_list() list
+        +pool_import(tokens,accounts) dict
+        +pool_refresh(tokens) job_id
+        +pool_refresh_progress(job_id) dict
+        +upstream_health() dict
+        +config_test(target) dict
+    }
+    class ConfigService {
+        +get(key) value
+        +get_all(masked) list
+        +set_many(kv,operator)
+        +push_to_gateway()
+        +prices() dict
+        +demo_mode() str
+    }
+    TaskService --> QuotaService : pre_deduct/confirm/refund
+    GenerateService --> TaskService : create_or_get/run
+    GenerateService --> GatewayClient : upstream call
+    GenerateService --> QuotaService : pre_deduct/confirm/refund
+    GatewayClient --> ConfigService : resolve upstream
+    TaskService --> QuotaService : refund

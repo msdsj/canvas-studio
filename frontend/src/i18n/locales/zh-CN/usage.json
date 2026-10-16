@@ -1,0 +1,35 @@
+{
+  "title": "额度中心",
+  "current_balance": "当前余额",
+  "total_granted": "累计获得",
+  "threshold": "预警阈值",
+  "prices": {
+    "title": "计费单价",
+    "image_standard": "标准生图",
+    "image_hd": "高清生图",
+    "edit": "对话式编辑",
+    "chat": "文本对话"
+  },
+  "transactions": {
+    "title": "额度流水",
+    "type": "类型",
+    "amount": "变动",
+    "balance_after": "余额",
+    "note": "备注",
+    "time": "时间",
+    "empty": "暂无流水记录",
+    "filter_all": "全部类型"
+  },
+  "type": {
+    "grant": "赠送",
+    "consume_image": "生图消费",
+    "consume_edit": "编辑消费",
+    "consume_chat": "对话消费",
+    "admin_adjust": "管理员调整"
+  },
+  "status": {
+    "processing": "处理中",
+    "success": "成功",
+    "refunded": "已回滚"
+  }
+}

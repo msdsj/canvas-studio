@@ -1,0 +1,14 @@
+[project]
+name = "canvas-studio-backend"
+version = "1.0.0"
+description = "canvas-studio 业务中台后端（FastAPI + SQLAlchemy 2.0 async）"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.setuptools]
+packages = ["app"]

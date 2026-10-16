@@ -1,0 +1,196 @@
+%% canvas-studio 关键流程时序图
+%% 来源：docs/02-architecture.md §5
+
+%% 5.1 注册 + 邮箱确认
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant FE as frontend
+    participant BE as backend
+    participant DB as SQLite
+    participant MAIL as email_service
+    U->>FE: 填写邮箱/密码/确认密码
+    FE->>BE: POST /api/auth/register
+    BE->>DB: 查重 + 校验邀请码/注册开关
+    BE->>DB: INSERT user(pending_verification) + email_token(verify,24h)
+    BE->>MAIL: send_verify_email(link)
+    BE-->>FE: {user_id,email,status}
+    FE-->>U: "确认邮件已发送" + 倒计时
+    U->>FE: 点击 /verify-email?token=xxx
+    FE->>BE: POST /api/auth/verify-email {token}
+    BE->>DB: token 有效 → status=active
+    BE->>DB: 发放初始额度 200 + quota_transaction(grant)
+    BE-->>FE: {status:"active"}
+
+%% 5.2 生图扣额（预扣→确认/回滚）
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant FE as frontend
+    participant BE as backend
+    participant TS as task_service
+    participant QS as quota_service
+    participant GW as gateway
+    participant UP as chatgpt2api
+    U->>FE: 输入 prompt → 发送（生成/复用 Idempotency-Key）
+    FE->>BE: POST /api/generate/image (Idempotency-Key)
+    BE->>TS: create_or_get(user, idem_key)
+    alt 幂等键已存在
+        TS-->>BE: 返回既有任务（不重复扣费/调上游）
+    else 新任务且未超上限
+        BE->>QS: pre_deduct(consume_image,10,ref=task_id)
+        QS->>QS: UPDATE balance-=10 WHERE balance>=10; tx(processing)
+        BE->>GW: POST /gw/images/generations
+        GW->>UP: POST /v1/images/generations (gpt-image-2)
+        alt 上游不可达且 demo=on 或 auto
+            GW->>GW: Pillow 占位图 (demo=true)
+        end
+        alt 成功
+            BE->>QS: confirm(tx) -> success; task=succeeded
+        else 失败/超时
+            BE->>QS: refund(tx) -> refunded（幂等一次）; task=failed
+        end
+    end
+
+%% 5.3 额度耗尽拦截
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant FE as frontend
+    participant Q as quota store
+    participant BE as backend
+    U->>FE: 消耗操作
+    FE->>Q: 读取 balance
+    alt balance==0 或 < 本次消耗
+        FE-->>U: 按钮置灰 + 模态"额度不足" + [查看明细]
+    else 0<balance<=20%
+        FE-->>U: 顶栏黄色告警条（不阻断）
+    else 正常
+        FE->>BE: 下发请求（后端二次校验兜底）
+    end
+
+%% 5.4 管理员分配额度
+sequenceDiagram
+    autonumber
+    actor A as 管理员
+    participant FE as admin UI
+    participant BE as backend
+    participant QS as quota_service
+    participant DB as SQLite
+    A->>FE: 搜索用户 → 分配额度（模式+数值+备注）
+    FE->>BE: POST /api/admin/users/{id}/quota
+    BE->>QS: admin_adjust(...)
+    QS->>DB: UPDATE users.balance + INSERT quota_transaction(admin_adjust)
+    BE->>DB: INSERT audit_log(quota_adjust)
+    BE-->>FE: {balance, tx}
+
+%% 5.5 号池批量导入 + 刷新进度
+sequenceDiagram
+    autonumber
+    actor A as 管理员
+    participant FE as admin UI
+    participant BE as pool_service
+    participant GW as gateway
+    participant UP as chatgpt2api
+    A->>FE: 选方式 + 粘贴
+    FE->>BE: POST /api/admin/pool/accounts {method,tokens|accounts}
+    BE->>GW: POST /gw/pool/accounts
+    GW->>UP: POST /api/accounts
+    UP-->>GW: {added,skipped,refreshed,errors}
+    GW-->>BE: OK
+    BE-->>FE: 回执
+    A->>FE: 刷新额度
+    FE->>BE: POST /api/admin/pool/accounts/refresh
+    BE->>GW: POST /gw/pool/accounts/refresh
+    GW->>UP: -> {progress_id}
+    loop 每 1s（自适应退避）
+        FE->>BE: GET .../refresh/{job_id}
+        BE->>GW: GET /gw/pool/accounts/refresh/{id}
+        BE-->>FE: progress
+    end
+
+%% 5.6 线上切换配置生效
+sequenceDiagram
+    autonumber
+    actor A as 管理员
+    participant FE as admin/config
+    participant BE as config_service
+    participant DB as system_configs
+    participant GW as gateway
+    A->>FE: 修改上游地址+Key（本地↔线上）
+    FE->>BE: PUT /api/admin/config
+    BE->>DB: UPSERT（secret 加密）+ audit_log
+    BE->>GW: POST /gw/config（推送，无需重启）
+    GW-->>BE: ok
+    A->>FE: 连通性测试
+    FE->>BE: POST /api/admin/config/test
+    BE->>GW: POST /gw/config/test
+    GW-->>BE: {ok,latency_ms}
+
+%% 5.7 生成中暂停 → 恢复 / 放弃（约束 B1）
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant FE as frontend
+    participant BE as backend
+    participant TS as task_service
+    participant QS as quota_service
+    U->>FE: 点击[暂停]
+    FE->>BE: POST /api/generate/tasks/{id}/pause
+    BE->>TS: pause(id) running->paused
+    FE->>FE: 停止轮询，显示[继续][放弃]
+    alt 继续
+        U->>FE: 点击[继续]
+        FE->>BE: POST /api/generate/tasks/{id}/resume
+        BE->>TS: resume(id) paused->running（续航或重提交，复用预扣）
+        FE->>FE: 恢复轮询
+    else 放弃
+        U->>FE: 点击[放弃]
+        FE->>BE: POST /api/generate/tasks/{id}/cancel
+        BE->>TS: cancel(id) -> cancelled
+        BE->>QS: refund(ref_id) 幂等回滚
+        FE-->>U: "已取消，未扣费"
+    end
+
+%% 5.8 刷新页面状态恢复与续接（约束 B2）
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant FE as frontend
+    participant LS as localStorage/URL
+    participant BE as backend
+    participant DB as SQLite
+    U->>FE: 刷新 /canvas/:id?session=xx&task=yy
+    FE->>LS: 读取 cs.activeTasks / idemKeys
+    FE->>BE: GET /api/tasks/active
+    BE->>DB: SELECT tasks WHERE user & status∈(queued,running,paused)
+    BE-->>FE: [tasks]
+    FE->>BE: GET /api/chat/sessions/{id}/messages
+    BE-->>FE: 历史消息 + 任务状态
+    alt 任务已完成但已刷新
+        FE->>BE: GET /api/generate/tasks/{id}
+        BE-->>FE: succeeded + result_urls
+        FE-->>U: 展示结果 + toast（不丢结果）
+    else running
+        FE->>FE: 恢复轮询（自适应退避）
+    end
+
+%% 5.9 高延迟下幂等去重与防浪费（约束 B3）
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant FE as frontend
+    participant BE as backend
+    participant TS as task_service
+    participant DB as SQLite
+    FE->>FE: in-flight 去重 + 按钮禁用
+    FE->>LS: 复用同一 Idempotency-Key
+    FE->>BE: POST /api/generate/image (Idempotency-Key=K)
+    BE->>TS: create_or_get(user, K)
+    TS->>DB: SELECT WHERE user_id AND idempotency_key=K
+    alt 已存在
+        TS-->>BE: 返回既有任务当前状态（不重复创建/扣费/调上游）
+    else 不存在
+        TS->>DB: INSERT（唯一约束兜底并发）
+    end
+    Note over BE: 定时 reclaim_orphans(): running 超时 -> timeout + 幂等回滚 + 清理临时文件

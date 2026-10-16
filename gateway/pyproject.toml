@@ -1,0 +1,14 @@
+[project]
+name = "canvas-studio-gateway"
+version = "1.0.0"
+description = "canvas-studio 集成网关（上游转发 / 号池代理 / Demo 降级）"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.setuptools]
+packages = ["app"]

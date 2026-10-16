@@ -1,0 +1,25 @@
+{
+  "title": "我的项目",
+  "create": "新建项目",
+  "create_dialog": {
+    "title": "新建项目",
+    "name": "项目名称",
+    "description": "描述（可选）",
+    "placeholder": "例如：春季新品海报"
+  },
+  "rename_dialog": {
+    "title": "重命名项目",
+    "name": "项目名称"
+  },
+  "delete_confirm": "确定删除该项目？项目内的画布将一并移除。",
+  "open": "打开",
+  "empty": {
+    "title": "还没有项目",
+    "desc": "创建你的第一个项目开始创作吧。",
+    "cta": "新建项目"
+  },
+  "card": {
+    "updated": "更新于 {{time}}",
+    "canvas_count": "{{count}} 个画布"
+  }
+}
