@@ -29,7 +29,8 @@
     "upload": "上传图片",
     "assets": "资产库",
     "projects": "项目",
-    "account": "账户"
+    "account": "账户",
+    "layers": "图层"
   },
   "maintenance": {
     "title": "系统维护中",

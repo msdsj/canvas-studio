@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -49,7 +50,43 @@ DEFAULT_CONFIGS: list[ConfigDef] = [
     ConfigDef("QUOTA_WARN_PCT", str(settings.quota_warn_pct), "int", "quota", "额度预警阈值(%)"),
     ConfigDef("MAX_ACTIVE_TASKS_PER_USER", str(settings.max_active_tasks_per_user), "int", "pool", "每用户并发活跃任务上限"),
     ConfigDef("POOL_AUTOREFRESH_MINUTES", str(settings.pool_autorefresh_minutes), "int", "pool", "号池自动刷新周期(分钟)"),
+    # ---- 编辑提示词内置配置（上传/编辑流程共用，随用户提示词一并透传上游）----
+    ConfigDef(
+        "EDIT_PROMPT_TEMPLATE",
+        "请仅修改图中红色框选标记的区域，未标记区域保持完全不变。",
+        "string",
+        "prompt",
+        "编辑任务内置提示词前缀（自动拼接在用户提示词之前）",
+    ),
+    ConfigDef(
+        "EDIT_PROMPT_PRESETS",
+        json.dumps(
+            [
+                {"id": "enhance", "label": "画质增强", "prompt": "提升该区域的清晰度与细节，保持内容一致"},
+                {"id": "remove", "label": "去除杂物", "prompt": "去除该区域的物体，并用周围背景自然填补"},
+                {"id": "replace", "label": "替换主体", "prompt": "将该区域的主体替换为"},
+                {"id": "style", "label": "风格迁移", "prompt": "将该区域改为水彩插画风格，其余保持不变"},
+                {"id": "color", "label": "调整色调", "prompt": "调整该区域的色调与光影，使其更自然"},
+            ],
+            ensure_ascii=False,
+        ),
+        "json",
+        "prompt",
+        "上传/编辑内置提示词预设（JSON 数组，每项含 id/label/prompt）",
+    ),
 ]
+
+
+async def get_json(db: AsyncSession, key: str, default: Any = None) -> Any:
+    """读取 JSON 型配置（解析失败时回退默认值）。"""
+    raw = await get_raw(db, key, None)
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        logger.warning("配置 %s 不是合法 JSON，回退默认值", key)
+        return default
 
 
 def _coerce(raw: str, value_type: str) -> Any:
@@ -170,8 +207,6 @@ def _stringify(value: Any) -> str:
     if isinstance(value, (int, float)):
         return str(value)
     if isinstance(value, (dict, list)):
-        import json
-
         return json.dumps(value, ensure_ascii=False)
     return str(value)
 

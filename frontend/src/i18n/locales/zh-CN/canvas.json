@@ -30,8 +30,9 @@
   },
   "export": {
     "title": "导出",
-    "png": "导出 PNG",
-    "json": "导出 JSON"
+    "png": "导出 PNG（支持透明）",
+    "json": "导出 JSON",
+    "jpg": "导出 JPG（体积更小）"
   },
   "empty": {
     "title": "开始你的第一个创作",

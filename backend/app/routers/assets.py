@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,11 +11,27 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models.user import User
 from app.schemas.asset import AssetOut
-from app.services import asset_service, storage_service
+from app.services import asset_service, config_service, storage_service
 from app.utils.errors import AppError, ErrorCode, envelope
 from app.utils.pagination import normalize_page, paginated
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
+
+
+@router.get("/prompt-presets")
+async def prompt_presets(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """内置提示词配置：编辑前缀模板 + 常用预设（供上传/编辑流程一键选用）。
+
+    注意：该路由必须声明在 `/{asset_id}` 之前，否则会被路径参数吞掉。
+    """
+    presets = await config_service.get_json(db, "EDIT_PROMPT_PRESETS", [])
+    template = await config_service.get_value(
+        db, "EDIT_PROMPT_TEMPLATE", "请仅修改图中红色框选标记的区域，未标记区域保持完全不变。"
+    )
+    return envelope({"template": str(template), "presets": presets if isinstance(presets, list) else []})
 
 
 @router.get("")
@@ -37,13 +53,14 @@ async def list_assets(
 @router.post("/upload")
 async def upload_asset(
     file: UploadFile = File(...),
+    prompt: str = Form(default=""),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """上传图片到资产库。"""
+    """上传图片到资产库（`prompt` 为上传流程内置提示词配置，随资产保存）。"""
     data = await file.read()
     asset = await asset_service.upload(
-        db, user.id, file.filename or "upload.png", file.content_type or "", data
+        db, user.id, file.filename or "upload.png", file.content_type or "", data, prompt
     )
     await db.commit()
     return envelope(AssetOut.model_validate(asset).model_dump())

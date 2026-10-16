@@ -104,8 +104,15 @@ def _guess_ext(filename: str, content_type: str) -> str:
     return "png"
 
 
-async def upload(db: AsyncSession, user_id: str, filename: str, content_type: str, data: bytes) -> Asset:
-    """上传图片（校验类型与大小，0 积分）。"""
+async def upload(
+    db: AsyncSession,
+    user_id: str,
+    filename: str,
+    content_type: str,
+    data: bytes,
+    prompt: str = "",
+) -> Asset:
+    """上传图片（校验类型与大小，0 积分）。`prompt` 为上传流程内置提示词配置。"""
     if content_type and content_type not in ALLOWED_MIME:
         raise AppError(ErrorCode.VALIDATION_ERROR, "仅支持 png/jpg/webp 图片")
     limit = settings.max_upload_mb * 1024 * 1024
@@ -114,7 +121,13 @@ async def upload(db: AsyncSession, user_id: str, filename: str, content_type: st
     if not data:
         raise AppError(ErrorCode.VALIDATION_ERROR, "文件内容为空")
     return await create_from_bytes(
-        db, user_id, data, kind="uploaded", filename=filename, content_type=content_type
+        db,
+        user_id,
+        data,
+        kind="uploaded",
+        filename=filename,
+        content_type=content_type,
+        prompt=prompt.strip(),
     )
 
 

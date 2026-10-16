@@ -5,14 +5,16 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useCanvasStore } from '@/stores/canvas'
 import { CanvasExport } from './CanvasExport'
+import type { ExcalidrawApiLike } from './canvas-helpers'
 
 interface CanvasHeaderProps {
   canvasId: string | null
+  api?: ExcalidrawApiLike | null
   onShare?: () => void
 }
 
 /** 画布顶部工具栏：名称 + 保存态 + 分享 + 导出。 */
-export function CanvasHeader({ canvasId, onShare }: CanvasHeaderProps) {
+export function CanvasHeader({ canvasId, api, onShare }: CanvasHeaderProps) {
   const { t } = useTranslation('canvas')
   const canvas = useCanvasStore((s) => s.canvas)
   const saveStatus = useCanvasStore((s) => s.saveStatus)
@@ -53,7 +55,7 @@ export function CanvasHeader({ canvasId, onShare }: CanvasHeaderProps) {
           <Share2 size={15} /> {t('share.title')}
         </Button>
         {shared && <span className="text-xs text-text-tertiary">{t('share.enabled_hint')}</span>}
-        <CanvasExport canvasId={canvasId} />
+        <CanvasExport api={api ?? null} />
       </div>
     </div>
   )

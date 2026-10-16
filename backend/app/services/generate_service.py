@@ -112,6 +112,27 @@ def _decode_b64(data: str) -> bytes:
     return base64.b64decode(data)
 
 
+def to_png(raw: bytes) -> bytes:
+    """把任意上游图片字节归一化为 PNG（平台对外统一 PNG 输出）。
+
+    - 已是 PNG 则原样返回，避免无谓重编码导致体积膨胀；
+    - JPEG/WEBP 等转 PNG 时保留 alpha 通道（有透明则 RGBA，否则 RGB）；
+    - 解码失败时退回原始字节，保证任务不因转码而失败。
+    """
+    try:
+        with Image.open(io.BytesIO(raw)) as img:
+            if (img.format or "").upper() == "PNG":
+                return raw
+            has_alpha = img.mode in ("RGBA", "LA", "P")
+            out = img.convert("RGBA" if has_alpha else "RGB")
+            buf = io.BytesIO()
+            out.save(buf, format="PNG", optimize=True)
+            return buf.getvalue()
+    except Exception:  # noqa: BLE001 - 转码失败不阻断主流程
+        logger.warning("图片转 PNG 失败，使用原始字节")
+        return raw
+
+
 def _local_bytes(url: str) -> tuple[bytes, str]:
     """把本地存储 URL 读取为字节。"""
     rel = asset_service.local_path_from_url(url)
@@ -175,11 +196,14 @@ async def run_task(task_id: str) -> None:
                         task.params = {**task.params, "region_check": checks}
                 except Exception:  # noqa: BLE001
                     logger.exception("区域变更检测失败")
+            # 平台统一 PNG 输出：无论上游返回何种格式，落库前一律归一化为 PNG
+            raw = to_png(raw)
             asset = await asset_service.create_from_bytes(
                 db,
                 task.user_id,
                 raw,
                 kind="generated",
+                filename="result.png",
                 content_type="image/png",
                 prompt=task.prompt,
                 is_demo=demo,

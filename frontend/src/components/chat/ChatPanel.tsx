@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Crop, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Badge } from '@/components/ui/badge'
 import { useChatStream } from '@/hooks/use-chat-stream'
 import { usePolling } from '@/hooks/use-polling'
 import { useQuota } from '@/hooks/use-quota'
@@ -11,13 +8,11 @@ import { useToast } from '@/hooks/use-toast'
 import { useIdempotency } from '@/hooks/use-idempotency'
 import { chatApi } from '@/lib/api/chat'
 import { generateApi } from '@/lib/api/generate'
-import { assetsApi } from '@/lib/api/assets'
 import { events } from '@/lib/events'
 import { errorMessage } from '@/lib/errors'
 import { useUIStore } from '@/stores/ui'
 import { ChatMessage } from './ChatMessage'
 import { ChatTextarea, type ChatMode } from './ChatTextarea'
-import { RegionSelector, type RegionSelection } from './RegionSelector'
 import { SessionSelector } from './SessionSelector'
 import { GenerationResultCard } from './GenerationResultCard'
 import { Spinner } from './Spinner'
@@ -30,7 +25,10 @@ interface ChatPanelProps {
   onAddResultToCanvas?: (url: string, taskId: string) => void
 }
 
-/** 右侧 AI 对话面板：会话头 + 消息流 + 生成任务卡 + 输入区。 */
+/**
+ * 右侧 AI 对话面板：会话头 + 消息流 + 生成任务卡 + 输入区。
+ * 仅保留「对话」与「文生图」两条主线——图片编辑统一走画布（单击图片进入编辑层）。
+ */
 export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToCanvas }: ChatPanelProps) {
   const { t } = useTranslation('chat')
   const { t: te } = useTranslation()
@@ -43,38 +41,7 @@ export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToC
   const [messages, setMessages] = useState<ChatMessageType[]>([])
   const [input, setInput] = useState('')
   const [mode, setMode] = useState<ChatMode>('chat')
-  const [referenceFile, setReferenceFile] = useState<File | null>(null)
-  const [pendingEdit, setPendingEdit] = useState<RegionSelection | null>(null)
-  const [regionOpen, setRegionOpen] = useState(false)
-  const [focusSignal, setFocusSignal] = useState(0)
   const [creating, setCreating] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  const referencePreviewUrl = useMemo(
-    () => (referenceFile ? URL.createObjectURL(referenceFile) : null),
-    [referenceFile]
-  )
-  useEffect(
-    () => () => {
-      if (referencePreviewUrl) URL.revokeObjectURL(referencePreviewUrl)
-    },
-    [referencePreviewUrl]
-  )
-
-  // 画布端完成框选后接收编辑目标（底图 + 标记图）
-  useEffect(() => {
-    const onEditTarget = (payload: RegionSelection) => {
-      setPendingEdit(payload)
-      setMode('image')
-      setFocusSignal((n) => n + 1)
-      toast.info(
-        t('region.received', { defaultValue: '已标记编辑区域' }),
-        t('region.received_desc', { defaultValue: '请输入修改指令后发送' })
-      )
-    }
-    events.on('edit:target', onEditTarget)
-    return () => events.off('edit:target', onEditTarget)
-  }, [toast, t])
 
   const loadMessages = useCallback(async (id: string) => {
     try {
@@ -104,7 +71,6 @@ export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToC
         /* ignore */
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [canvasId, sessionId, onSessionChange, creating]
   )
 
@@ -155,37 +121,13 @@ export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToC
       return
     }
 
-    // 生图 / 编辑（含区域编辑）
-    const isEditFlow = Boolean(pendingEdit || referenceFile)
-    if (!guardAfford(isEditFlow ? prices.edit : prices.image_standard)) return
-    const scope = `${pendingEdit ? 'region-edit' : referenceFile ? 'edit' : 'image'}:${sessionId}`
+    // 文生图
+    if (!guardAfford(prices.image_standard)) return
+    const scope = `image:${sessionId}`
     const key = idem.getKey(scope)
     try {
-      const task = pendingEdit
-        ? await generateApi.edit(
-            {
-              prompt: content,
-              session_id: sessionId,
-              canvas_id: canvasId,
-              file: pendingEdit.baseFile,
-              mask: pendingEdit.maskFile,
-              region: pendingEdit.region,
-            },
-            key
-          )
-        : referenceFile
-          ? await generateApi.edit(
-              { prompt: content, session_id: sessionId, canvas_id: canvasId, file: referenceFile },
-              key
-            )
-          : await generateApi.image(
-              { prompt: content, session_id: sessionId, canvas_id: canvasId },
-              key
-            )
+      await generateApi.image({ prompt: content, session_id: sessionId, canvas_id: canvasId }, key)
       setInput('')
-      setReferenceFile(null)
-      setPendingEdit(null)
-      events.emit('edit:target.clear')
       events.emit('tasks:changed')
       events.emit('quota:changed')
       void refreshTasks()
@@ -245,16 +187,6 @@ export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToC
     if (url) onAddResultToCanvas?.(url, task.id)
   }
 
-  /** 结果卡「编辑」：直接把生成图载入内置编辑画布（免下载上传）。 */
-  const handleEditResult = (task: GenerationTask) => {
-    const url = task.result_urls[0]
-    if (!url) {
-      toast.error(t('task.no_result', { defaultValue: '该任务没有可编辑的图片' }))
-      return
-    }
-    events.emit('edit:open', { url })
-  }
-
   const handleCreateSession = async () => {
     try {
       const created = await chatApi.createSession({ canvas_id: canvasId })
@@ -276,21 +208,8 @@ export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToC
     }
   }
 
-  const handleAttach = () => fileInputRef.current?.click()
-
-  const handleFileSelected = async (file: File) => {
-    setReferenceFile(file)
-    try {
-      await assetsApi.upload(file)
-      events.emit('announcements:changed')
-      toast.success('参考图已上传')
-    } catch {
-      /* 保留本地文件用于编辑即可 */
-    }
-  }
-
   // 展示顺序：最早的在上、最新的在下（聊天式时间线）
-  const onSelectTask = useMemo(
+  const orderedTasks = useMemo(
     () =>
       [...(tasks ?? [])].sort(
         (a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime()
@@ -298,7 +217,7 @@ export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToC
     [tasks]
   )
 
-  // 内容变化时自动滚动到最新（任务列表 / 消息）
+  // 内容变化时自动滚动到最新
   const scrollAnchorRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const viewport = scrollAnchorRef.current?.closest('[data-radix-scroll-area-viewport]')
@@ -322,7 +241,7 @@ export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToC
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-4 p-4">
-          {messages.length === 0 && onSelectTask.length === 0 && (
+          {messages.length === 0 && orderedTasks.length === 0 && (
             <p className="py-10 text-center text-sm text-text-tertiary">{t('input.placeholder')}</p>
           )}
           {messages.map((message) => (
@@ -347,17 +266,16 @@ export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToC
             />
           )}
 
-          {onSelectTask.length > 0 && (
+          {orderedTasks.length > 0 && (
             <div className="flex flex-col gap-3">
               <span className="text-xs font-medium uppercase tracking-wide text-text-tertiary">
                 {t('active_panel.title')}
               </span>
-              {onSelectTask.map((task) => (
+              {orderedTasks.map((task) => (
                 <GenerationResultCard
                   key={task.id}
                   task={task}
                   onAddToCanvas={handleAddToCanvas}
-                  onEdit={handleEditResult}
                   onRegenerate={handleRegenerate}
                   onPause={handlePause}
                   onResume={handleResume}
@@ -372,55 +290,6 @@ export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToC
         </div>
       </ScrollArea>
 
-      {(referenceFile || pendingEdit) && (
-        <div className="flex items-center gap-2 border-t border-border bg-bg-subtle px-3 py-2 text-xs text-text-secondary">
-          <Badge variant="brand">
-            {pendingEdit ? t('region.badge', { defaultValue: '编辑区域' }) : '参考图'}
-          </Badge>
-          <span className="truncate">
-            {referenceFile?.name ?? t('region.canvas_source', { defaultValue: '画布选区' })}
-          </span>
-          {pendingEdit ? (
-            <>
-              <Badge variant="success">{t('region.selected', { defaultValue: '已框选区域' })}</Badge>
-              <button
-                type="button"
-                className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-surface-hover"
-                onClick={() => setPendingEdit(null)}
-              >
-                <Crop size={12} /> {t('region.clear_selection', { defaultValue: '清除选区' })}
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-brand-text hover:bg-surface-hover"
-              onClick={() => setRegionOpen(true)}
-            >
-              <Crop size={12} /> {t('region.select', { defaultValue: '框选区域' })}
-            </button>
-          )}
-          <button
-            type="button"
-            aria-label="remove"
-            className="rounded p-0.5 hover:text-danger"
-            onClick={() => {
-              setReferenceFile(null)
-              setPendingEdit(null)
-            }}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
-      <RegionSelector
-        open={regionOpen}
-        onOpenChange={setRegionOpen}
-        imageUrl={referencePreviewUrl}
-        onConfirm={(selection) => setPendingEdit(selection)}
-      />
-
       <ChatTextarea
         value={input}
         onChange={setInput}
@@ -429,19 +298,6 @@ export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToC
         sending={chatStream.sending}
         mode={mode}
         onModeChange={setMode}
-        onAttach={handleAttach}
-        focusSignal={focusSignal}
-      />
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/webp"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0]
-          if (file) void handleFileSelected(file)
-          e.target.value = ''
-        }}
       />
     </div>
   )

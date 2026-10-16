@@ -29,7 +29,8 @@
     "upload": "Upload",
     "assets": "Assets",
     "projects": "Projects",
-    "account": "Account"
+    "account": "Account",
+    "layers": "Layers"
   },
   "maintenance": {
     "title": "Under maintenance",

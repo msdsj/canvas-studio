@@ -1,18 +1,36 @@
 import { useEffect, useState } from 'react'
-import { ImageIcon, Pencil } from 'lucide-react'
+import { Download, ImageIcon, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 interface ImagePreviewPanelProps {
-  /** 当前编辑目标图（data URL） */
+  /** 当前选中图（data URL） */
   imageUrl: string | null
   /** 已知的原图尺寸（可选，未传时自动读取） */
   width?: number
   height?: number
-  onDoodle?: () => void
+  /** 该图内置提示词（上传时配置，进入编辑自动回填） */
+  prompt?: string
+  onEdit?: () => void
+  onDelete?: () => void
+  onDownload?: (format: 'png' | 'jpg') => void
 }
 
-/** 右栏图片预览：实时展示当前提交图片的实际宽高尺寸。 */
-export function ImagePreviewPanel({ imageUrl, width, height, onDoodle }: ImagePreviewPanelProps) {
+/** 右栏图片面板：预览当前选中图片 + 尺寸 + 编辑/下载/删除入口。 */
+export function ImagePreviewPanel({
+  imageUrl,
+  width,
+  height,
+  prompt,
+  onEdit,
+  onDelete,
+  onDownload,
+}: ImagePreviewPanelProps) {
   const [measured, setMeasured] = useState<{ w: number; h: number } | null>(null)
 
   useEffect(() => {
@@ -42,28 +60,55 @@ export function ImagePreviewPanel({ imageUrl, width, height, onDoodle }: ImagePr
           <ImageIcon size={13} /> 当前图片
         </span>
         {imageUrl && (
-          <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={onDoodle}>
-            <Pencil size={13} /> 涂鸦
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={onEdit}>
+              <Pencil size={13} /> 编辑
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label="下载">
+                  <Download size={14} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => onDownload?.('png')}>下载 PNG</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onDownload?.('jpg')}>下载 JPG</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="删除"
+              className="hover:text-danger"
+              onClick={onDelete}
+            >
+              <Trash2 size={14} />
+            </Button>
+          </div>
         )}
       </div>
       {imageUrl ? (
         <div>
           <div className="flex max-h-32 items-center justify-center overflow-hidden rounded-md border border-border bg-bg-subtle">
-            <img src={imageUrl} alt="当前编辑目标预览" className="max-h-32 w-auto object-contain" />
+            <img src={imageUrl} alt="当前选中图片预览" className="max-h-32 w-auto object-contain" />
           </div>
           <div className="mt-1.5 flex items-center justify-between text-[11px] text-text-tertiary">
-            <span>提交尺寸</span>
+            <span>尺寸</span>
             <span className="font-mono text-text-secondary">
               {measured ? `${measured.w} × ${measured.h} px` : '读取中…'}
             </span>
           </div>
+          {prompt && (
+            <p className="mt-1.5 line-clamp-2 rounded-md bg-bg-subtle px-2 py-1 text-[11px] leading-relaxed text-text-secondary">
+              内置提示词：{prompt}
+            </p>
+          )}
         </div>
       ) : (
         <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-[11px] leading-relaxed text-text-tertiary">
-          在画布上选中一张图片
+          在画布上单击一张图片
           <br />
-          即可在此查看尺寸并进入涂鸦
+          即可预览、编辑与导出
         </p>
       )}
     </div>

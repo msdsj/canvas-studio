@@ -85,14 +85,27 @@
 - **改动**：`frontend/src/components/canvas/CanvasExcali.tsx` —— 初始数据统一走官方 `restoreElements()` 规范化
 - **专题**：`changes/2026-10-16-canvas-autoplace.md`
 
+### ⑪ 图片编辑链路重构 + 类 Figma 图层面板 + 导出 PNG/JPG（21:20–22:40）★ 本轮
+- **完成**：① 统一图片编辑层（框选编号红框 + 画笔/橡皮 + 单一提示词 → 图生图）；② 单击选中图片即进入编辑（替代双击）；③ 类 Figma 图层面板（查看/选中/层级/显隐/锁定/删除）；④ 上传流程内置提示词配置（预设 + 落库回填）；⑤ AI 出图统一 PNG（含 JPEG→PNG 归一化）；⑥ 导出 PNG/JPG（客户端真实渲染）；⑦ 冗余清理（删 3 个组件 + 3 个废弃事件 + 2 处重复入口）
+- **改动**：
+  - 新增 `frontend/src/components/canvas/{ImageEditLayer,LayerPanel,UploadPromptDialog}.tsx`
+  - 重写 `WorkspaceView.tsx` / `canvas-helpers.ts` / `CanvasExport.tsx` / `ImagePreviewPanel.tsx` / `ChatPanel.tsx`
+  - 后端 `generate_service.to_png()`、`assets.py` 提示词入参与 `/assets/prompt-presets`、`config_service` 提示词配置
+  - 删除 `CanvasDoodle.tsx` / `CanvasMagicGenerator.tsx` / `chat/RegionSelector.tsx` / `ImageNode.tsx`
+- **过程中修复的真实缺陷**：`Maximum update depth exceeded` 白屏（onChange 无限回灌）、图层选中不回灌（程序化 updateScene 不触发 onChange）、图层显隐/锁定不生效（未 bump version）、两条工具栏重叠
+- **验证**：`tsc` 0 error · `eslint` 0 error · `vite build` ✓ · 后端 `pytest` **89 passed** · API 端到端 **19/19** · 真实浏览器 UI **20/20**
+- **专题**：`changes/2026-10-16-canvas-layers-edit-refactor.md` · **测试报告**：`08-full-flow-test-report.md`
+
 ---
 
 ## 待办 / 遗留
 
 | 级别 | 事项 | 说明 |
 |---|---|---|
-| P1 | 前端 UI 自动化测试 | Playwright 覆盖画布拖拽、主题、i18n、响应式四档 |
-| P1 | 真实上游接入验证 | 替换线上 URL+Key 后走完整真实链路 |
-| P2 | 临时诊断钩子 | `window.__canvasApi`（WorkspaceView.tsx）排查完需移除 |
-| P2 | 项目卡跳转 | 点击项目卡未进入对应项目（跳默认项目） |
-| P2 | 清理历史数据 | 画布上有 2 张修复前的 DEMO 占位图，属垃圾数据 |
+| P1 | 前端 UI 自动化测试 | 已补 `e2e/ui_verify.mjs`（真实浏览器 20 项）；可继续扩展主题/i18n/响应式四档 |
+| P1 | 真实上游接入验证 | 本轮用 mock 上游（返回 JPEG）验证全链路；替换线上 URL+Key 后需复跑 `e2e/verify_flow.py` |
+| P2 | 多选批量操作 | 图层面板当前仅单选，框选多元素后批量操作待补 |
+| P2 | 图层拖拽排序 | 现为按钮式上移/下移 |
+| P3 | 编辑层支持旋转图 | 旋转元素目前用外接盒近似定位 |
+| ~~P2~~ | ~~临时诊断钩子~~ | ✅ 已移除 `window.__canvasApi` |
+| ~~P2~~ | ~~清理历史数据~~ | ✅ 已清理画布历史残留元素 |

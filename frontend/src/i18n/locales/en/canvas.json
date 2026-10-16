@@ -30,8 +30,9 @@
   },
   "export": {
     "title": "Export",
-    "png": "Export PNG",
-    "json": "Export JSON"
+    "png": "Export PNG (transparent)",
+    "json": "Export JSON",
+    "jpg": "Export JPG (smaller)"
   },
   "empty": {
     "title": "Start your first creation",

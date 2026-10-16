@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { ImagePlus, Pencil, RefreshCw, Sparkles } from 'lucide-react'
+import { ImagePlus, RefreshCw, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
@@ -10,8 +10,6 @@ import type { GenerationTask } from '@/types/models'
 interface GenerationResultCardProps {
   task: GenerationTask
   onAddToCanvas?: (task: GenerationTask) => void
-  /** 直接在编辑画布中打开该结果（免下载上传） */
-  onEdit?: (task: GenerationTask) => void
   onRegenerate?: (task: GenerationTask) => void
   onPause?: (task: GenerationTask) => void
   onResume?: (task: GenerationTask) => void
@@ -24,7 +22,6 @@ interface GenerationResultCardProps {
 export function GenerationResultCard({
   task,
   onAddToCanvas,
-  onEdit,
   onRegenerate,
   onPause,
   onResume,
@@ -86,9 +83,6 @@ export function GenerationResultCard({
           <>
             <Button size="sm" onClick={() => onAddToCanvas?.(task)}>
               <ImagePlus size={14} /> {t('task.add_to_canvas')}
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => onEdit?.(task)}>
-              <Pencil size={14} /> {t('task.edit_image', { defaultValue: '编辑' })}
             </Button>
             <Button size="sm" variant="secondary" onClick={() => onRegenerate?.(task)}>
               <RefreshCw size={14} /> {t('task.regenerate')}

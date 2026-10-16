@@ -109,14 +109,6 @@ export type TaskStatus =
   | 'failed'
   | 'timeout'
 
-/** 区域编辑目标（框选结果：底图 + 高亮标记图 + 归一化选区）。 */
-export interface RegionSelection {
-  baseFile: File
-  baseUrl: string
-  maskFile: File
-  region: { x: number; y: number; w: number; h: number }
-}
-
 export type TaskType = 'generate' | 'edit'
 
 export interface GenerationTask {
