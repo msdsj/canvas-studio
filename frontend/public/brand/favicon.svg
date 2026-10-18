@@ -1,0 +1,15 @@
+<!-- canvas-studio · favicon（16/32px 优化版）
+     来源：docs/09-visual-language-v2.md §C 概念 1，按小尺寸做两处调整：
+       1) 线宽 4 → 3.2（在 32 网格下 16px 显示为 1.6px，仍可辨）
+       2) 开口简化为 y=20→12 的整条左边，进线缩短到 x=3→11，避免 16px 下糊成一团
+     ⚠ favicon 无 CSS 级联（不能继承页面 token），因此这里用 light-dark() 内联令牌值，
+       使暗色浏览器 UI 下仍然可见；其余品牌资产一律 currentColor，不写死颜色。 -->
+<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" fill="none"
+     style="color: light-dark(#201c17, #f2ede6); color-scheme: light dark"
+     role="img" aria-label="canvas-studio">
+  <g stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 12 A4 4 0 0 1 12 8 H20 A4 4 0 0 1 24 12 V20
+             A4 4 0 0 1 20 24 H12 A4 4 0 0 1 8 20"/>
+    <path d="M3 16 H11"/>
+  </g>
+</svg>

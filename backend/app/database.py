@@ -42,6 +42,13 @@ if settings.database_url.startswith("sqlite"):
     def _set_sqlite_pragma(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        # WAL + busy_timeout：生成任务在后台每秒写进度，对话流同时在写消息，
+        # 默认 rollback journal 下写写互斥会直接抛 "database is locked"，
+        # 表现为 SSE 中途断流、任务莫名失败。WAL 允许读写并发，busy_timeout
+        # 让第二个写者在锁释放前排队等待，而不是立刻失败。
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=15000")
         cursor.close()
 
 

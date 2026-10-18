@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     quota_warn_pct: int = 20
 
     # 平台开关
+    app_env: str = "dev"  # dev | prod：prod 下关闭 /docs、openapi，错误详情不外泄
     open_registration: bool = True
     maintenance_mode: bool = False
     pool_autorefresh_minutes: int = 30
@@ -77,10 +78,11 @@ class Settings(BaseSettings):
     mail_log_path: str = "./data/mail.log"
 
     # Demo / 任务状态机 / 网关超时
-    demo_mode: str = "auto"  # auto | on | off
+    demo_mode: str = "off"  # auto | on | off; keep fake images disabled by default
     max_active_tasks_per_user: int = 2
     idempotency_window_seconds: int = 300
-    task_timeout_seconds: int = 180
+    # 任务超时必须大于网关读超时，否则「上游还在画」会被我们自己判成失败
+    task_timeout_seconds: int = 330
     task_orphan_scan_seconds: int = 60
     gw_connect_timeout: float = 10.0
     gw_read_timeout: float = 300.0
@@ -104,10 +106,15 @@ class UpstreamSettings(BaseSettings):
         case_sensitive=False,
     )
 
-    sub2api_base_url: str = "http://localhost:8080"
-    sub2api_api_key: str = "sk-xxx"
-    chatgpt2api_base_url: str = "http://localhost:3000"
-    chatgpt2api_admin_key: str = "xxx"
+    text_base_url: str = ""
+    text_api_key: str = ""
+    text_model: str = "gpt-4o-mini"
+    llm_base_url: str = ""
+    llm_api_key: str = ""
+    llm_model: str = ""
+    image_base_url: str = ""
+    image_api_key: str = ""
+    image_model: str = "gpt-image-2"
     http_proxy: str = ""
     https_proxy: str = ""
     no_proxy: str = "localhost,127.0.0.1"

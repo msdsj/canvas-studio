@@ -28,3 +28,11 @@ class GenerateEditParams(BaseModel):
     base_asset_id: str | None = None
     session_id: str | None = None
     canvas_id: str | None = None
+
+
+class PlanRequest(BaseModel):
+    """意图分析请求：把自然语言 + 已框选区域解析为结构化编辑计划。"""
+
+    message: str = Field(min_length=1, max_length=2000)
+    regions: list[dict[str, Any]] = Field(default_factory=list)
+    canvas_id: str | None = None

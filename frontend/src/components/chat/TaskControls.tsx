@@ -1,16 +1,16 @@
 import { useTranslation } from 'react-i18next'
-import { Pause, Play, X, RotateCcw } from 'lucide-react'
+import { CircleStop, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { GenerationTask } from '@/types/models'
 
 interface TaskControlsProps {
   task: GenerationTask
-  onPause?: (task: GenerationTask) => void
-  onResume?: (task: GenerationTask) => void
   onCancel?: (task: GenerationTask) => void
   onRetry?: (task: GenerationTask) => void
   compact?: boolean
+  /** 请求在途：所有控制按钮禁用，避免连点产生 409 */
+  busy?: boolean
 }
 
 const STATUS_VARIANT: Record<string, 'soft' | 'brand' | 'success' | 'warning' | 'danger'> = {
@@ -23,38 +23,30 @@ const STATUS_VARIANT: Record<string, 'soft' | 'brand' | 'success' | 'warning' | 
   timeout: 'danger',
 }
 
-/** 任务控制按钮组 + 状态标签（暂停 / 继续 / 放弃 / 重试）。 */
-export function TaskControls({ task, onPause, onResume, onCancel, onRetry, compact }: TaskControlsProps) {
+/**
+ * 任务状态标签 + 控制按钮。
+ *
+ * 只有一个破坏性操作：「停止生成」（= cancel，真退款）。
+ * 不提供「暂停/继续」——上游是同步长请求，暂停不会中断上游，
+ * 只会白烧一次调用并留下孤儿图，所以产品上不暴露这个能力。
+ */
+export function TaskControls({ task, onCancel, onRetry, busy }: TaskControlsProps) {
   const { t } = useTranslation('chat')
+  const active = task.status === 'queued' || task.status === 'running' || task.status === 'paused'
 
   return (
     <div className="flex items-center gap-2">
       <Badge variant={STATUS_VARIANT[task.status] ?? 'soft'} dot>
         {t(`task.${task.status}`)}
       </Badge>
-      {task.status === 'running' || task.status === 'queued' ? (
-        <Button size="sm" variant="secondary" onClick={() => onPause?.(task)}>
-          <Pause size={14} /> {t('task.pause')}
+      {active && onCancel ? (
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => onCancel(task)}>
+          <CircleStop size={14} /> {t('task.stop')}
         </Button>
       ) : null}
-      {task.status === 'paused' ? (
-        <>
-          <Button size="sm" variant="secondary" onClick={() => onResume?.(task)}>
-            <Play size={14} /> {t('task.resume')}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => onCancel?.(task)}>
-            <X size={14} /> {t('task.cancel')}
-          </Button>
-        </>
-      ) : null}
-      {task.status === 'failed' || task.status === 'timeout' ? (
-        <Button size="sm" variant="secondary" onClick={() => onRetry?.(task)}>
+      {!active && onRetry ? (
+        <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRetry(task)}>
           <RotateCcw size={14} /> {t('task.retry')}
-        </Button>
-      ) : null}
-      {!compact && task.status === 'running' && onCancel ? (
-        <Button size="sm" variant="ghost" onClick={() => onCancel(task)}>
-          <X size={14} /> {t('task.cancel')}
         </Button>
       ) : null}
     </div>

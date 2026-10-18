@@ -1,0 +1,56 @@
+<!-- canvas-studio · 插画 ②「结果安全区机制示意」
+     来源：docs/09-visual-language-v2.md §D.2 ②
+     规格：840×600（与首页 §4 使用同一份几何，向右留出画布出血空间）
+     构图：4:3 相纸居中 → 右侧两条手绘曲线：上通「虚线安全区（可回退）」、下通「开放画布（点阵）」
+     2026-10-17 返工（对齐评审 P0-2）：
+       · 虚线框去掉实底——它是一个区域，不是卡片
+       · 下方画布去掉填充与圆角，点阵直接铺在纸底上，并向右淡出（画布没有边界）
+       · 回退符号从「闭环圆弧」（读作刷新）改为「单笔逆时针弧 + 向左回勾箭头」
+     颜色：全部走 currentColor 或 CSS 变量，未硬编码任何十六进制 -->
+<svg viewBox="0 0 840 600" fill="none" xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="生成结果先落到安全区，也可以直接放进画布">
+  <defs>
+    <pattern id="cs-dots" width="16" height="16" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.4" fill="var(--color-canvas-dot, currentColor)" fill-opacity=".85"/>
+    </pattern>
+    <linearGradient id="cs-dots-fade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fff" stop-opacity="1"/>
+      <stop offset=".55" stop-color="#fff" stop-opacity="1"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="cs-dots-mask">
+      <rect x="516" y="352" width="324" height="248" fill="url(#cs-dots-fade)"/>
+    </mask>
+  </defs>
+
+  <!-- 4:3 相纸 -->
+  <rect x="72" y="190" width="300" height="225" rx="3"
+        fill="var(--color-mat, none)" stroke="currentColor" stroke-opacity=".22" stroke-width="1.5"/>
+  <rect x="80" y="198" width="284" height="209" rx="2"
+        fill="var(--color-canvas, none)" stroke="currentColor" stroke-width="2"/>
+  <g stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-opacity=".5">
+    <circle cx="140" cy="256" r="16"/>
+    <path d="M80 356 C 130 306, 180 350, 226 316 S 320 342, 364 302"/>
+  </g>
+
+  <!-- 上：通向结果安全区（只有虚线，没有底） -->
+  <path d="M382 250 C 440 240, 462 214, 504 206"
+        stroke="var(--color-select, currentColor)" stroke-width="2" stroke-linecap="round"/>
+  <path d="M504 206 L492 199 M504 206 L492 213"
+        stroke="var(--color-select, currentColor)" stroke-width="2" stroke-linecap="round"/>
+  <rect x="516" y="120" width="212" height="172" rx="6"
+        stroke="var(--color-select, currentColor)" stroke-width="2" stroke-dasharray="8 7"/>
+
+  <!-- 可回退：单笔逆时针弧 + 向左回勾的箭头尖 -->
+  <g stroke="var(--color-select, currentColor)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M650 210 A 21 21 0 0 0 608 210 H594"/>
+    <path d="M601 203 L594 210 L601 217"/>
+  </g>
+
+  <!-- 下：通向开放画布（无边框、无圆角、向右淡出） -->
+  <path d="M382 332 C 444 346, 470 402, 502 428"
+        stroke="var(--color-select, currentColor)" stroke-width="2" stroke-linecap="round"/>
+  <path d="M502 428 L490 426 M502 428 L496 416"
+        stroke="var(--color-select, currentColor)" stroke-width="2" stroke-linecap="round"/>
+  <rect x="516" y="352" width="324" height="248" fill="url(#cs-dots)" mask="url(#cs-dots-mask)"/>
+</svg>

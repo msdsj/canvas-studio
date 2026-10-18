@@ -1,0 +1,10 @@
+import { connectExisting, login } from './harness.mjs'
+const log = (...a) => console.log(...a)
+log('step: connecting')
+const page = await connectExisting()
+log('step: connected')
+await page.setViewport(1440, 900)
+log('step: viewport ok')
+await login(page)
+log('step: login ok, url=', await page.eval('location.href'))
+process.exit(0)

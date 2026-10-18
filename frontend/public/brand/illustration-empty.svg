@@ -1,0 +1,30 @@
+<!-- canvas-studio · 插画 ③「空态」
+     来源：docs/09-visual-language-v2.md §D.2 ③
+     规格：1:1，400×400（移动端 240×240）
+     构图：一张微歪 2° 的空白相纸 → 一段没画完的虚线轨迹（3 段逐渐变淡）→ 轨迹尽头停着一支悬空的笔
+           整幅偏右下，左上留大片空白放文案
+     颜色：墨（主结构 60% 不透明度）/ 纸 / 相纸白，3 色 -->
+<svg viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="空画布，等你在纸上落下第一笔">
+  <!-- 空白相纸，歪 2° -->
+  <g transform="rotate(2 270 250)">
+    <rect x="170" y="170" width="200" height="160" rx="3"
+          fill="var(--color-mat, none)" stroke="currentColor" stroke-opacity=".55" stroke-width="2"/>
+  </g>
+
+  <!-- 没画完的虚线轨迹：3 段逐渐变淡 -->
+  <g stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="10 9">
+    <path d="M58 118 C 110 94, 150 126, 176 150" stroke-opacity=".5"/>
+    <path d="M176 150 C 200 168, 224 176, 244 190" stroke-opacity=".32"/>
+    <path d="M244 190 C 258 200, 268 206, 278 214" stroke-opacity=".16"/>
+  </g>
+
+  <!-- 悬空的笔：只画笔杆与笔尖两条线，不画阴影，不接触纸面 -->
+  <g stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+     stroke-opacity=".6">
+    <path d="M334 274 L300 234"/>
+    <path d="M326 280 L292 240"/>
+    <path d="M334 274 L326 280"/>
+    <path d="M300 234 L288 226 L292 240"/>
+  </g>
+</svg>

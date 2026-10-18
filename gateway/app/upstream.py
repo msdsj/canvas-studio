@@ -30,7 +30,7 @@ def make_client(base_url: str, *, read_timeout: float | None = None) -> httpx.As
         write=settings.read_timeout,
         pool=settings.connect_timeout,
     )
-    # 代理仅用于"出外网"的调用；本地回环上游（如本机 chatgpt2api）直连，
+    # 代理仅用于"出外网"的调用；本地回环 provider 直连，
     # 否则回环请求被劫持到 VPN 代理，代理不可用时整条生图链路退化为 demo 占位图。
     proxy = None if _is_loopback(base_url) else (runtime_config.proxy_url or None)
     return httpx.AsyncClient(
@@ -41,24 +41,40 @@ def make_client(base_url: str, *, read_timeout: float | None = None) -> httpx.As
     )
 
 
-def sub2api_client(*, read_timeout: float | None = None) -> httpx.AsyncClient:
-    """sub2api 对话客户端。"""
-    return make_client(runtime_config.sub2api_base_url, read_timeout=read_timeout)
+def provider_client(
+    role: str,
+    *,
+    base_url: str | None = None,
+    read_timeout: float | None = None,
+) -> httpx.AsyncClient:
+    """Create a client for a configured OpenAI-compatible provider role."""
+    if base_url is None:
+        base_url = {
+            "text": runtime_config.text_base_url,
+            "llm": runtime_config.llm_base_url or runtime_config.text_base_url,
+            "image": runtime_config.image_base_url,
+        }.get(role, "")
+    return make_client(base_url, read_timeout=read_timeout)
 
 
-def chatgpt2api_client(*, read_timeout: float | None = None) -> httpx.AsyncClient:
-    """chatgpt2api 生图/号池客户端。"""
-    return make_client(runtime_config.chatgpt2api_base_url, read_timeout=read_timeout)
+def provider_headers(role: str, api_key: str | None = None) -> dict[str, str]:
+    """Return Bearer authentication for a provider role or selected pool key."""
+    if api_key is None:
+        api_key = {
+            "text": runtime_config.text_api_key,
+            "llm": runtime_config.llm_api_key or runtime_config.text_api_key,
+            "image": runtime_config.image_api_key,
+        }.get(role, "")
+    return {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
 
-def sub2api_headers() -> dict[str, str]:
-    """sub2api 鉴权头（Bearer sk-）。"""
-    return {"Authorization": f"Bearer {runtime_config.sub2api_api_key}"}
+def llm_client(*, read_timeout: float | None = None) -> httpx.AsyncClient:
+    """Independent intent model client, falling back to the text provider."""
+    return provider_client("llm", read_timeout=read_timeout)
 
 
-def chatgpt2api_headers() -> dict[str, str]:
-    """chatgpt2api 管理鉴权头。"""
-    return {"Authorization": f"Bearer {runtime_config.chatgpt2api_admin_key}"}
+def llm_headers() -> dict[str, str]:
+    return provider_headers("llm")
 
 
 async def probe(

@@ -12,7 +12,7 @@ router = APIRouter(prefix="/gw/images", tags=["gateway-images"])
 
 @router.post("/generations")
 async def image_generations(payload: ImageGenerationRequest) -> dict:
-    """转发 chatgpt2api 文生图；demo 时返回占位图。"""
+    """调用配置的图片 provider；demo 时返回占位图。"""
     return ok(await image_router.image_generations(payload.model_dump()))
 
 
@@ -21,10 +21,13 @@ async def image_edits(
     prompt: str = Form(...),
     model: str = Form(default="gpt-image-2"),
     size: str = Form(default="1024x1024"),
+    quality: str = Form(default="standard"),
+    n: int = Form(default=1),
+    response_format: str = Form(default="b64_json"),
     image: list[UploadFile] = File(...),
     mask: UploadFile | None = File(default=None),
 ) -> dict:
-    """转发 chatgpt2api 图生图/编辑（multipart）；demo 时返回占位图。"""
+    """调用配置的图片 provider 图生图/编辑（multipart）。"""
     files: list[tuple[str, tuple[str, bytes, str]]] = []
     for upload in image:
         files.append(
@@ -48,5 +51,12 @@ async def image_edits(
                 ),
             )
         )
-    form = {"prompt": prompt, "model": model, "size": size}
+    form = {
+        "prompt": prompt,
+        "model": model,
+        "size": size,
+        "quality": quality,
+        "n": max(1, min(n, 4)),
+        "response_format": response_format,
+    }
     return ok(await image_router.image_edits(files, form))

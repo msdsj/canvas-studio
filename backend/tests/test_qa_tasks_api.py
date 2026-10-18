@@ -96,8 +96,9 @@ async def test_qa_pause_resume_cancel_full_cycle(client, monkeypatch):
     assert await _balance(email) == 190
 
     resumed = await client.post(f"/api/generate/tasks/{tid}/resume", headers=headers)
-    assert resumed.status_code == 200
-    assert resumed.json()["data"]["status"] == "running"
+    # 产品口径：paused 不再支持「继续」——上游同步长请求，resume 会让同一任务双跑
+    assert resumed.status_code == 409
+    assert await _balance(email) == 190
 
     cancelled = await client.post(f"/api/generate/tasks/{tid}/cancel", headers=headers)
     assert cancelled.status_code == 200

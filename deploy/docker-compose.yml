@@ -22,14 +22,19 @@ services:
       CS_SECRET_KEY: ${CS_SECRET_KEY:-dev-change-me}
       CS_DEFAULT_ADMIN_EMAIL: ${CS_DEFAULT_ADMIN_EMAIL:-admin@canvas.studio}
       CS_DEFAULT_ADMIN_PASSWORD: ${CS_DEFAULT_ADMIN_PASSWORD:-Admin@12345}
-      CS_DEMO_MODE: ${CS_DEMO_MODE:-auto}
-      SUB2API_BASE_URL: ${SUB2API_BASE_URL:-http://sub2api:8080}
-      SUB2API_API_KEY: ${SUB2API_API_KEY:-sk-xxx}
-      CHATGPT2API_BASE_URL: ${CHATGPT2API_BASE_URL:-http://chatgpt2api:3000}
-      CHATGPT2API_ADMIN_KEY: ${CHATGPT2API_ADMIN_KEY:-xxx}
+      CS_DEMO_MODE: ${CS_DEMO_MODE:-off}
+      TEXT_API_BASE_URL: ${TEXT_API_BASE_URL:-}
+      TEXT_API_KEY: ${TEXT_API_KEY:-}
+      TEXT_MODEL: ${TEXT_MODEL:-gpt-4o-mini}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      IMAGE_API_BASE_URL: ${IMAGE_API_BASE_URL:-}
+      IMAGE_API_KEY: ${IMAGE_API_KEY:-}
+      IMAGE_MODEL: ${IMAGE_MODEL:-gpt-image-2}
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,backend,gateway,chatgpt2api,sub2api}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,backend,gateway}
     volumes:
       - backend_data:/app/data
     ports:
@@ -43,34 +48,25 @@ services:
       context: ../gateway
     environment:
       CS_GATEWAY_INTERNAL_TOKEN: ${CS_GATEWAY_INTERNAL_TOKEN:-dev-internal-token}
-      CS_DEMO_MODE: ${CS_DEMO_MODE:-auto}
-      SUB2API_BASE_URL: ${SUB2API_BASE_URL:-http://sub2api:8080}
-      SUB2API_API_KEY: ${SUB2API_API_KEY:-sk-xxx}
-      CHATGPT2API_BASE_URL: ${CHATGPT2API_BASE_URL:-http://chatgpt2api:3000}
-      CHATGPT2API_ADMIN_KEY: ${CHATGPT2API_ADMIN_KEY:-xxx}
+      CS_DEMO_MODE: ${CS_DEMO_MODE:-off}
+      TEXT_API_BASE_URL: ${TEXT_API_BASE_URL:-}
+      TEXT_API_KEY: ${TEXT_API_KEY:-}
+      TEXT_MODEL: ${TEXT_MODEL:-gpt-4o-mini}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      IMAGE_API_BASE_URL: ${IMAGE_API_BASE_URL:-}
+      IMAGE_API_KEY: ${IMAGE_API_KEY:-}
+      IMAGE_MODEL: ${IMAGE_MODEL:-gpt-image-2}
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,backend,chatgpt2api,sub2api}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,backend,gateway}
     ports:
       - "8100:8100"
-    restart: unless-stopped
-
-  # 上游（既有镜像，可选 profile：docker compose --profile upstream up）
-  chatgpt2api:
-    image: ${CHATGPT2API_IMAGE:-chatgpt2api:latest}
-    profiles: ["upstream"]
-    environment:
-      CHATGPT2API_AUTH_KEY: ${CHATGPT2API_ADMIN_KEY:-xxx}
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
-
-  sub2api:
-    image: ${SUB2API_IMAGE:-sub2api:latest}
-    profiles: ["upstream"]
-    ports:
-      - "8080:8080"
+    volumes:
+      - gateway_data:/app/data
     restart: unless-stopped
 
 volumes:
   backend_data:
+  gateway_data:

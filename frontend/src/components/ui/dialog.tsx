@@ -14,7 +14,8 @@ export const DialogOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Overlay
     ref={ref}
-    className={cn('fixed inset-0 z-50 bg-[var(--overlay)]', className)}
+    // 不加 backdrop-filter：Excalidraw 内部有独立合成层，遮罩带滤镜时会连带压暗画布。
+    className={cn('fixed inset-0 z-[1100] bg-[var(--overlay)]', className)}
     {...props}
   />
 ))
@@ -40,8 +41,10 @@ export const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        'fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2',
-        'rounded-xl border border-border bg-surface-raised p-6 shadow-lg focus:outline-none',
+        // z-[1100] 必须高于 Excalidraw 的 --zIndex-modal(1000)，否则弹窗会被画布压住
+        'fixed left-1/2 top-1/2 z-[1100] w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2',
+        'max-h-[min(720px,calc(100dvh-96px))] overflow-y-auto',
+        'rounded-[20px] border border-border/70 bg-surface-raised p-6 shadow-float focus:outline-none',
         sizeClass[size],
         className
       )}

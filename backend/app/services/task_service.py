@@ -18,10 +18,12 @@ from app.utils.errors import AppError, ErrorCode
 from app.utils.ids import new_id, utcnow
 
 # 合法状态迁移表
+# paused 不再提供「继续」入口：上游是同步长请求，resume 会二次 dispatch 导致同一任务双跑，
+# 因此 paused 只允许走向终态（cancelled / timeout）。
 _TRANSITIONS: dict[str, set[str]] = {
     "queued": {"running", "cancelled", "timeout"},
     "running": {"paused", "succeeded", "failed", "timeout", "cancelled"},
-    "paused": {"running", "cancelled", "timeout"},
+    "paused": {"cancelled", "timeout"},
     "succeeded": set(),
     "failed": set(),
     "cancelled": set(),
@@ -36,12 +38,12 @@ _CONSUME_TYPE = {"generate": "consume_image", "edit": "consume_edit"}
 
 
 def _check_transition(current: str, target: str) -> None:
-    """校验状态迁移合法性。"""
+    """校验状态迁移合法性。
+
+    错误文案不得包含内部状态名（paused / running 等），否则会原样落到用户界面上。
+    """
     if target not in _TRANSITIONS.get(current, set()):
-        raise AppError(
-            ErrorCode.TASK_STATE_CONFLICT,
-            f"任务当前状态为 {current}，不允许变更为 {target}",
-        )
+        raise AppError(ErrorCode.TASK_STATE_CONFLICT, "这一步已经做过了，刷新看看最新进度")
 
 
 async def find_by_idem(db: AsyncSession, user_id: str, key: str) -> GenerationTask | None:
@@ -316,11 +318,15 @@ async def mark_seen(db: AsyncSession, user_id: str, task_id: str) -> GenerationT
 
 
 async def reclaim_orphans(db: AsyncSession) -> int:
-    """孤儿回收：无进展超时的 running/queued 任务 → timeout + 幂等回滚。"""
+    """孤儿回收：无进展超时的 queued/running/paused 任务 → timeout + 幂等回滚。
+
+    paused 虽不计并发，但必须一起回收：否则历史暂停任务会永久滞留，
+    预扣额度停在 processing 且永远出现在 /api/tasks/active 轮询结果里。
+    """
     threshold = utcnow() - timedelta(seconds=settings.task_timeout_seconds)
     result = await db.execute(
         select(GenerationTask).where(
-            GenerationTask.status.in_(CONCURRENCY_STATUSES),
+            GenerationTask.status.in_(ACTIVE_STATUSES),
             GenerationTask.last_activity_at < threshold,
         )
     )

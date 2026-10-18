@@ -5,7 +5,13 @@ import { Modal } from '@/components/ui/modal'
 import { Button } from '@/components/ui/button'
 import { useUIStore } from '@/stores/ui'
 
-/** 额度不足拦截模态（P0-15）。 */
+/**
+ * 额度不足拦截模态。
+ *
+ * 主按钮给「查看额度明细」、次按钮给「知道了」：
+ * 这是一次被拦下的操作，用户看完余额后多半想回到原地继续，
+ * 而不是被强制跳走再自己找回来。
+ */
 export function QuotaInsufficientModal() {
   const { t } = useTranslation('workspace')
   const open = useUIStore((s) => s.quotaModalOpen)
@@ -26,7 +32,7 @@ export function QuotaInsufficientModal() {
       footer={
         <>
           <Button variant="secondary" onClick={() => setOpen(false)}>
-            {t('quota.view_detail')}
+            {t('quota_modal.dismiss')}
           </Button>
           <Button
             onClick={() => {

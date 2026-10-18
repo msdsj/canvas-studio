@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, Query, UploadFile
 from fastapi.responses import StreamingResponse
@@ -14,14 +15,18 @@ from app.database import AsyncSessionLocal, get_db
 from app.deps import get_current_user
 from app.models.generation import GenerationTask
 from app.models.user import User
-from app.schemas.generate import GenerateImageRequest
+from app.schemas.generate import GenerateImageRequest, PlanRequest
 from app.schemas.task import GenerationTaskOut
 from app.services import (
     asset_service,
+    cutout_service,
     generate_service,
+    plan_service,
     task_service,
 )
 from app.services import chat_service as _chat  # 复用 sse_chunk
+from app.services.edit_handlers import load_handlers
+from app.services.edit_ops import clean_region
 from app.utils.errors import AppError, ErrorCode, envelope
 from app.utils.pagination import normalize_page, paginated
 
@@ -76,15 +81,22 @@ async def generate_edit(
     canvas_id: str | None = Form(default=None),
     file: UploadFile | None = File(default=None),
     mask: UploadFile | None = File(default=None),
+    guide: UploadFile | None = File(default=None),
     edit_mode: str | None = Form(default=None),
     edit_intensity: str | None = Form(default=None),
     region: str | None = Form(default=None),
+    ops: str | None = Form(default=None),
+    n: int = Form(default=1),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict:
     """创建编辑任务（参考图来自资产库或上传，幂等）。
 
-    - `region`：JSON 形式的归一化选区 {x,y,w,h}，用于"选区外严格不变"的合成保真；
-    - `edit_mode=transparent`：本地透明化（免费，不消耗上游算力）；
+    - `ops`：**结构化编辑操作**（推荐），JSON 数组，每项形如
+      `{"region": {x,y,w,h}, "handler": "restyle|cutout|...", "prompt": "...", "intensity": "fine"}`；
+      能力由注册表驱动，可按需扩展（见 `edit_handlers`）。产出数量随之自动规划：
+      整图类能力合并为 1 张，素材类能力每区域各 1 张。
+    - `region`：旧版纯几何选区（JSON），等价于全部按兜底能力处理，保留向后兼容；
+    - `edit_mode=transparent`：对全部选区做就地透明化（免费，不消耗上游算力）；
     - `edit_intensity`：fine=精细修改（保结构，默认）；rebuild=重新生成（换主体）。
     """
     if base_asset_id:
@@ -107,6 +119,14 @@ async def generate_edit(
         )
         mask_url = mask_asset.url
 
+    guide_url: str | None = None
+    if guide is not None:
+        guide_data = await guide.read()
+        guide_asset = await generate_service.save_upload_as_asset(
+            db, user.id, guide.filename or "edit-guide.png", guide.content_type or "image/png", guide_data
+        )
+        guide_url = guide_asset.url
+
     edit_region: list[dict[str, float]] | None = None
     if region:
         try:
@@ -121,9 +141,21 @@ async def generate_edit(
             raw_regions = []
         normalized_regions: list[dict[str, float]] = []
         for item in raw_regions:
-            if isinstance(item, dict) and all(k in item for k in ("x", "y", "w", "h")):
-                normalized_regions.append({k: round(float(item[k]), 6) for k in ("x", "y", "w", "h")})
+            if isinstance(item, dict):
+                cleaned = clean_region(item)
+                if cleaned is not None:
+                    normalized_regions.append(cleaned)
         edit_region = normalized_regions or None
+
+    # 结构化编辑操作（能力注册表驱动）；非法项由服务层统一过滤与夹取
+    edit_ops: list[dict[str, Any]] | None = None
+    if ops:
+        try:
+            parsed_ops = json.loads(ops)
+        except ValueError:
+            parsed_ops = None
+        if isinstance(parsed_ops, list):
+            edit_ops = [item for item in parsed_ops if isinstance(item, dict)] or None
 
     key = idempotency_key or generate_service.new_idempotency_key()
     task, created = await generate_service.create_edit_task(
@@ -138,12 +170,45 @@ async def generate_edit(
         idempotency_key=key,
         mask_url=mask_url,
         edit_region=edit_region,
+        edit_ops=edit_ops,
         edit_mode=edit_mode,
         edit_intensity=edit_intensity,
+        extra={"guide_url": guide_url, "n": max(1, min(n, 4))} if guide_url else {"n": max(1, min(n, 4))},
     )
     if created:
         background_tasks.add_task(generate_service.run_task, task.id)
     return envelope(_serialize(task))
+
+
+@router.post("/plan")
+async def plan_edit(
+    payload: PlanRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """把自然语言需求解析为结构化编辑计划（只分析，不创建任务、不计费）。
+
+    返回 `{reply, ops, outputs, summary, demo}`：前端可先展示给用户确认或微调，
+    确认后再带 `ops` 调用 `POST /api/generate/edit` 真正执行。
+    能力清单由注册表动态注入提示词——管理员新增能力后，分析结果自动支持它。
+    """
+    result = await plan_service.plan_edit(db, message=payload.message, regions=payload.regions)
+    return envelope(result)
+
+
+@router.get("/capabilities")
+async def list_capabilities(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """列出当前可用的编辑能力（注册表驱动，前端据此渲染能力选择与说明）。"""
+    handlers = await load_handlers(db)
+    return envelope(
+        {
+            "handlers": [item.to_public() for item in handlers.values()],
+            "cutout_strategies": cutout_service.available_strategies(),
+        }
+    )
 
 
 @router.get("/tasks")

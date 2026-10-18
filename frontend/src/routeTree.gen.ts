@@ -30,6 +30,7 @@ import { Route as AdminPoolRouteImport } from './routes/admin.pool'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as CanvasIdRouteImport } from './routes/canvas.$id'
 import { Route as ShareTokenRouteImport } from './routes/share.$token'
+import { Route as ShareChatTokenRouteImport } from './routes/share.chat.$token'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -136,6 +137,11 @@ const ShareTokenRoute = ShareTokenRouteImport.update({
   path: '/share/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ShareChatTokenRoute = ShareChatTokenRouteImport.update({
+  id: '/share/chat/$token',
+  path: '/share/chat/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -159,6 +165,7 @@ export interface FileRoutesByFullPath {
   '/canvas/$id': typeof CanvasIdRoute
   '/share/$token': typeof ShareTokenRoute
   '/admin/': typeof AdminIndexRoute
+  '/share/chat/$token': typeof ShareChatTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -181,6 +188,7 @@ export interface FileRoutesByTo {
   '/canvas/$id': typeof CanvasIdRoute
   '/share/$token': typeof ShareTokenRoute
   '/admin': typeof AdminIndexRoute
+  '/share/chat/$token': typeof ShareChatTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -205,6 +213,7 @@ export interface FileRoutesById {
   '/canvas/$id': typeof CanvasIdRoute
   '/share/$token': typeof ShareTokenRoute
   '/admin/': typeof AdminIndexRoute
+  '/share/chat/$token': typeof ShareChatTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -230,6 +239,7 @@ export interface FileRouteTypes {
     | '/canvas/$id'
     | '/share/$token'
     | '/admin/'
+    | '/share/chat/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -252,6 +262,7 @@ export interface FileRouteTypes {
     | '/canvas/$id'
     | '/share/$token'
     | '/admin'
+    | '/share/chat/$token'
   id:
     | '__root__'
     | '/'
@@ -275,6 +286,7 @@ export interface FileRouteTypes {
     | '/canvas/$id'
     | '/share/$token'
     | '/admin/'
+    | '/share/chat/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -292,6 +304,7 @@ export interface RootRouteChildren {
   WorkspaceRoute: typeof WorkspaceRoute
   CanvasIdRoute: typeof CanvasIdRoute
   ShareTokenRoute: typeof ShareTokenRoute
+  ShareChatTokenRoute: typeof ShareChatTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -443,6 +456,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShareTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/share/chat/$token': {
+      id: '/share/chat/$token'
+      path: '/share/chat/$token'
+      fullPath: '/share/chat/$token'
+      preLoaderRoute: typeof ShareChatTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -483,6 +503,7 @@ const rootRouteChildren: RootRouteChildren = {
   WorkspaceRoute: WorkspaceRoute,
   CanvasIdRoute: CanvasIdRoute,
   ShareTokenRoute: ShareTokenRoute,
+  ShareChatTokenRoute: ShareChatTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

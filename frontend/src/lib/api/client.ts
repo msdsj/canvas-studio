@@ -45,6 +45,9 @@ export interface RequestOptions {
 // 相同 (method,url,body,idempotencyKey) 的 in-flight 请求共享同一个 Promise
 const inflight = new Map<string, Promise<unknown>>()
 
+/** 普通 JSON 请求的超时：弱网下 fetch 可以永久挂起，必须自己兜底。 */
+const REQUEST_TIMEOUT_MS = 30_000
+
 async function doFetch(method: string, url: string, options: RequestOptions): Promise<unknown> {
   const headers: Record<string, string> = { ...(options.headers || {}) }
   const token = getToken()
@@ -63,11 +66,23 @@ async function doFetch(method: string, url: string, options: RequestOptions): Pr
   }
 
   let res: Response
+  // 自己的超时控制器 + 外部 signal 转发：外部主动取消仍然保持 AbortError 语义
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const forwardAbort = () => controller.abort()
+  options.signal?.addEventListener('abort', forwardAbort)
   try {
-    res = await fetch(url, { method, headers, body: payload, signal: options.signal })
+    res = await fetch(url, { method, headers, body: payload, signal: controller.signal })
   } catch (error) {
-    if ((error as Error).name === 'AbortError') throw error
-    throw new ApiError('PROXY_UNREACHABLE', '网络不可达，请检查连接后重试', 0)
+    if ((error as Error).name === 'AbortError') {
+      // 用户主动取消 → 原样抛出；超时 → 给一句人话
+      if (options.signal?.aborted) throw error
+      throw new ApiError('UPSTREAM_ERROR', '这次等得有点久，已经帮你停下了', 0)
+    }
+    throw new ApiError('PROXY_UNREACHABLE', '网络好像断了，确认联网后重试', 0)
+  } finally {
+    window.clearTimeout(timer)
+    options.signal?.removeEventListener('abort', forwardAbort)
   }
 
   if (res.status === 401) {
@@ -83,7 +98,7 @@ async function doFetch(method: string, url: string, options: RequestOptions): Pr
   }
 
   if (!envelope || typeof envelope.code !== 'string') {
-    if (!res.ok) throw new ApiError('INTERNAL_ERROR', `请求失败（HTTP ${res.status}）`, res.status)
+    if (!res.ok) throw new ApiError('INTERNAL_ERROR', '服务开了个小差，稍等片刻再试', res.status)
     return undefined
   }
   if (envelope.code !== 'OK') {
@@ -127,7 +142,7 @@ export async function download(path: string, options: RequestOptions = {}): Prom
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
   const res = await fetch(url, { method: options.method || 'GET', headers, body: options.body as BodyInit })
-  if (!res.ok) throw new ApiError('INTERNAL_ERROR', `下载失败（HTTP ${res.status}）`, res.status)
+  if (!res.ok) throw new ApiError('INTERNAL_ERROR', '文件没能下载下来，稍后再试', res.status)
   return res.blob()
 }
 

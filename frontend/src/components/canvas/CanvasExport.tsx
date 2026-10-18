@@ -30,6 +30,13 @@ export function CanvasExport({ api }: { api: ExcalidrawApiLike | null }) {
     setBusy(true)
     try {
       const appState = api.getAppState() as Record<string, unknown>
+      // 画布在编辑器里用 transparent 让纸感底色透出；导出必须落到具体颜色，
+      // 否则 PNG 会变成全透明（与改造前「白底 PNG」的行为不一致）。
+      const background =
+        typeof appState.viewBackgroundColor === 'string' &&
+        appState.viewBackgroundColor !== 'transparent'
+          ? appState.viewBackgroundColor
+          : '#ffffff'
       const blob = await exportToBlob({
         elements: elements as never,
         files: api.getFiles() as never,
@@ -39,7 +46,7 @@ export function CanvasExport({ api }: { api: ExcalidrawApiLike | null }) {
           ...(appState as never),
           // 导出时铺满背景：JPG 不支持透明，统一白底避免出现黑块
           exportBackground: true,
-          viewBackgroundColor: format === 'jpg' ? '#ffffff' : (appState.viewBackgroundColor ?? '#ffffff'),
+          viewBackgroundColor: format === 'jpg' ? '#ffffff' : background,
         },
       })
       downloadBlob(blob, `canvas-${Date.now()}.${format}`)

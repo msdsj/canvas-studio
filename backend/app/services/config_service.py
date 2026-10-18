@@ -33,10 +33,15 @@ class ConfigDef:
 
 # 默认配置清单（seed 时写入；缺失时兜底）
 DEFAULT_CONFIGS: list[ConfigDef] = [
-    ConfigDef("SUB2API_BASE_URL", upstream_settings.sub2api_base_url, "string", "integration", "sub2api 对话中转地址"),
-    ConfigDef("SUB2API_API_KEY", upstream_settings.sub2api_api_key, "secret", "integration", "sub2api 对话 Key", is_secret=True),
-    ConfigDef("CHATGPT2API_BASE_URL", upstream_settings.chatgpt2api_base_url, "string", "integration", "chatgpt2api 生图/号池地址"),
-    ConfigDef("CHATGPT2API_ADMIN_KEY", upstream_settings.chatgpt2api_admin_key, "secret", "integration", "chatgpt2api 管理 Key", is_secret=True),
+    ConfigDef("TEXT_API_BASE_URL", upstream_settings.text_base_url, "string", "integration", "文本对话 provider 地址（OpenAI 兼容，通常填到 /v1）"),
+    ConfigDef("TEXT_API_KEY", upstream_settings.text_api_key, "secret", "integration", "文本对话 provider API Key", is_secret=True),
+    ConfigDef("TEXT_MODEL", upstream_settings.text_model, "string", "integration", "普通对话模型名称"),
+    ConfigDef("LLM_BASE_URL", upstream_settings.llm_base_url, "string", "integration", "意图分析模型中转地址（OpenAI 兼容）"),
+    ConfigDef("LLM_API_KEY", upstream_settings.llm_api_key, "secret", "integration", "意图分析模型 API Key", is_secret=True),
+    ConfigDef("LLM_MODEL", upstream_settings.llm_model, "string", "integration", "意图分析模型名称（留空使用默认模型）"),
+    ConfigDef("IMAGE_API_BASE_URL", upstream_settings.image_base_url, "string", "integration", "图片 provider 地址（OpenAI 兼容，通常填到 /v1）"),
+    ConfigDef("IMAGE_API_KEY", upstream_settings.image_api_key, "secret", "integration", "图片 provider API Key", is_secret=True),
+    ConfigDef("IMAGE_MODEL", upstream_settings.image_model, "string", "integration", "图片模型名称"),
     ConfigDef("HTTP_PROXY", upstream_settings.http_proxy, "string", "network", "HTTP 代理"),
     ConfigDef("HTTPS_PROXY", upstream_settings.https_proxy, "string", "network", "HTTPS 代理"),
     ConfigDef("DEMO_MODE", settings.demo_mode, "string", "demo", "Demo 模式 auto|on|off"),
@@ -74,6 +79,80 @@ DEFAULT_CONFIGS: list[ConfigDef] = [
         "prompt",
         "上传/编辑内置提示词预设（JSON 数组，每项含 id/label/prompt）",
     ),
+    # ---- 可插拔编辑能力 + 意图分析（对标 lovart 的智能编排核心）----
+    ConfigDef(
+        "EDIT_HANDLERS",
+        "[]",
+        "json",
+        "prompt",
+        "自定义编辑能力（JSON 数组）：纯声明式扩展，无需改代码；同 id 覆盖内置能力。"
+        "字段 id/label/description/engine(upstream|local)/output(composite|sprite)/"
+        "per_region/billable/prompt_prefix/executor",
+    ),
+    ConfigDef(
+        "CUTOUT_STRATEGY",
+        "auto",
+        "string",
+        "prompt",
+        "抠图兜底策略 auto|rembg|grabcut|chroma（仅在上游未返回 alpha 通道时启用）",
+    ),
+    ConfigDef(
+        "CUTOUT_LOCAL_FALLBACK",
+        "false",
+        "bool",
+        "prompt",
+        "抠图本地兜底：仅在图片上游返回结果但丢弃 alpha 时启用，默认关闭",
+    ),
+    ConfigDef(
+        "EDIT_CONCURRENCY",
+        "3",
+        "int",
+        "prompt",
+        "编辑任务并发调用上游的区域数上限（1~6）。每个选区一次独立调用，并发执行以缩短总耗时",
+    ),
+    ConfigDef(
+        "INTENT_PLANNER_MODEL",
+        "gpt-4o-mini",
+        "string",
+        "prompt",
+        "意图分析（自然语言 → 结构化编辑计划）使用的模型",
+    ),
+    ConfigDef(
+        "PROMPT_INTENT_PLANNER",
+        "",
+        "string",
+        "prompt",
+        "意图分析系统提示词覆盖（留空则用内置模板 app/prompts/intent_planner.md）",
+    ),
+    # ---- 纯生图全链路（需求分析 / 提示词工程 / 润色）----
+    ConfigDef(
+        "AI_RELAY_ALLOW_GLOBAL",
+        "false",
+        "bool",
+        "integration",
+        "允许未配置个人中转站的用户使用平台公共中转（会产生平台侧模型费用，默认关闭）",
+    ),
+    ConfigDef(
+        "PROMPT_COMPOSE_ANALYZE",
+        "",
+        "string",
+        "prompt",
+        "生图需求分析提示词覆盖（留空则用 app/prompts/compose_analyze.md）",
+    ),
+    ConfigDef(
+        "PROMPT_COMPOSE_PROMPT",
+        "",
+        "string",
+        "prompt",
+        "生图提示词工程提示词覆盖（留空则用 app/prompts/compose_prompt.md）",
+    ),
+    ConfigDef(
+        "PROMPT_POLISH",
+        "",
+        "string",
+        "prompt",
+        "提示词润色提示词覆盖（留空则用 app/prompts/polish.md）",
+    ),
 ]
 
 
@@ -103,8 +182,38 @@ def _coerce(raw: str, value_type: str) -> Any:
 
 async def ensure_defaults(db: AsyncSession) -> None:
     """确保默认配置项存在（缺则补）。"""
-    existing = await db.execute(select(SystemConfig.key))
-    present = {row[0] for row in existing.all()}
+    existing_rows = (await db.execute(select(SystemConfig))).scalars().all()
+    by_key = {row.key: row for row in existing_rows}
+    # Existing installations used the two reference services as configuration
+    # names. Migrate their values once, then remove the obsolete rows so the
+    # admin UI and gateway no longer advertise those services.
+    legacy_map = {
+        "SUB2API_BASE_URL": "TEXT_API_BASE_URL",
+        "SUB2API_API_KEY": "TEXT_API_KEY",
+        "CHATGPT2API_BASE_URL": "IMAGE_API_BASE_URL",
+        "CHATGPT2API_ADMIN_KEY": "IMAGE_API_KEY",
+    }
+    for old_key, new_key in legacy_map.items():
+        old = by_key.get(old_key)
+        if old is None:
+            continue
+        if new_key not in by_key and old.value:
+            for item in DEFAULT_CONFIGS:
+                if item.key == new_key:
+                    db.add(
+                        SystemConfig(
+                            key=new_key,
+                            value=old.value,
+                            value_type=item.value_type,
+                            is_secret=item.is_secret,
+                            category=item.category,
+                            description=item.description,
+                        )
+                    )
+                    by_key[new_key] = True
+                    break
+        await db.delete(old)
+    present = set(by_key)
     for item in DEFAULT_CONFIGS:
         if item.key not in present:
             db.add(
@@ -230,13 +339,20 @@ async def demo_mode(db: AsyncSession) -> str:
 async def resolve_upstream(db: AsyncSession) -> dict[str, Any]:
     """解析上游 + 代理 + Demo 配置（用于推送给网关）。"""
     return {
-        "sub2api": {
-            "base_url": await get_raw(db, "SUB2API_BASE_URL", upstream_settings.sub2api_base_url),
-            "api_key": await get_raw(db, "SUB2API_API_KEY", upstream_settings.sub2api_api_key),
+        "text": {
+            "base_url": await get_raw(db, "TEXT_API_BASE_URL", upstream_settings.text_base_url),
+            "api_key": await get_raw(db, "TEXT_API_KEY", upstream_settings.text_api_key),
+            "model": await get_raw(db, "TEXT_MODEL", upstream_settings.text_model),
         },
-        "chatgpt2api": {
-            "base_url": await get_raw(db, "CHATGPT2API_BASE_URL", upstream_settings.chatgpt2api_base_url),
-            "admin_key": await get_raw(db, "CHATGPT2API_ADMIN_KEY", upstream_settings.chatgpt2api_admin_key),
+        "llm": {
+            "base_url": await get_raw(db, "LLM_BASE_URL", upstream_settings.llm_base_url),
+            "api_key": await get_raw(db, "LLM_API_KEY", upstream_settings.llm_api_key),
+            "model": await get_raw(db, "LLM_MODEL", upstream_settings.llm_model),
+        },
+        "image": {
+            "base_url": await get_raw(db, "IMAGE_API_BASE_URL", upstream_settings.image_base_url),
+            "api_key": await get_raw(db, "IMAGE_API_KEY", upstream_settings.image_api_key),
+            "model": await get_raw(db, "IMAGE_MODEL", upstream_settings.image_model),
         },
         "proxy": {
             "http_proxy": await get_raw(db, "HTTP_PROXY", upstream_settings.http_proxy),

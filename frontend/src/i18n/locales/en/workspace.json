@@ -1,5 +1,6 @@
 {
   "quota": {
+    "badge_label": "Creation credits",
     "label": "Credits",
     "balance": "{{balance}} credits",
     "normal": "Credits OK",
@@ -11,7 +12,8 @@
   "quota_modal": {
     "title": "Insufficient credits",
     "desc": "Your balance is not enough for this action. Contact your admin or view details.",
-    "go_usage": "Go to Usage"
+    "go_usage": "View credits",
+    "dismiss": "Got it"
   },
   "notifications": {
     "title": "Notifications",

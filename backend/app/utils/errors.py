@@ -44,22 +44,22 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.INTERNAL_ERROR: 500,
 }
 
-# 错误码 → 默认中文文案
+# 错误码 → 默认中文文案（用户可见，禁止出现「上游 / 网关 / 号池 / 代理 / 服务器」等内部词）
 ERROR_MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.OK: "成功",
-    ErrorCode.QUOTA_INSUFFICIENT: "额度不足，请联系管理员或查看额度明细",
-    ErrorCode.UNAUTHORIZED: "未登录或登录已过期，请重新登录",
-    ErrorCode.FORBIDDEN: "无权访问该资源",
-    ErrorCode.UPSTREAM_ERROR: "上游服务繁忙或不可用，请稍后重试",
-    ErrorCode.POOL_UNAVAILABLE: "当前无可用生图账号，请稍后重试",
-    ErrorCode.PROXY_UNREACHABLE: "网络代理不可达，请检查服务器 VPN 配置",
-    ErrorCode.TASK_NOT_FOUND: "任务不存在或已被清理",
-    ErrorCode.TASK_STATE_CONFLICT: "任务当前状态不允许该操作",
-    ErrorCode.TASK_LIMIT_EXCEEDED: "并发任务数已达上限，请稍候或先取消",
-    ErrorCode.RATE_LIMITED: "操作过于频繁，请稍后再试",
-    ErrorCode.VALIDATION_ERROR: "参数校验失败",
-    ErrorCode.NOT_FOUND: "资源不存在",
-    ErrorCode.INTERNAL_ERROR: "服务器内部错误",
+    ErrorCode.QUOTA_INSUFFICIENT: "这次需要的额度不够了，去「用量」看看明细",
+    ErrorCode.UNAUTHORIZED: "登录状态过期了，重新登录就能继续",
+    ErrorCode.FORBIDDEN: "这部分内容你没有权限",
+    ErrorCode.UPSTREAM_ERROR: "图片没生成出来，额度已经退回给你",
+    ErrorCode.POOL_UNAVAILABLE: "现在有点忙，暂时排不上，等一分钟再试",
+    ErrorCode.PROXY_UNREACHABLE: "网络不太稳定，检查一下网络再试",
+    ErrorCode.TASK_NOT_FOUND: "这条记录已经过期清掉了，重新发起一次吧",
+    ErrorCode.TASK_STATE_CONFLICT: "这一步已经做过了，刷新看看最新进度",
+    ErrorCode.TASK_LIMIT_EXCEEDED: "同时生成的数量有点多，等一张完成或先停一张",
+    ErrorCode.RATE_LIMITED: "操作有点快，缓一下再试",
+    ErrorCode.VALIDATION_ERROR: "填写的内容需要调整一下",
+    ErrorCode.NOT_FOUND: "没找到你要的内容",
+    ErrorCode.INTERNAL_ERROR: "服务开了个小差，稍等片刻再试",
 }
 
 

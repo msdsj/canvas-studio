@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.canvas import Canvas
+from app.models.chat import ChatMessage, ChatSession
 from app.models.project import CanvasProject
 from app.security import generate_token
 from app.utils.errors import AppError, ErrorCode
@@ -127,6 +128,110 @@ async def get_shared(db: AsyncSession, token: str) -> Canvas:
     if canvas is None:
         raise AppError(ErrorCode.NOT_FOUND, "分享链接无效或已关闭")
     return canvas
+
+
+async def share_session(db: AsyncSession, owner_id: str, session_id: str) -> tuple[str, str]:
+    """开启「整段对话」分享，返回 (token, url)。
+
+    分享出去的是**对话只读视图**：消息、提示词、生成结果链接、关联画布快照。
+    访问者可以看、可以「基于它继续创作」——继续创作会复制一份到自己的账号下，
+    不会污染原作者的对话（见 `fork_shared_session`）。
+    """
+    session = (
+        await db.execute(select(ChatSession).where(ChatSession.id == session_id))
+    ).scalar_one_or_none()
+    if session is None or session.user_id != owner_id or session.deleted_at is not None:
+        raise AppError(ErrorCode.NOT_FOUND, "这段对话不存在")
+    if not session.share_token:
+        session.share_token = generate_token(16)
+    session.is_public = True
+    await db.flush()
+    url = f"{settings.frontend_base_url.rstrip('/')}/share/chat/{session.share_token}"
+    return session.share_token, url
+
+
+async def unshare_session(db: AsyncSession, owner_id: str, session_id: str) -> None:
+    """关闭对话分享（旧链接立即失效，重开会签发新 token）。"""
+    session = (
+        await db.execute(select(ChatSession).where(ChatSession.id == session_id))
+    ).scalar_one_or_none()
+    if session is None or session.user_id != owner_id:
+        raise AppError(ErrorCode.NOT_FOUND, "这段对话不存在")
+    session.is_public = False
+    session.share_token = None
+    await db.flush()
+
+
+async def get_shared_session(db: AsyncSession, token: str) -> tuple[ChatSession, list[ChatMessage]]:
+    """按 token 读取分享的对话（公开、只读）。"""
+    session = (
+        await db.execute(
+            select(ChatSession).where(
+                ChatSession.share_token == token, ChatSession.is_public.is_(True)
+            )
+        )
+    ).scalar_one_or_none()
+    if session is None:
+        raise AppError(ErrorCode.NOT_FOUND, "分享链接无效或已关闭")
+    messages = (
+        await db.execute(
+            select(ChatMessage)
+            .where(
+                ChatMessage.session_id == session.id,
+                ChatMessage.deleted_at.is_(None),
+            )
+            .order_by(ChatMessage.created_at.asc())
+            .limit(300)
+        )
+    ).scalars().all()
+    return session, list(messages)
+
+
+async def fork_shared_session(
+    db: AsyncSession, viewer_id: str, token: str
+) -> ChatSession:
+    """「基于这段对话继续创作」：把共享对话复制一份到访问者账号下。
+
+    只复制**可复现的内容**（文字 + 提示词 + 参考图附件），不复制他人的画布与任务所有权；
+    新会话会新建一块空白画布，访问者从零开始画，不会改到原作者的任何数据。
+    """
+    source, messages = await get_shared_session(db, token)
+    # 复用会话建画布的逻辑（在访问者自己的项目下开一张空画布）
+    from app.services import chat_service
+
+    canvas_id = await chat_service._create_conversation_canvas(
+        db, viewer_id, f"{source.title or '对话'}（来自分享）"
+    )
+    clone = ChatSession(
+        id=new_id(),
+        user_id=viewer_id,
+        canvas_id=canvas_id,
+        title=f"{source.title or '对话'}（来自分享）"[:255],
+    )
+    db.add(clone)
+    await db.flush()
+    for message in messages:
+        attachments = []
+        for item in message.attachments or []:
+            if not isinstance(item, dict):
+                continue
+            kind = str(item.get("type") or "")
+            # compose_run / skill_run 是执行态，复制过去会指向别人的 run，丢掉更安全
+            if kind in {"compose_run", "skill_run"}:
+                continue
+            attachments.append(item)
+        db.add(
+            ChatMessage(
+                id=new_id(),
+                session_id=clone.id,
+                user_id=viewer_id,
+                role=message.role,
+                content=message.content,
+                attachments=attachments,
+            )
+        )
+    await db.flush()
+    return clone
 
 
 def _render_placeholder_png(canvas: Canvas) -> bytes:

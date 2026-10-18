@@ -23,9 +23,13 @@ export function ProjectCard({ project, onOpen, onRename, onDelete }: ProjectCard
   return (
     <Card interactive className="flex flex-col gap-3 p-0">
       <button type="button" className="flex flex-col" onClick={() => onOpen(project)}>
-        <div className="flex aspect-video items-center justify-center overflow-hidden rounded-t-lg bg-bg-subtle">
+        <div className="cs-zoom flex aspect-video items-center justify-center rounded-t-[16px] bg-bg-subtle">
           {project.thumbnail_url ? (
-            <img src={project.thumbnail_url} alt={project.name} className="h-full w-full object-cover" />
+            <img
+              src={project.thumbnail_url}
+              alt={project.name}
+              className="cs-zoom-target h-full w-full object-cover"
+            />
           ) : (
             <LayoutGrid size={36} className="text-text-tertiary" />
           )}

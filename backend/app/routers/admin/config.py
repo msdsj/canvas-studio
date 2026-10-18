@@ -48,7 +48,7 @@ async def update_config(
 @router.post("/test")
 async def test_config(payload: ConfigTestRequest) -> dict:
     """连通性测试（区分 proxy / upstream）。"""
-    if payload.target not in {"sub2api", "chatgpt2api", "proxy"}:
-        raise AppError(ErrorCode.VALIDATION_ERROR, "target 必须是 sub2api|chatgpt2api|proxy")
+    if payload.target not in {"text", "image", "llm", "pool", "proxy"}:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "target 必须是 text|image|llm|pool|proxy")
     result = await gateway_client.config_test(payload.target)
     return envelope(result)

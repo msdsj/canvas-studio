@@ -24,10 +24,10 @@ export function AdminSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col gap-1 border-r border-border bg-surface p-3">
+    <aside className="m-2 flex w-[216px] shrink-0 flex-col gap-1 rounded-[16px] bg-surface p-3 shadow-sheet">
       <Link
         to="/workspace"
-        className="mb-2 flex items-center gap-2 rounded-md px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover"
+        className="mb-2 flex items-center gap-2 rounded-[10px] px-3 py-2 text-ui text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
       >
         <ArrowLeft size={16} /> {t('title')}
       </Link>
@@ -38,7 +38,7 @@ export function AdminSidebar() {
             key={item.to}
             to={item.to}
             className={cn(
-              'rounded-md px-3 py-2 text-sm transition-colors',
+              'rounded-[10px] px-3 py-2 text-ui transition-colors',
               active ? 'bg-brand-subtle font-medium text-brand-text' : 'text-text-secondary hover:bg-surface-hover'
             )}
           >

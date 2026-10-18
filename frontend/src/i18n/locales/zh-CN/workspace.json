@@ -1,5 +1,6 @@
 {
   "quota": {
+    "badge_label": "创作额度",
     "label": "额度",
     "balance": "余额 {{balance}} 积分",
     "normal": "额度充足",
@@ -11,7 +12,8 @@
   "quota_modal": {
     "title": "额度不足",
     "desc": "当前余额不足以完成本次操作。请联系管理员补充额度，或查看额度明细。",
-    "go_usage": "前往额度中心"
+    "go_usage": "查看额度明细",
+    "dismiss": "知道了"
   },
   "notifications": {
     "title": "通知",

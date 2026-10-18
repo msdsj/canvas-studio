@@ -1,0 +1,596 @@
+/* ---------------------------------------------------------------------------
+ * 全局动效系统（motion system）
+ *
+ * 设计原则——整套动画只有三种「节奏」，其余都是它们的组合：
+ *   1. fast   160ms  微交互：hover / focus / 图标变色 / 按压
+ *   2. base   240ms  局部结构：下拉展开、popover、tab 切换、tooltip
+ *   3. slow   420ms  页面级：路由进场、大面板切换、列表批量错峰
+ *
+ * 曲线只用两条：
+ *   --ease-out   cubic-bezier(0.22, 1, 0.36, 1)    出场（快进慢出，最常用）
+ *   --ease-inout cubic-bezier(0.65, 0, 0.35, 1)    位移/展开（两端都缓）
+ * 不用线性、不用 bounce 做结构动画——弹性只留给「被接住」的按压反馈。
+ *
+ * 性能铁律：
+ *   - 只动 transform / opacity / filter（合成层，不触发重排）
+ *   - 长列表统一 will-change: transform, opacity，动画结束不保留
+ *   - 所有动效都受 prefers-reduced-motion 与「低性能设备」降级控制
+ * ------------------------------------------------------------------------- */
+
+:root {
+  --motion-fast: 160ms;
+  --motion-base: 240ms;
+  --motion-slow: 420ms;
+  --motion-slower: 620ms;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+/* ===========================================================================
+ * 1. 全局默认过渡
+ *
+ * 只给「一定会变」的属性上过渡，不用 `*` 全局 transition——
+ * 那会让布局属性（width/height/top/left）也进过渡队列，滚动时掉帧。
+ * ========================================================================= */
+@layer base {
+  a,
+  button,
+  [role='button'],
+  summary,
+  input,
+  select,
+  textarea,
+  label {
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform,
+      filter;
+    transition-duration: var(--motion-fast);
+    transition-timing-function: var(--ease-out);
+  }
+
+  /* 被禁用的控件不该有 hover 手感 */
+  button:disabled,
+  [aria-disabled='true'] {
+    transition-duration: 0ms;
+  }
+}
+
+/* ===========================================================================
+ * 2. 路由 / 页面转场
+ * ========================================================================= */
+
+/* 每次路由变化，新页面容器挂上这个类：轻微上浮 + 淡入（不是整屏滑动） */
+.cs-route-enter {
+  animation: cs-route-in var(--motion-slow) var(--ease-out) both;
+}
+
+@keyframes cs-route-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* 跨路由转场（View Transition）：旧页轻微上浮淡出，新页从下方落定。
+ *
+ * 位移量只有 6px —— 路由切换时用户关心的是"到了新地方"，
+ * 大位移会把注意力引到动画本身；6px 刚好够让眼睛知道"换页了"。
+ * 只动 opacity / transform，整段在合成器里完成。 */
+html[data-cs-page-vt]::view-transition-old(root) {
+  animation: cs-page-out 180ms var(--ease-out) both;
+  z-index: 1;
+}
+html[data-cs-page-vt]::view-transition-new(root) {
+  animation: cs-page-in 320ms var(--ease-out) both;
+  z-index: 2;
+}
+@keyframes cs-page-out {
+  to {
+    opacity: 0;
+    transform: translate3d(0, -6px, 0);
+  }
+}
+@keyframes cs-page-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+}
+
+/* 视图切换（工作台「画布 / 对话」）（列表 ↔ 空态）：
+ * 不用 keyframes，靠 data 属性切换，React 重渲染时不会重播。 */
+.cs-swap {
+  transition: opacity var(--motion-base) var(--ease-out),
+    transform var(--motion-base) var(--ease-out);
+}
+.cs-swap[data-state='out'] {
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
+  pointer-events: none;
+}
+
+/* ===========================================================================
+ * 3. 元素出现 / 消失
+ * ========================================================================= */
+
+/* 通用淡入上浮：用于卡片、提示条、结果条目 */
+.cs-in {
+  animation: cs-in var(--motion-base) var(--ease-out) both;
+}
+.cs-in-slow {
+  animation: cs-in var(--motion-slow) var(--ease-out) both;
+}
+@keyframes cs-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* 从右侧滑入：用于面板、抽屉、通知 */
+.cs-in-right {
+  animation: cs-in-right var(--motion-base) var(--ease-out) both;
+}
+@keyframes cs-in-right {
+  from {
+    opacity: 0;
+    transform: translate3d(12px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* 从下方弹出：用于气泡、popover 内容、选区提示 */
+.cs-pop {
+  animation: cs-pop var(--motion-base) var(--ease-out) both;
+  transform-origin: var(--pop-origin, bottom center);
+}
+@keyframes cs-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translate3d(0, 4px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+}
+
+/* 高度展开 / 收起（纯 CSS）：grid-template-rows 0fr ↔ 1fr，无需测量高度 */
+.cs-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows var(--motion-base) var(--ease-inout),
+    opacity var(--motion-base) var(--ease-out);
+}
+.cs-collapse[data-open='true'] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.cs-collapse > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ===========================================================================
+ * 4. 交互反馈
+ * ========================================================================= */
+
+/* 可按压元素：按下时轻微下沉 + 收边（用 transform，不影响布局） */
+.cs-press {
+  transition: transform var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+.cs-press:hover {
+  transform: translateY(-1px);
+}
+.cs-press:active {
+  transform: translateY(0) scale(0.985);
+  transition-duration: 80ms;
+}
+
+/* 卡片悬停：抬升阴影，不做缩放（缩放会让内部文字发虚） */
+.cs-hover-lift {
+  transition: box-shadow var(--motion-base) var(--ease-out),
+    transform var(--motion-base) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out);
+}
+.cs-hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lift);
+}
+
+/* 图片 / 缩略图悬停：轻微放大内容，容器裁切（transform 只在内部图层） */
+.cs-zoom {
+  overflow: hidden;
+}
+.cs-zoom > img,
+.cs-zoom > .cs-zoom-target {
+  transition: transform var(--motion-slow) var(--ease-out);
+  will-change: transform;
+}
+.cs-zoom:hover > img,
+.cs-zoom:hover > .cs-zoom-target {
+  transform: scale(1.045);
+}
+
+/* 图标按钮悬停：图标本身轻微位移，提示「可以点」 */
+.cs-nudge svg {
+  transition: transform var(--motion-base) var(--ease-out);
+}
+.cs-nudge:hover svg {
+  transform: translateX(2px);
+}
+
+/* ---------------------------------------------------------------------------
+ * 4b. 声明式微交互（data-motion）
+ *
+ * 属性由 lib/motion-delegation.ts 在 document 上统一代理，组件只声明不写 JS。
+ * 这里只放"静态"部分：光标、层叠上下文、高光层的基础样式。
+ * 补间本身在 GSAP 里——因为按下/松开是**离散的两段**（要能被打断、要能回弹），
+ * 用 CSS transition 会在快速连点时刻互相抢 transition 队列。
+ * ------------------------------------------------------------------------- */
+
+[data-motion='press'],
+[data-motion='lift'],
+[data-motion='segment'] {
+  /* 动画元素统一提升为合成层 */
+  will-change: transform;
+  /* 触屏上按住不该弹出系统的文本选择 / 光标 */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 兜底按下态：仅在 GSAP 委托没装（减弱动效 / 低性能设备）时生效。
+ * 装了委托时 GSAP 会写内联 transform，内联样式优先级高于这里的声明，
+ * 不会出现"两个缩放在打架"。但 html.cs-press-live 时干脆不声明，彻底不抢。 */
+html:not(.cs-press-live) [data-motion='press']:active {
+  transform: scale(0.98);
+}
+html.cs-reduced:not(.cs-press-live) [data-motion='press']:active {
+  transform: none;
+}
+
+/* 行高光：容器负责裁切，滑块只做一次从左到右的扫过 */
+[data-motion='row'] {
+  position: relative;
+  isolation: isolate;
+}
+[data-motion-sheen] {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 46%;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-accent) 10%, transparent) 45%,
+    color-mix(in srgb, var(--color-accent) 16%, transparent) 58%,
+    transparent 100%
+  );
+  transform: translate3d(-120%, 0, 0);
+}
+/* 高光在内容底下：行内的文字/图标自成一个层，读起来不会被扫过的高光糊住 */
+[data-motion='row'] > :not([data-motion-sheen]) {
+  position: relative;
+  z-index: 1;
+}
+
+/* 分段控件的滑块：一张浮在底槽上的白卡片，切换时被"推着走" */
+[data-motion-group] {
+  position: relative;
+  isolation: isolate;
+}
+[data-motion-slider] {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  border-radius: 9999px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-xs);
+  pointer-events: none;
+  will-change: transform, width, height;
+}
+[data-motion-group] > [data-motion='segment'] {
+  position: relative;
+  z-index: 1;
+}
+
+/* 焦点环出现也走过渡，避免键盘 Tab 时「硬闪烁」 */
+:focus-visible {
+  transition: outline-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+/* ===========================================================================
+ * 5. 骨架屏 / 加载
+ *
+ * 用 opacity 脉冲而不是背景位置位移：整屏几十个骨架时前者几乎零成本。
+ * ========================================================================= */
+.cs-skeleton {
+  background: color-mix(in srgb, var(--color-border) 55%, transparent);
+  animation: cs-skeleton 1.5s var(--ease-inout) infinite;
+}
+@keyframes cs-skeleton {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+
+/* ===========================================================================
+ * 6. 主题切换：墨滴扩散
+ *
+ * 已废弃「整页 320ms 颜色渐变」（html.cs-theme-fade）：
+ * 所有像素同时转向，眼睛找不到变化方向，观感是闪了一下而不是切换。
+ * 现在由 lib/theme-transition.ts 驱动，两条路径：
+ *   1. View Transition：::view-transition-new(root) 用 clip-path 圆形揭开
+ *   2. 降级覆盖层：临时 div + GSAP 补间 clip-path（样式全在 JS 里，无需 CSS 配合）
+ *
+ * 为什么用 CSS 写伪元素动画而不是 GSAP 去 tween 伪元素：
+ * GSAP 无法直接选中 ::view-transition-* 伪元素；而这条动画由合成器执行，
+ * 用 CSS keyframes + 变量参数反而是最省、最稳的做法。
+ * ========================================================================= */
+
+/* 旧帧固定不动：新主题盖在它上面揭开，旧帧若跟着淡出会显得"两页一起动" */
+html[data-cs-vt='ripple']::view-transition-old(root) {
+  animation: none;
+  mix-blend-mode: normal;
+  z-index: 1;
+}
+
+html[data-cs-vt='ripple']::view-transition-new(root) {
+  animation: cs-vt-reveal var(--cs-vt-d, 580ms) cubic-bezier(0.22, 1, 0.36, 1) both;
+  mix-blend-mode: normal;
+  z-index: 2;
+}
+
+/* 圆形从按钮位置长到盖住四角（半径已按到四角的最大距离算好并 ×1.08）。
+ * 半径走到 85% 之后视觉上已经铺满，剩下的行程只是保证圆角与浏览器外框也被盖住。
+ * 注意：降级覆盖层由 JS 建节点 + 内联样式，这条 keyframes 只服务 View Transition。 */
+@keyframes cs-vt-reveal {
+  from {
+    clip-path: circle(0px at var(--cs-vt-x, 50%) var(--cs-vt-y, 50%));
+  }
+  to {
+    clip-path: circle(var(--cs-vt-r, 150vmax) at var(--cs-vt-x, 50%) var(--cs-vt-y, 50%));
+  }
+}
+
+
+/* ===========================================================================
+ * 7. Radix 弹层统一进出场
+ *
+ * Radix 会给内容挂 `data-state="open|closed"` 与 `data-side`。
+ * 用属性选择器一次性覆盖 popover / dropdown / select / tooltip，
+ * 比每个组件各写一套 animation 更好维护，也不会漏掉某一个。
+ * ========================================================================= */
+
+/* 弹出：轻微缩放下落 —— 比纯淡入更有"从触发点长出来"的实体感 */
+[data-radix-popper-content-wrapper] > [data-state='open'],
+[data-radix-menu-content][data-state='open'],
+[data-state='open'].cs-popover {
+  animation: cs-pop-out 200ms var(--ease-out) both;
+  transform-origin: var(--radix-popper-transform-origin, top center);
+}
+[data-radix-popper-content-wrapper] > [data-state='closed'],
+[data-radix-menu-content][data-state='closed'],
+[data-state='closed'].cs-popover {
+  animation: cs-pop-in 130ms var(--ease-out) both;
+  transform-origin: var(--radix-popper-transform-origin, top center);
+}
+
+@keyframes cs-pop-out {
+  from {
+    opacity: 0;
+    transform: scale(0.965) translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+@keyframes cs-pop-in {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.975) translateY(-2px);
+  }
+}
+
+/* 弹窗（Dialog / Modal）：遮罩淡入 + 内容上浮
+ *
+ * ⚠️ 这里只动 opacity / scale / translate，且 **不动 transform**：
+ * 弹窗内容用 Tailwind 的 `-translate-x-1/2 -translate-y-1/2` 居中，
+ * 那两个类编译成 `translate` 属性（不是 transform）。若 keyframes 里写 transform，
+ * 会与之叠加成"双重位移"，弹窗直接飞出屏幕。用独立的 `translate`/`scale` 属性才安全。
+ */
+[data-radix-dialog-overlay][data-state='open'] {
+  animation: cs-fade-in 200ms var(--ease-out) both;
+}
+[data-radix-dialog-overlay][data-state='closed'] {
+  animation: cs-fade-out 160ms var(--ease-out) both;
+}
+[data-radix-dialog-content][data-state='open'] {
+  animation: cs-dialog-in 260ms var(--ease-out) both;
+}
+[data-radix-dialog-content][data-state='closed'] {
+  animation: cs-dialog-out 150ms var(--ease-out) both;
+}
+
+@keyframes cs-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes cs-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes cs-dialog-in {
+  from {
+    opacity: 0;
+    scale: 0.97;
+    translate: 0 10px;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+    translate: 0 0;
+  }
+}
+@keyframes cs-dialog-out {
+  from {
+    opacity: 1;
+    scale: 1;
+    translate: 0 0;
+  }
+  to {
+    opacity: 0;
+    scale: 0.985;
+    translate: 0 6px;
+  }
+}
+
+/* Tooltip：几乎无位移，只淡入——它必须"立刻"出现，不能等动画 */
+[data-radix-tooltip-content][data-state='delayed-open'],
+[data-radix-tooltip-content][data-state='instant-open'] {
+  animation: cs-tooltip-in 130ms var(--ease-out) both;
+}
+@keyframes cs-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Toast：从右下角滑入 */
+[data-cs-toast] {
+  animation: cs-toast-in 260ms var(--ease-out) both;
+}
+@keyframes cs-toast-in {
+  from {
+    opacity: 0;
+    transform: translate3d(14px, 8px, 0) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+/* 对话气泡入场：从所属一侧轻微滑入 + 上浮，符合"消息飞进来"的直觉 */
+.cs-bubble-in-right {
+  animation: cs-bubble-right var(--motion-slow) var(--ease-out) both;
+}
+@keyframes cs-bubble-right {
+  from {
+    opacity: 0;
+    transform: translate3d(10px, 8px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.cs-bubble-in-left {
+  animation: cs-bubble-left var(--motion-slow) var(--ease-out) both;
+}
+@keyframes cs-bubble-left {
+  from {
+    opacity: 0;
+    transform: translate3d(-10px, 8px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+/* 编辑层区域气泡入场：只动 opacity + scale。
+ * scale 是独立属性，不参与 transform 合成——气泡上还有「校验失败抖动」用的
+ * translateX 内联 transform，两者互不覆盖。
+ * 刻意不加 fill-mode：动画结束后 opacity 要交还给类名控制（拖拽时 opacity-0 才能生效）。 */
+.cs-edit-bubble-in {
+  animation: cs-edit-bubble-in var(--motion-fast) var(--ease-out);
+}
+@keyframes cs-edit-bubble-in {
+  from {
+    opacity: 0;
+    scale: 0.98;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+/* 编辑层气泡的浮起方式：亮色靠投影（纸上的卡片不描边），
+ * 暗色下投影几乎看不见，补一圈 1px 受光边把轮廓勾出来。
+ * 用 box-shadow 而不是 border：加边不会让气泡尺寸跳 2px，也不会推挤内部排版。 */
+.cs-edit-bubble {
+  box-shadow: var(--shadow-float);
+}
+[data-theme='dark'] .cs-edit-bubble {
+  box-shadow: var(--shadow-float), 0 0 0 1px var(--color-border);
+}
+
+/* ===========================================================================
+ * 8. 无障碍 / 降级
+ * ========================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* 低性能设备（内存小 / 核心少）：关掉持续氛围动画，保留结构性动效 */
+html.cs-lite *,
+html.cs-lite *::before,
+html.cs-lite *::after {
+  animation-iteration-count: 1 !important;
+}
+html.cs-lite .cs-animate-float,
+html.cs-lite .cs-animate-breathe,
+html.cs-lite .cs-shimmer {
+  animation: none !important;
+}

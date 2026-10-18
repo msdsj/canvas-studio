@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { AppShell } from '@/components/layout/AppShell'
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute'
-import { AppSidebar } from '@/components/layout/WorkspaceLeftbar'
+import { PageShell } from '@/components/layout/PageShell'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,6 +38,8 @@ function SettingsPage() {
   const setUser = useAuthStore((s) => s.setUser)
   const { language, setLanguage } = useLanguage()
   const { mode, setMode } = useTheme()
+  /** 主题下拉的触发器：扩散以它为圆心 */
+  const themeTriggerRef = useRef<HTMLButtonElement>(null)
 
   const [displayName, setDisplayName] = useState(user?.display_name ?? '')
   const [oldPassword, setOldPassword] = useState('')
@@ -91,12 +93,11 @@ function SettingsPage() {
   return (
     <ProtectedRoute>
       <AppShell>
-        <div className="flex h-full">
-          <AppSidebar />
-          <div className="min-h-0 flex-1 overflow-y-auto p-6">
-            <h1 className="mb-5 text-xl font-semibold text-text">{t('title')}</h1>
-
-            <div className="flex max-w-2xl flex-col gap-5">
+          <PageShell
+            title={t('title')}
+            width="narrow"
+          >
+            <div className="flex flex-col gap-5">
               <Card className="flex flex-col gap-4">
                 <h2 className="text-md font-semibold text-text">{t('profile.title')}</h2>
                 <FormField label={t('profile.email')}>
@@ -117,8 +118,11 @@ function SettingsPage() {
                   </Select>
                 </FormField>
                 <FormField label={t('profile.theme')}>
-                  <Select value={mode} onValueChange={(v) => setMode(v as ThemeMode)}>
-                    <SelectTrigger>
+                  <Select
+                    value={mode}
+                    onValueChange={(v) => setMode(v as ThemeMode, themeTriggerRef.current)}
+                  >
+                    <SelectTrigger ref={themeTriggerRef}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -163,8 +167,7 @@ function SettingsPage() {
                 </div>
               </Card>
             </div>
-          </div>
-        </div>
+          </PageShell>
       </AppShell>
     </ProtectedRoute>
   )

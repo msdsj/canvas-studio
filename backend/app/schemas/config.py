@@ -28,7 +28,7 @@ class ConfigUpdateRequest(BaseModel):
 class ConfigTestRequest(BaseModel):
     """连通性测试请求。"""
 
-    target: str = Field(description="sub2api | chatgpt2api | proxy")
+    target: str = Field(description="text | image | llm | pool | proxy")
 
 
 class ConfigTestResult(BaseModel):

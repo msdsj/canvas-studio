@@ -24,45 +24,60 @@ interface NavItem {
   adminOnly?: boolean
 }
 
-function useNavItems(): NavItem[] {
+/**
+ * 导航分两组：**创作**是日常动作，**管理**是低频事务。
+ * 混在一起平铺会让工作台看起来像个后台管理系统——而这里的主体是画布。
+ */
+function useNavGroups(): { creation: NavItem[]; management: NavItem[] } {
   const { t } = useTranslation('common')
   const { isAdmin } = useAuth()
-  const items: NavItem[] = [
+  const creation: NavItem[] = [
     { to: '/workspace', label: t('nav.workspace'), icon: PenSquare },
-    { to: '/tasks', label: t('nav.tasks'), icon: ListChecks },
-    { to: '/projects', label: t('nav.projects'), icon: LayoutGrid },
     { to: '/assets', label: t('nav.assets'), icon: Images },
+    { to: '/projects', label: t('nav.projects'), icon: LayoutGrid },
+    { to: '/tasks', label: t('nav.tasks'), icon: ListChecks },
+  ]
+  const management: NavItem[] = [
     { to: '/usage', label: t('nav.usage'), icon: Wallet },
     { to: '/settings', label: t('nav.settings'), icon: Settings },
   ]
-  if (isAdmin) items.push({ to: '/admin', label: t('nav.admin'), icon: Shield, adminOnly: true })
-  return items
+  if (isAdmin) management.push({ to: '/admin', label: t('nav.admin'), icon: Shield, adminOnly: true })
+  return { creation, management }
+}
+
+function useActivePath() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  return (to: string) => pathname === to || pathname.startsWith(`${to}/`)
 }
 
 /** 通用左侧导航（非画布页面使用）。 */
 export function AppSidebar() {
-  const items = useNavItems()
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const { creation, management } = useNavGroups()
+  const isActive = useActivePath()
+
+  const renderItem = (item: NavItem) => {
+    const Icon = item.icon
+    return (
+      <Link
+        key={item.to}
+        to={item.to}
+        className={cn(
+          'flex items-center gap-3 rounded-[10px] px-3 py-2 text-ui transition-colors',
+          isActive(item.to)
+            ? 'bg-brand-subtle text-brand-text'
+            : 'text-text-secondary hover:bg-surface-hover'
+        )}
+      >
+        <Icon size={20} />
+        {item.label}
+      </Link>
+    )
+  }
 
   return (
-    <nav className="flex w-60 shrink-0 flex-col gap-1 border-r border-border bg-surface p-3">
-      {items.map((item) => {
-        const active = pathname === item.to || pathname.startsWith(`${item.to}/`)
-        const Icon = item.icon
-        return (
-          <Link
-            key={item.to}
-            to={item.to}
-            className={cn(
-              'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-              active ? 'bg-brand-subtle text-brand-text' : 'text-text-secondary hover:bg-surface-hover'
-            )}
-          >
-            <Icon size={18} />
-            {item.label}
-          </Link>
-        )
-      })}
+    <nav className="m-2 flex w-[216px] shrink-0 flex-col gap-1 rounded-[16px] bg-surface p-3 shadow-sheet">
+      {creation.map(renderItem)}
+      <div className="mt-auto flex flex-col gap-1 pt-6">{management.map(renderItem)}</div>
     </nav>
   )
 }
@@ -75,76 +90,89 @@ interface WorkspaceLeftbarProps {
   collapsed?: boolean
 }
 
-/** 工作台左栏：工具区 + 图层面板 + 导航 + 账户额度。 */
+/** 工作台左栏：创作工具 + 图层 + 导航（创作 / 管理分组）+ 账户额度。 */
 export function WorkspaceLeftbar({ onAddImage, onUpload, layersSlot, collapsed }: WorkspaceLeftbarProps) {
   const { t } = useTranslation('workspace')
-  const items = useNavItems()
+  const { creation, management } = useNavGroups()
+  const isActive = useActivePath()
+
+  const iconLink = (item: NavItem) => {
+    const Icon = item.icon
+    const active = isActive(item.to)
+    return (
+      <Link
+        key={item.to}
+        to={item.to}
+        title={item.label}
+        aria-current={active ? 'page' : undefined}
+        className={cn(
+          'flex h-10 w-10 items-center justify-center rounded-[10px] transition-colors',
+          active
+            ? 'bg-brand-subtle text-brand-text'
+            : 'text-text-secondary hover:bg-surface-hover hover:text-text'
+        )}
+      >
+        <Icon size={20} />
+      </Link>
+    )
+  }
 
   if (collapsed) {
     return (
-      <aside className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-border bg-surface py-3">
-        {items.map((item) => {
-          const Icon = item.icon
-          return (
-            <Link
-              key={item.to}
-              to={item.to}
-              title={item.label}
-              className="flex h-9 w-9 items-center justify-center rounded-md text-text-secondary hover:bg-surface-hover"
-            >
-              <Icon size={18} />
-            </Link>
-          )
-        })}
+      <aside className="flex w-14 shrink-0 flex-col items-center gap-1 rounded-[14px] bg-surface py-3 shadow-sheet">
+        {creation.map(iconLink)}
+        {/* 管理组靠留白推到栏底，不用分割线 */}
+        <div className="mt-auto flex flex-col items-center gap-1 pt-4">{management.map(iconLink)}</div>
       </aside>
     )
   }
 
+  const rowLink = (item: NavItem) => {
+    const Icon = item.icon
+    const active = isActive(item.to)
+    return (
+      <Link
+        key={item.to}
+        to={item.to}
+        aria-current={active ? 'page' : undefined}
+        className={cn(
+          'flex items-center gap-3 rounded-[10px] px-3 py-2 text-ui transition-colors',
+          active ? 'bg-brand-subtle text-brand-text' : 'text-text-secondary hover:bg-surface-hover'
+        )}
+      >
+        <Icon size={20} />
+        {item.label}
+      </Link>
+    )
+  }
+
   return (
-    <aside className="flex w-64 shrink-0 flex-col gap-4 overflow-y-auto border-r border-border bg-surface p-3">
+    <aside className="flex w-64 shrink-0 flex-col gap-4 overflow-y-auto rounded-[14px] bg-surface p-3 shadow-sheet">
       <div>
-        <div className="mb-1 px-2 text-xs font-medium uppercase tracking-wide text-text-tertiary">
+        <div className="mb-1 px-2 text-caption font-medium text-text-tertiary">
           {t('leftbar.tools')}
         </div>
         <div className="flex flex-col gap-1">
-          <ToolButton icon={<ImagePlus size={18} />} label={t('leftbar.add_image')} onClick={onAddImage} />
-          <ToolButton icon={<Upload size={18} />} label={t('leftbar.upload')} onClick={onUpload} />
+          <ToolButton icon={<ImagePlus size={20} />} label={t('leftbar.add_image')} onClick={onAddImage} />
+          <ToolButton icon={<Upload size={20} />} label={t('leftbar.upload')} onClick={onUpload} />
         </div>
       </div>
 
       {layersSlot && (
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="mb-1 px-2 text-xs font-medium uppercase tracking-wide text-text-tertiary">
+          <div className="mb-1 px-2 text-caption font-medium text-text-tertiary">
             {t('leftbar.layers', { defaultValue: '图层' })}
           </div>
           {layersSlot}
         </div>
       )}
 
-      <div>
-        <div className="mb-1 px-2 text-xs font-medium uppercase tracking-wide text-text-tertiary">
-          {t('leftbar.projects')}
-        </div>
-        <div className="flex flex-col gap-1">
-          {items.map((item) => {
-            const Icon = item.icon
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-surface-hover"
-              >
-                <Icon size={18} />
-                {item.label}
-              </Link>
-            )
-          })}
-        </div>
-      </div>
+      <div className="flex flex-col gap-1">{creation.map(rowLink)}</div>
 
-      <div className="mt-auto flex flex-col gap-2 border-t border-border pt-3">
-        <span className="px-2 text-xs text-text-tertiary">{t('leftbar.account')}</span>
-        <div className="px-2">
+      <div className="mt-auto flex flex-col gap-3 pt-6">
+        <div className="flex flex-col gap-1">{management.map(rowLink)}</div>
+        <div className="flex flex-col gap-2 px-2">
+          <span className="text-caption text-text-tertiary">{t('leftbar.account')}</span>
           <QuotaBadge />
         </div>
       </div>
@@ -154,13 +182,9 @@ export function WorkspaceLeftbar({ onAddImage, onUpload, layersSlot, collapsed }
 
 function ToolButton({ icon, label, onClick }: { icon: ReactNode; label: string; onClick?: () => void }) {
   return (
-    <Button
-      variant="ghost"
-      onClick={onClick}
-      className="justify-start gap-3 px-3 text-text-secondary"
-    >
+    <Button variant="ghost" onClick={onClick} className="justify-start gap-3 px-3 text-text-secondary">
       {icon}
-      <span className="text-sm">{label}</span>
+      <span className="text-ui">{label}</span>
     </Button>
   )
 }

@@ -11,6 +11,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models.user import User
 from app.schemas.asset import AssetOut
+from app.schemas.chat import BatchDeleteRequest
 from app.services import asset_service, config_service, storage_service
 from app.utils.errors import AppError, ErrorCode, envelope
 from app.utils.pagination import normalize_page, paginated
@@ -64,6 +65,18 @@ async def upload_asset(
     )
     await db.commit()
     return envelope(AssetOut.model_validate(asset).model_dump())
+
+
+@router.post("/batch-delete")
+async def batch_delete(
+    payload: BatchDeleteRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """批量删除资产（「全选」后一次清掉）。软删，可从回收站恢复。"""
+    count = await asset_service.delete_assets(db, user, payload.ids)
+    await db.commit()
+    return envelope({"deleted": count})
 
 
 @router.get("/{asset_id}")

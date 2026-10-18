@@ -9,9 +9,16 @@ services:
       CS_CORS_ORIGINS: http://localhost:5173
       CS_GATEWAY_BASE_URL: http://gateway:8100
       CS_GATEWAY_INTERNAL_TOKEN: dev-internal-token
-      CS_DEMO_MODE: auto
-      SUB2API_BASE_URL: http://host.docker.internal:8080
-      CHATGPT2API_BASE_URL: http://host.docker.internal:3000
+      CS_DEMO_MODE: off
+      TEXT_API_BASE_URL: ${TEXT_API_BASE_URL:-}
+      TEXT_API_KEY: ${TEXT_API_KEY:-}
+      TEXT_MODEL: ${TEXT_MODEL:-gpt-4o-mini}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      IMAGE_API_BASE_URL: ${IMAGE_API_BASE_URL:-}
+      IMAGE_API_KEY: ${IMAGE_API_KEY:-}
+      IMAGE_MODEL: ${IMAGE_MODEL:-gpt-image-2}
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
     volumes:
@@ -28,16 +35,25 @@ services:
       context: ../gateway
     environment:
       CS_GATEWAY_INTERNAL_TOKEN: dev-internal-token
-      CS_DEMO_MODE: auto
-      SUB2API_BASE_URL: http://host.docker.internal:8080
-      CHATGPT2API_BASE_URL: http://host.docker.internal:3000
+      CS_DEMO_MODE: off
+      TEXT_API_BASE_URL: ${TEXT_API_BASE_URL:-}
+      TEXT_API_KEY: ${TEXT_API_KEY:-}
+      TEXT_MODEL: ${TEXT_MODEL:-gpt-4o-mini}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      IMAGE_API_BASE_URL: ${IMAGE_API_BASE_URL:-}
+      IMAGE_API_KEY: ${IMAGE_API_KEY:-}
+      IMAGE_MODEL: ${IMAGE_MODEL:-gpt-image-2}
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
     volumes:
       - ../gateway:/app
+      - gateway_data_dev:/app/data
     ports:
       - "8100:8100"
     command: uvicorn app.main:app --host 0.0.0.0 --port 8100 --reload
 
 volumes:
   backend_data_dev:
+  gateway_data_dev:

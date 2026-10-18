@@ -6,11 +6,8 @@ from fastapi import APIRouter
 from app.schemas.common import ok
 from app.schemas.pool import ConfigPushRequest, ConfigTestRequest
 from app.state import runtime_config
-from app.upstream import (
-    chatgpt2api_headers,
-    probe,
-    sub2api_headers,
-)
+from app.services.account_pool import account_pool
+from app.upstream import llm_headers, probe, provider_headers
 from app.utils.errors import ErrorCode, GatewayError
 
 router = APIRouter(prefix="/gw/config", tags=["gateway-config"])
@@ -27,18 +24,35 @@ async def push_config(payload: ConfigPushRequest) -> dict:
 async def test_config(payload: ConfigTestRequest) -> dict:
     """连通性测试：区分 proxy / upstream 故障。"""
     target = payload.target
-    if target == "sub2api":
-        result = await probe(runtime_config.sub2api_base_url, "/v1/models", sub2api_headers())
-    elif target == "chatgpt2api":
-        result = await probe(
-            runtime_config.chatgpt2api_base_url, "/health", chatgpt2api_headers()
-        )
+    if target == "text":
+        if not runtime_config.text_base_url:
+            return ok({"ok": False, "latency_ms": 0, "message": "尚未配置文本 provider", "error_code": "NOT_CONFIGURED"})
+        result = await probe(runtime_config.text_base_url, "/models", provider_headers("text"))
+    elif target == "image":
+        if not runtime_config.image_base_url and not await account_pool.list():
+            return ok({"ok": False, "latency_ms": 0, "message": "尚未配置图片 provider 或账号池", "error_code": "NOT_CONFIGURED"})
+        result = await probe(runtime_config.image_base_url, "/models", provider_headers("image")) if runtime_config.image_base_url else {"ok": True, "latency_ms": 0, "message": "已配置本地图片账号池", "error_code": None}
+    elif target == "llm":
+        if not (runtime_config.llm_base_url or runtime_config.text_base_url):
+            return ok(
+                {
+                    "ok": False,
+                    "latency_ms": 0,
+                    "message": "尚未配置意图模型或文本 provider",
+                    "error_code": "NOT_CONFIGURED",
+                }
+            )
+        result = await probe(runtime_config.llm_base_url or runtime_config.text_base_url, "/models", llm_headers())
     elif target == "proxy":
         if not runtime_config.proxy_url:
             return ok({"ok": True, "latency_ms": 0, "message": "未配置代理，当前为直连"})
-        result = await probe(runtime_config.sub2api_base_url, "/v1/models", sub2api_headers())
+        target_url = runtime_config.text_base_url or runtime_config.image_base_url
+        result = await probe(target_url, "/models", provider_headers("text")) if target_url else {"ok": False, "latency_ms": 0, "message": "未配置 provider", "error_code": "NOT_CONFIGURED"}
+    elif target == "pool":
+        count = len(await account_pool.list())
+        result = {"ok": count > 0, "latency_ms": 0, "message": f"本地账号池已加载 {count} 个凭据", "error_code": None if count > 0 else "NOT_CONFIGURED"}
     else:
-        raise GatewayError(ErrorCode.VALIDATION_ERROR, "target 必须是 sub2api|chatgpt2api|proxy")
+        raise GatewayError(ErrorCode.VALIDATION_ERROR, "target 必须是 text|image|llm|pool|proxy")
     return ok(
         {
             "ok": result["ok"],

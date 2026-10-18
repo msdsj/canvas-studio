@@ -57,7 +57,8 @@ class GatewayClient:
         if code == "OK":
             return body.get("data")
         mapped = _CODE_ALIASES.get(code, ErrorCode.UPSTREAM_ERROR)
-        raise AppError(mapped, body.get("message") or None, data=body.get("data"))
+        # 不转发网关/上游的 message（可能含「上游返回 500」这类内部描述），只用错误码映射默认文案
+        raise AppError(mapped, None, data=body.get("data"))
 
     async def _request(
         self,
@@ -110,6 +111,10 @@ class GatewayClient:
         """非流式对话。"""
         return await self._request("POST", "/gw/chat/completions", json_body=payload)
 
+    async def llm_completions(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """调用独立的意图分析模型中转。"""
+        return await self._request("POST", "/gw/chat/llm-completions", json_body=payload)
+
     async def chat_completions_stream(
         self, payload: dict[str, Any]
     ) -> AsyncIterator[bytes]:
@@ -121,7 +126,13 @@ class GatewayClient:
             ) as response:
                 if response.status_code >= 400:
                     raw = await response.aread()
-                    raise AppError(ErrorCode.UPSTREAM_ERROR, raw.decode("utf-8", "ignore"))
+                    # 上游原始 body（HTML 错误页 / JSON / 堆栈）只进日志，绝不进用户文案
+                    logger.warning(
+                        "流式对话失败 status=%s body=%s",
+                        response.status_code,
+                        raw[:500].decode("utf-8", "ignore"),
+                    )
+                    raise AppError(ErrorCode.UPSTREAM_ERROR, "这次没能回复出来，请再试一次")
                 async for chunk in response.aiter_bytes():
                     if chunk:
                         yield chunk

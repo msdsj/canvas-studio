@@ -17,7 +17,7 @@ function AdminConfigPage() {
   const { t: te } = useTranslation()
   const toast = useToast()
   const [items, setItems] = useState<SystemConfigItem[]>([])
-  const [testing, setTesting] = useState<'sub2api' | 'chatgpt2api' | 'proxy' | null>(null)
+  const [testing, setTesting] = useState<'text' | 'image' | 'llm' | 'pool' | 'proxy' | null>(null)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string; latency_ms: number } | null>(null)
 
   const load = async () => {
@@ -34,7 +34,7 @@ function AdminConfigPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleTest = async (target: 'sub2api' | 'chatgpt2api' | 'proxy') => {
+  const handleTest = async (target: 'text' | 'image' | 'llm' | 'pool' | 'proxy') => {
     setTesting(target)
     setTestResult(null)
     try {

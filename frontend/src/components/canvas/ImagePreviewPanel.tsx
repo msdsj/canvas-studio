@@ -54,15 +54,21 @@ export function ImagePreviewPanel({
   }, [imageUrl, width, height])
 
   return (
-    <div className="border-b border-border px-3 py-3">
+    <div className="pb-1">
       <div className="mb-2 flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-xs font-medium text-text">
+        <span className="flex items-center gap-1.5 text-caption font-medium text-text">
           <ImageIcon size={13} /> 当前图片
         </span>
         {imageUrl && (
           <div className="flex items-center gap-1">
-            <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={onEdit}>
-              <Pencil size={13} /> 编辑
+            <Button
+              variant="secondary"
+              size="icon-sm"
+              aria-label="编辑"
+              title="编辑"
+              onClick={onEdit}
+            >
+              <Pencil size={13} />
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -89,23 +95,28 @@ export function ImagePreviewPanel({
       </div>
       {imageUrl ? (
         <div>
-          <div className="flex max-h-32 items-center justify-center overflow-hidden rounded-md border border-border bg-bg-subtle">
-            <img src={imageUrl} alt="当前选中图片预览" className="max-h-32 w-auto object-contain" />
+          {/* 预览缩略图 = 相纸：3px 近直角 + 白色衬边 */}
+          <div className="flex max-h-32 items-center justify-center overflow-hidden rounded-[3px] bg-mat p-[3px] shadow-sheet">
+            <img
+              src={imageUrl}
+              alt="当前选中图片预览"
+              className="max-h-32 w-auto rounded-[3px] object-contain"
+            />
           </div>
-          <div className="mt-1.5 flex items-center justify-between text-[11px] text-text-tertiary">
+          <div className="mt-1.5 flex items-center justify-between text-caption text-text-tertiary">
             <span>尺寸</span>
             <span className="font-mono text-text-secondary">
               {measured ? `${measured.w} × ${measured.h} px` : '读取中…'}
             </span>
           </div>
           {prompt && (
-            <p className="mt-1.5 line-clamp-2 rounded-md bg-bg-subtle px-2 py-1 text-[11px] leading-relaxed text-text-secondary">
+            <p className="mt-1.5 line-clamp-2 rounded-[10px] bg-bg-subtle px-2 py-1.5 text-caption leading-relaxed text-text-secondary">
               内置提示词：{prompt}
             </p>
           )}
         </div>
       ) : (
-        <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-[11px] leading-relaxed text-text-tertiary">
+        <p className="rounded-[10px] bg-bg-subtle px-3 py-4 text-center text-caption leading-relaxed text-text-tertiary">
           在画布上单击一张图片
           <br />
           即可预览、编辑与导出

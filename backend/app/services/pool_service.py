@@ -1,6 +1,7 @@
-"""号池服务：经网关代理 chatgpt2api `/api/accounts*`，归一状态与掩码。
+"""Canvas Studio 自有 provider 账号池服务。
 
-不缓存号池数据（A7）：实时经网关读取上游；仅记录导入/刷新动作到审计。
+账号凭据和调度由 gateway 持有，backend 只负责管理员权限、审计和对外
+归一化，运行时不依赖任何外部账号管理项目。
 """
 from __future__ import annotations
 
@@ -46,6 +47,7 @@ def normalize_item(item: dict[str, Any]) -> dict[str, Any]:
     """把上游账号对象归一为平台视图。"""
     token = str(item.get("access_token") or item.get("accessToken") or "")
     return {
+        "id": str(item.get("id") or item.get("account_id") or token),
         "token_masked": mask_token(token),
         "type": str(item.get("type") or item.get("plan_type") or item.get("source_type") or ""),
         "status": normalize_status(str(item.get("status") or "")),

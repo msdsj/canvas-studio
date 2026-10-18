@@ -1,27 +1,44 @@
 @import 'tailwindcss';
 @import './styles/tokens.css';
+@import './styles/motion.css';
+@import './styles/toast.css';
 
-/* 把设计 token 暴露给 Tailwind 语义工具类（bg-surface / text-brand …） */
+/* 把设计 token 暴露给 Tailwind 语义工具类（bg-surface / text-brand / bg-accent …） */
 @theme inline {
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
+  --font-display: var(--font-display);
 
   --color-bg: var(--color-bg);
   --color-bg-subtle: var(--color-bg-subtle);
   --color-surface: var(--color-surface);
   --color-surface-raised: var(--color-surface-raised);
   --color-surface-hover: var(--color-surface-hover);
+  --color-canvas: var(--color-canvas);
+  --color-gutter: var(--color-gutter);
+  --color-canvas-dot: var(--color-canvas-dot);
+  --color-mat: var(--color-mat);
   --color-border: var(--color-border);
+  --color-border-faint: var(--color-border-faint);
   --color-border-strong: var(--color-border-strong);
   --color-text: var(--color-text);
   --color-text-secondary: var(--color-text-secondary);
   --color-text-tertiary: var(--color-text-tertiary);
+  --color-text-faint: var(--color-text-faint);
   --color-text-inverse: var(--color-text-inverse);
   --color-brand: var(--color-brand);
   --color-brand-hover: var(--color-brand-hover);
   --color-brand-active: var(--color-brand-active);
   --color-brand-subtle: var(--color-brand-subtle);
   --color-brand-text: var(--color-brand-text);
+  /* [NEW] 青柠信号色 */
+  --color-accent: var(--color-accent);
+  --color-accent-strong: var(--color-accent-strong);
+  --color-accent-soft: var(--color-accent-soft);
+  --color-accent-ink: var(--color-accent-ink);
+  --color-select: var(--color-select);
+  --color-select-soft: var(--color-select-soft);
+  --color-select-line: var(--color-select-line);
   --color-success: var(--color-success);
   --color-success-subtle: var(--color-success-subtle);
   --color-warning: var(--color-warning);
@@ -30,6 +47,7 @@
   --color-danger-subtle: var(--color-danger-subtle);
   --color-info: var(--color-info);
 
+  --radius-sheet: var(--radius-sheet);
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
@@ -39,6 +57,34 @@
   --shadow-sm: var(--shadow-sm);
   --shadow-md: var(--shadow-md);
   --shadow-lg: var(--shadow-lg);
+  --shadow-sheet: var(--shadow-sheet);
+  --shadow-lift: var(--shadow-lift);
+  --shadow-float: var(--shadow-float);
+  --shadow-drag: var(--shadow-drag);
+  --shadow-glow: var(--shadow-glow);
+
+  /* 字号配对写法（Tailwind 4）：让 text-body 自带行高 */
+  --text-display: var(--text-display);
+  --text-display--line-height: 1.04;
+  --text-h1: var(--text-h1);
+  --text-h1--line-height: 1.12;
+  --text-h2: var(--text-h2);
+  --text-h2--line-height: 1.22;
+  --text-h3: var(--text-h3);
+  --text-h3--line-height: 1.36;
+  --text-lg: var(--text-lg);
+  --text-lg--line-height: 1.68;
+  --text-body: var(--text-body);
+  --text-body--line-height: 1.72;
+  /* 强制正文 15px：Tailwind 默认 --text-base 是 16px */
+  --text-base: var(--text-base);
+  --text-base--line-height: 1.72;
+  --text-ui: var(--text-ui);
+  --text-ui--line-height: 1.5;
+  --text-caption: var(--text-caption);
+  --text-caption--line-height: 1.45;
+  --text-micro: var(--text-micro);
+  --text-micro--line-height: 1.35;
 }
 
 @layer base {
@@ -55,12 +101,21 @@
   body {
     margin: 0;
     background-color: var(--color-bg);
+    /* 首页环境光：两团极淡的青柠 / 暖砂，让纸底有纵深，不至于像一张白纸 */
+    background-image: var(--ambient-1), var(--ambient-2);
+    background-attachment: fixed;
     color: var(--color-text);
     font-family: var(--font-sans);
-    font-size: var(--text-base);
-    line-height: 1.55;
+    /* 正文下限 15px / 中文行高 1.72（汉字满格，比英文多 0.1） */
+    font-size: var(--text-body);
+    line-height: 1.72;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
   }
 
   :focus-visible {
@@ -76,6 +131,10 @@
     background: var(--color-border-strong);
     border-radius: var(--radius-full);
     border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-faint);
     background-clip: content-box;
   }
   ::-webkit-scrollbar-track {
@@ -97,4 +156,208 @@
  * ------------------------------------------------------------------------- */
 .cs-has-image-selected .HintViewer {
   display: none !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 画布底色跟随纸感令牌。
+ * Excalidraw 会把 `viewBackgroundColor` 直接 fillRect 到 <canvas> 上，CSS 背景
+ * 压不住；因此 CanvasExcali 在「用户没设过自定义背景」时把该值置为 transparent，
+ * 让画布像素留空，由这里透出 --color-canvas。
+ * ------------------------------------------------------------------------- */
+.cs-canvas-shell {
+  background: var(--color-canvas);
+}
+
+.cs-canvas-shell .excalidraw {
+  --default-bg-color: var(--color-canvas);
+  /* Excalidraw 自带主色是紫色，整族接到本设计的主色上（工具栏选中态、开关、滑块一起变） */
+  --color-primary: var(--color-brand);
+  --color-primary-darker: var(--color-brand-hover);
+  --color-primary-darkest: var(--color-brand-active);
+  --color-primary-hover: var(--color-brand-hover);
+  --color-primary-light: var(--color-brand-subtle);
+  --color-primary-light-darker: var(--color-brand-subtle);
+  --color-brand-hover: var(--color-brand-hover);
+  --color-surface-primary-container: var(--color-brand-subtle);
+  --color-on-primary-container: var(--color-brand-text);
+  /* 框选矩形：这是「机器的几何」，用橄榄色，不是青柠信号色 */
+  --color-selection: var(--color-select-line);
+  --island-bg-color: var(--color-surface-raised);
+  --color-surface-lowest: var(--color-surface-raised);
+  --color-surface-low: var(--color-surface-hover);
+  --color-surface-high: var(--color-surface);
+  --color-on-surface: var(--color-text);
+  background: transparent;
+}
+
+/* ---------------------------------------------------------------------------
+ * 隐藏 Excalidraw 自带主菜单。
+ *
+ * 关掉文件类动作后，这个菜单只剩「查找画布 / 帮助 / Excalidraw 品牌链接」：
+ *  - 品牌链接（GitHub / 关注我们 / Discord）对使用者没有任何意义；
+ *  - 这几项在 Excalidraw 的 zh-CN 语言包里本身也没翻译全，会中英混排；
+ *  - 查找与帮助都有快捷键（⌘F / ?），不需要常驻一个入口。
+ * 因此整块收起，画布操作统一走平台自己的工具栏。
+ * ------------------------------------------------------------------------- */
+.cs-canvas-shell .App-menu_top__left .dropdown-menu-button {
+  display: none !important;
+}
+
+/* 没有主菜单后，左上角留白归零，避免浮层错位 */
+.cs-canvas-shell .App-menu_top__left {
+  display: none !important;
+}
+
+.cs-canvas-shell .excalidraw__canvas {
+  background: transparent;
+}
+
+/* 分区底材（左菜单 / 素材区 / 结果折叠条）。 */
+.cs-substrate {
+  background: var(--color-bg-subtle);
+}
+
+[data-theme='dark'] .cs-substrate {
+  background: var(--color-bg);
+}
+
+/* 暗色下画布卡靠「受光边 + 内侧细线」勾出纸的厚度：
+ * 纯黑底上仅靠阴影完全看不出边界，会像页面破了一个洞。 */
+[data-theme='dark'] .cs-canvas-card {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-border) 70%, transparent),
+    var(--shadow-sheet),
+    var(--shadow-paper-edge);
+}
+
+/* ---------------------------------------------------------------------------
+ * 单色 logo：public/brand/logo-mark.svg 只用 currentColor 描边，但 <img> 引用
+ * 独立 SVG 文档时拿不到父级颜色。用 mask 把它当作「形状」来染色。
+ * ------------------------------------------------------------------------- */
+.cs-logo-mark {
+  display: inline-block;
+  background-color: currentColor;
+  -webkit-mask: url('/brand/logo-mark.svg') center / contain no-repeat;
+  mask: url('/brand/logo-mark.svg') center / contain no-repeat;
+}
+
+/* ---------------------------------------------------------------------------
+ * 主按钮：墨黑渐变。用渐变而不是纯色，是「实体按钮」的光泽来源。
+ * ------------------------------------------------------------------------- */
+.cs-gradient-brand {
+  background-color: var(--color-brand);
+  background-image: var(--gradient-brand);
+}
+
+.cs-gradient-brand-soft {
+  background-image: var(--gradient-brand-soft);
+}
+
+/* [NEW] 青柠信号渐变：发送键激活 / AI 生成中 */
+.cs-gradient-accent {
+  background-color: var(--color-accent);
+  background-image: var(--gradient-accent);
+  color: var(--color-accent-ink);
+}
+
+/* [NEW] 纸纹：首页与空态铺一层，让大面积留白有质感 */
+.cs-grain {
+  background-image: var(--texture-paper);
+}
+
+/* [NEW] 玻璃胶囊：浮在内容之上的工具条 / 顶栏 */
+.cs-glass {
+  background: color-mix(in srgb, var(--color-surface) 78%, transparent);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+}
+
+/* [NEW] 细描边：1px 在暖纸底上容易糊，用 color-mix 让它随主题自适应 */
+.cs-hairline {
+  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+}
+
+/* [NEW] 青柠光晕（悬停/激活）：不是描边，是一层外发光 */
+.cs-glow {
+  box-shadow: var(--shadow-glow);
+}
+
+/* ---------------------------------------------------------------------------
+ * 微动效关键帧（结构性动效交给 GSAP，这里只负责「一直存在」的氛围）
+ * ------------------------------------------------------------------------- */
+@keyframes cs-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(0, -14px, 0) scale(1.03);
+  }
+}
+
+@keyframes cs-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes cs-shimmer {
+  0% {
+    background-position: -140% 0;
+  }
+  100% {
+    background-position: 240% 0;
+  }
+}
+
+@keyframes cs-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.cs-animate-float {
+  animation: cs-float 12s ease-in-out infinite;
+}
+
+.cs-animate-breathe {
+  animation: cs-breathe 5s ease-in-out infinite;
+}
+
+.cs-animate-rise {
+  animation: cs-rise 0.42s var(--ease-out) both;
+}
+
+/* 生成中的骨架：青柠光带扫过，表示「AI 正在动作」 */
+.cs-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 20%,
+    color-mix(in srgb, var(--color-accent) 55%, transparent) 46%,
+    transparent 72%
+  );
+  background-size: 220% 100%;
+  animation: cs-shimmer 1.8s linear infinite;
+}
+
+/* 滚动条在窄侧栏里更细一点 */
+.cs-thin-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.cs-thin-scroll::-webkit-scrollbar-thumb {
+  border: 0;
+  background: color-mix(in srgb, var(--color-border-strong) 70%, transparent);
+}
+
+[data-theme='dark'] body {
+  background-image: var(--ambient-1), var(--ambient-2);
 }

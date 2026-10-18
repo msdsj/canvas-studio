@@ -20,7 +20,9 @@ interface PoolImportDialogProps {
   result?: { added: number; skipped: number; errors: number } | null
 }
 
-const METHODS: PoolImportMethod[] = ['token', 'session', 'codex_auth', 'account_json', 'oauth']
+// Generic providers use API keys/tokens or account JSON. OAuth is provider
+// specific and is intentionally exposed only by a future provider adapter.
+const METHODS: PoolImportMethod[] = ['token', 'session', 'codex_auth', 'account_json']
 
 function parseInput(method: PoolImportMethod, raw: string): { tokens: string[]; accounts: Record<string, unknown>[] } {
   const trimmed = raw.trim()

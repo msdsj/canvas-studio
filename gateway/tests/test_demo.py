@@ -12,16 +12,16 @@ from app.state import runtime_config
 def _restore(demo_mode: str, sub2api: str, cg2: str) -> None:
     """恢复运行时配置。"""
     runtime_config.demo_mode = demo_mode
-    runtime_config.sub2api_base_url = sub2api
-    runtime_config.chatgpt2api_base_url = cg2
+    runtime_config.text_base_url = sub2api
+    runtime_config.image_base_url = cg2
 
 
 async def test_demo_mode_on_image(client, headers):
     """demo=on 时返回占位图（b64 为合法 PNG）。"""
     saved = (
         runtime_config.demo_mode,
-        runtime_config.sub2api_base_url,
-        runtime_config.chatgpt2api_base_url,
+        runtime_config.text_base_url,
+        runtime_config.image_base_url,
     )
     runtime_config.demo_mode = "on"
     try:
@@ -44,8 +44,8 @@ async def test_demo_mode_on_chat(client, headers):
     """demo=on 时对话返回模拟回复（SSE 含 demo 标记）。"""
     saved = (
         runtime_config.demo_mode,
-        runtime_config.sub2api_base_url,
-        runtime_config.chatgpt2api_base_url,
+        runtime_config.text_base_url,
+        runtime_config.image_base_url,
     )
     runtime_config.demo_mode = "on"
     try:
@@ -66,11 +66,11 @@ async def test_demo_auto_fallback_when_unreachable(client, headers):
     """demo=auto 且上游不可达时自动降级为占位图。"""
     saved = (
         runtime_config.demo_mode,
-        runtime_config.sub2api_base_url,
-        runtime_config.chatgpt2api_base_url,
+        runtime_config.text_base_url,
+        runtime_config.image_base_url,
     )
     runtime_config.demo_mode = "auto"
-    runtime_config.chatgpt2api_base_url = "http://127.0.0.1:9"
+    runtime_config.image_base_url = "http://127.0.0.1:9"
     try:
         resp = await client.post(
             "/gw/images/generations",

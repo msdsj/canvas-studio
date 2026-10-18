@@ -1,0 +1,81 @@
+/* ---------------------------------------------------------------------------
+ * 流式编排的动效件（ThinkingTrace / AnalysisSteps / GenerationResultCard 共用）
+ *
+ * 为什么写在这里而不是内联 style：Tailwind 里写不了 keyframes，而这几条
+ * 光带动画是「一直在跑的氛围层」——结构性动效交给 GSAP，持续氛围交给 CSS，
+ * 这样 SSE 高频到达时不会因为每帧补间而压主线程。
+ *
+ * 降级：
+ *  - prefers-reduced-motion：全部动画停掉，只保留静态形态；
+ *  - .cs-lite（低性能设备，由 lib/motion.ts 挂在 <html> 上）：同上。
+ * ------------------------------------------------------------------------- */
+
+/* 链路扫描光：一条青柠短光沿竖直连接线往下流，表示「正在往下推」。 */
+.cs-stream-flow {
+  background-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--color-accent) 85%, transparent) 42%,
+    transparent 78%
+  );
+  background-size: 100% 260%;
+  animation: cs-stream-flow 1.7s linear infinite;
+  will-change: background-position;
+}
+
+@keyframes cs-stream-flow {
+  0% {
+    background-position: 0% -140%;
+    opacity: 0.25;
+  }
+  25% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    background-position: 0% 240%;
+    opacity: 0.25;
+  }
+}
+
+/* 生成中：整块卡片的呼吸描边（青柠，极淡，只做「活着」的暗示） */
+.cs-breathe-edge {
+  animation: cs-breathe-edge 2.8s var(--ease-inout) infinite;
+}
+
+@keyframes cs-breathe-edge {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 16%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--color-accent) 42%, transparent),
+      0 10px 28px -14px color-mix(in srgb, var(--color-accent) 40%, transparent);
+  }
+}
+
+/* 纸面底纹骨架：暖砂色底上的一层极淡噪点，避免大片纯色块看起来像没加载出来 */
+.cs-ghost-frame {
+  background-color: var(--color-surface-hover);
+  background-image: var(--texture-paper);
+  box-shadow: inset 0 0 0 1px var(--color-border-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-stream-flow,
+  .cs-breathe-edge {
+    animation: none;
+  }
+  .cs-stream-flow {
+    background-image: none;
+  }
+}
+
+/* 低性能设备：lib/motion.ts 在 <html> 上挂 .cs-lite */
+.cs-lite .cs-stream-flow,
+.cs-lite .cs-breathe-edge {
+  animation: none;
+}

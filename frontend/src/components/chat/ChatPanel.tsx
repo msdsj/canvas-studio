@@ -1,68 +1,281 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  ArrowDown,
+  Check,
+  Images,
+  LibraryBig,
+  Loader2,
+  Plus,
+  Settings2,
+  Sparkles,
+  Upload,
+  X,
+} from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { useChatStream } from '@/hooks/use-chat-stream'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { usePolling } from '@/hooks/use-polling'
 import { useQuota } from '@/hooks/use-quota'
 import { useToast } from '@/hooks/use-toast'
-import { useIdempotency } from '@/hooks/use-idempotency'
-import { chatApi } from '@/lib/api/chat'
+import { assetsApi } from '@/lib/api/assets'
+import { aiApi, type DesignSkill, type RelayStatus } from '@/lib/api/ai'
+import {
+  chatApi,
+  pickComposeRun,
+  pickImages,
+  pickSkillRun,
+  type AnalyzeResult,
+  type ChatSelectionPayload,
+  type ComposeOption,
+  type ComposeResult,
+  type ComposeStep,
+  type SkillOption,
+  type SkillStepState,
+} from '@/lib/api/chat'
+import { ApiError } from '@/lib/api/client'
 import { generateApi } from '@/lib/api/generate'
 import { events } from '@/lib/events'
 import { errorMessage } from '@/lib/errors'
+import { parseServerTime } from '@/lib/utils'
+import { loadPlacedUrls, readNotifiedResults, writeNotifiedResults } from '@/lib/task-persistence'
 import { useUIStore } from '@/stores/ui'
+import { useComposerHandoff } from '@/stores/composer'
+import type { CanvasSelectionContext } from '@/types/selection'
 import { ChatMessage } from './ChatMessage'
-import { ChatTextarea, type ChatMode } from './ChatTextarea'
-import { SessionSelector } from './SessionSelector'
+import { ChatTextarea, type ComposerAttachment } from './ChatTextarea'
 import { GenerationResultCard } from './GenerationResultCard'
-import { Spinner } from './Spinner'
+import { LatestResultDock } from './LatestResultDock'
+import { AnalysisSteps } from './AnalysisSteps'
+import { ConfirmCountCard, type ConfirmCardState } from './ConfirmCountCard'
+import { ClarifyCard, type ClarifyState } from './ClarifyCard'
+import { ThinkingTrace } from './ThinkingTrace'
+import { SkillLibraryPanel } from './SkillLibraryPanel'
+import { PolishPopover } from './PolishPopover'
+import { AIConfigDialog } from '@/components/ai/AIConfigDialog'
+
+
+import { SkillRunCard } from './SkillRunCard'
 import type { ChatMessage as ChatMessageType, ChatSession, GenerationTask } from '@/types/models'
+
+/**
+ * 上游实际支持的 GPT 生图模型。
+ *
+ * 2.5 不是「一个模型」：`flare` 与 `sunburst` 是两个独立 key（定价也不同），
+ * 合并成「2.5」会让用户以为只有一档，实际出图效果与成本都由 key 决定。
+ */
+const IMAGE_MODELS = [
+  { id: 'gpt-image-2', label: 'GPT Image 2.0', short: 'GPT 2.0' },
+  { id: 'gpt-image-2.5-flare', label: 'GPT Image 2.5 · Flare', short: '2.5 Flare' },
+  { id: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 · Sunburst', short: '2.5 Sunburst' },
+]
+
+
+
 
 interface ChatPanelProps {
   canvasId?: string
   sessionId: string | null
   onSessionChange: (id: string) => void
-  onAddResultToCanvas?: (url: string, taskId: string) => void
+  onAddResultToCanvas?: (url: string, taskId: string) => Promise<void> | void
+  /** 有新的成功结果时通知父级自动落画布（父级负责去重 / 找空位 / 聚焦） */
+  onResultsReady?: (urls: string[], taskKey: string) => Promise<void> | void
+  /** 上传本地参考图 */
+  onUpload?: () => void
+  /** 从素材库选图 */
+  onPickAsset?: () => void
+  /** 画布当前选区（需求分析中转站的输入之一） */
+  selection?: CanvasSelectionContext | null
+  /** 「缺少底图」时把用户带回画布（不传则该按钮不出现） */
+  onFocusCanvas?: () => void
+  /** 首页交接下来的一句话：会话就绪后自动提交（只消费一次） */
+  initialPrompt?: string | null
+  /** 首页选好的参考图，随首次提交一起上传 */
+  initialFiles?: File[]
+  onInitialConsumed?: () => void
+}
+
+/** 同一会话的并发上限（与后端 max_active_tasks_per_user 保持一致）。 */
+const MAX_ACTIVE_TASKS = 2
+const DRAFT_PREFIX = 'cs.draft:'
+
+type TimelineEntry =
+  | { kind: 'message'; at: number; message: ChatMessageType }
+  | { kind: 'task'; at: number; task: GenerationTask }
+
+/** 一张待确认卡：同一时刻只允许存在一个，新的提交会把旧的标记为作废。 */
+interface PendingConfirm {
+  runId: string
+  fingerprint: string
+  options: SkillOption[]
+  reply: string
+  reason: string
+  state: ConfirmCardState
+  chosenId?: string
+}
+
+interface AnalysisState {
+  steps: SkillStepState[]
+  active: boolean
+}
+
+/** 澄清卡的本地状态（选了哪个 / 是否已提交）。 */
+interface ComposeRunUiState {
+  state: ClarifyState
+  chosenId?: string
+}
+
+function timeOf(value?: string | null): number {
+  // 服务端是 naive UTC：不补 Z 会被当成本地时间，时间线排序和计时都会偏 8 小时
+  return parseServerTime(value)?.getTime() ?? 0
+}
+
+/** 步骤按 id 去重覆盖：后端对同一步先发 running、再发 done，不能追加成两行。 */
+function upsertStep<T extends { id: string }>(steps: T[], next: T): T[] {
+  const index = steps.findIndex((step) => step.id === next.id)
+  if (index === -1) return [...steps, next]
+  const copy = steps.slice()
+  copy[index] = next
+  return copy
 }
 
 /**
- * 右侧 AI 对话面板：会话头 + 消息流 + 生成任务卡 + 输入区。
- * 仅保留「对话」与「文生图」两条主线——图片编辑统一走画布（单击图片进入编辑层）。
+ * 侧边栏（生图工作区）：会话头 + 瀑布流消息 + 生成任务卡 + 输入区。
+ *
+ * 只有一条链路：**用户说需求 → 中转站分析 → 不明确就澄清 → 生成最终提示词 → 生图**。
+ * 画布上框了选区时改走「按区域编辑」的分析（`/chat/analyze`），其余一律走
+ * `/chat/compose`——不存在「闲聊模式」，也不会绕过中转站直接建任务。
  */
-export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToCanvas }: ChatPanelProps) {
+export function ChatPanel({
+  canvasId,
+  sessionId,
+  onSessionChange,
+  onAddResultToCanvas,
+  onResultsReady,
+  onUpload,
+  onPickAsset,
+  selection,
+  onFocusCanvas,
+  initialPrompt,
+  initialFiles,
+  onInitialConsumed,
+}: ChatPanelProps) {
   const { t } = useTranslation('chat')
   const { t: te } = useTranslation()
   const toast = useToast()
   const { canAfford, prices } = useQuota()
   const setQuotaModalOpen = useUIStore((s) => s.setQuotaModalOpen)
-  const idem = useIdempotency()
 
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [messages, setMessages] = useState<ChatMessageType[]>([])
   const [input, setInput] = useState('')
-  const [mode, setMode] = useState<ChatMode>('chat')
   const [creating, setCreating] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [busyTaskId, setBusyTaskId] = useState<string | null>(null)
+  const [placedUrls, setPlacedUrls] = useState<string[]>(() => loadPlacedUrls())
+  const [preview, setPreview] = useState<{ url: string; prompt: string } | null>(null)
+  const [online, setOnline] = useState(true)
+  const [showJump, setShowJump] = useState(false)
+  /** 消息列表加载中（切换会话时先给骨架，避免"空白闪一下"） */
+  const [messagesLoading, setMessagesLoading] = useState(false)
+  /** 离开底部期间新增的消息条数 */
+  const [newCount, setNewCount] = useState(0)
+  /** 画布框选编辑的实时分析块（随 SSE onStep 更新） */
+  const [analysis, setAnalysis] = useState<AnalysisState | null>(null)
+  /** 待确认方案卡（时间线尾部） */
+  const [pending, setPending] = useState<PendingConfirm | null>(null)
+  /** 「缺少底图」内联提示 */
+  const [needsImage, setNeedsImage] = useState(false)
+  /** 底部「最近生成」展示位被用户手动关掉（只对本次会话生效，切会话/新结果会重新打开） */
+  const [latestDismissed, setLatestDismissed] = useState(false)
+
+  /** 生图全链路：实时思考步骤 */
+  const [composeSteps, setComposeSteps] = useState<ComposeStep[]>([])
+  const [composing, setComposing] = useState(false)
+  /** 澄清卡状态：按 runId 记录选择结果，刷新后以消息附件为准 */
+  const [composeRunUi, setComposeRunUi] = useState<Record<string, ComposeRunUiState>>({})
+  /** 参考图（粘贴 / 选择 / 上传） */
+  const [refs, setRefs] = useState<ComposerAttachment[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [configOpen, setConfigOpen] = useState(false)
+  /** 生图模型：只列 GPT（上游 2.5 有两个变体，不要混成同一个） */
+  const [imageModel, setImageModel] = useState(
+    () => localStorage.getItem('cs.imageModel') || 'gpt-image-2'
+  )
+  const chooseModel = (value: string) => {
+    setImageModel(value)
+    localStorage.setItem('cs.imageModel', value)
+  }
+  const [skillOpen, setSkillOpen] = useState(false)
+  const [relay, setRelay] = useState<RelayStatus | null>(null)
+  /** 上一次提交的内容：未配置中转站时「用本地模板先试一次」要原样重发 */
+  const lastComposeRef = useRef<string>('')
+
+  const nearBottomRef = useRef(true)
+  /**
+   * 本次停留期间见过它「正在跑」的任务 id。
+   * 只有这类任务在完成时才提醒；进页面就已完成的属于历史，安静带过。
+   */
+  const watchersRef = useRef<Set<string>>(new Set())
+  const draftTimerRef = useRef<number | null>(null)
+  const lastTimelineLenRef = useRef(0)
+  /** 已处理过的 run（本会话内确认过的）：历史卡不再提供选择入口，避免重复入口 */
+  const resolvedRunsRef = useRef<Set<string>>(new Set())
+  /** 已从历史恢复成待确认卡的 run，避免每次轮询都重置卡片状态 */
+  const restoredRunsRef = useRef<Set<string>>(new Set())
+  /** SSE 取消函数 */
+  const analyzeCancelRef = useRef<(() => void) | null>(null)
+  const composeCancelRef = useRef<(() => void) | null>(null)
+  /** 用户主动取消：onClose 里据此决定「不弹失败提示」 */
+  const cancelledRef = useRef(false)
+
+  const loadRelay = useCallback(async () => {
+    try {
+      setRelay(await aiApi.status())
+    } catch {
+      /* 状态读取失败不阻塞输入，提交时会再拦一次 */
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadRelay()
+  }, [loadRelay])
 
   const loadMessages = useCallback(async (id: string) => {
+    setMessagesLoading(true)
     try {
       const page = await chatApi.listMessages(id)
       setMessages(page.items)
     } catch {
       setMessages([])
+    } finally {
+      setMessagesLoading(false)
     }
   }, [])
 
   const loadSessions = useCallback(
     async (selectIfEmpty = true) => {
       try {
-        const list = await chatApi.listSessions(canvasId)
+        // 会话与画布改成 1:1 之后，每个会话都有自己独立的画布，
+        // 再按 canvas_id 过滤就只剩当前这一条——历史对话会从下拉里彻底消失，
+        // 用户也就没有入口切回去了。这里必须列出该用户的全部会话。
+        const list = await chatApi.listSessions()
         setSessions(list)
         if (selectIfEmpty && !sessionId && list.length > 0) {
           onSessionChange(list[0].id)
         }
         if (selectIfEmpty && list.length === 0 && !creating) {
           setCreating(true)
-          const created = await chatApi.createSession({ canvas_id: canvasId })
+          // 首次进入：已经有一块画布就复用它（避免多出一块空画布没人用）；
+          // 连画布都还没有时，才让后端顺手开一块干净画布。
+          const created = await chatApi.createSession(
+            canvasId ? { canvas_id: canvasId } : { new_canvas: true }
+          )
           setSessions([created])
           onSessionChange(created.id)
           setCreating(false)
@@ -80,27 +293,94 @@ export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToC
   }, [canvasId])
 
   useEffect(() => {
+    // 切会话先清空旧消息并进入加载态：否则会短暂显示上一个会话的内容
+    setMessages([])
+    setNewCount(0)
+    setAnalysis(null)
+    setPending(null)
+    setNeedsImage(false)
+    setLatestDismissed(false)
+    setComposeSteps([])
+    setRefs([])
+    // 切会话时上一个请求的收尾回调可能已经落在旧会话上：必须把提交态清掉，
+    // 否则新会话里发送键会一直禁用（表现为「切了个对话就发不出去了」）。
+    setComposing(false)
+    setSubmitting(false)
+    cancelledRef.current = true
+    restoredRunsRef.current.clear()
+    lastTimelineLenRef.current = 0
+    nearBottomRef.current = true
     if (sessionId) void loadMessages(sessionId)
   }, [sessionId, loadMessages])
+
+  // 离开面板/切会话时必须掐掉 SSE，否则回包会写进已经切走的会话视图
+  useEffect(() => {
+    return () => {
+      analyzeCancelRef.current?.()
+      analyzeCancelRef.current = null
+      composeCancelRef.current?.()
+      composeCancelRef.current = null
+    }
+  }, [sessionId])
+
+  // 草稿：按会话存 sessionStorage，刷新/误关后可恢复
+  useEffect(() => {
+    if (!sessionId) return
+    try {
+      const saved = sessionStorage.getItem(`${DRAFT_PREFIX}${sessionId}`)
+      if (saved) {
+        setInput(saved)
+        toast.info(t('draft.restored'))
+      }
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId])
+
+  const updateInput = (value: string) => {
+    setInput(value)
+    if (!sessionId) return
+    if (draftTimerRef.current) window.clearTimeout(draftTimerRef.current)
+    draftTimerRef.current = window.setTimeout(() => {
+      try {
+        if (value.trim()) sessionStorage.setItem(`${DRAFT_PREFIX}${sessionId}`, value)
+        else sessionStorage.removeItem(`${DRAFT_PREFIX}${sessionId}`)
+      } catch {
+        /* ignore */
+      }
+    }, 200)
+  }
+
+  const clearDraft = () => {
+    if (!sessionId) return
+    try {
+      sessionStorage.removeItem(`${DRAFT_PREFIX}${sessionId}`)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // 网络状态：断网时给一条细提示，恢复后自动刷新一次
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine)
+    update()
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    return () => {
+      window.removeEventListener('online', update)
+      window.removeEventListener('offline', update)
+    }
+  }, [])
 
   const { data: tasks, refresh: refreshTasks } = usePolling<GenerationTask[]>(
     async () => {
       if (!sessionId) return []
-      const page = await generateApi.listTasks({ session_id: sessionId, size: 20 })
+      const page = await generateApi.listTasks({ session_id: sessionId, size: 30 })
       return page.items
     },
-    { enabled: Boolean(sessionId), intervalMs: 2500, maxIntervalMs: 10000 }
+    { enabled: Boolean(sessionId) && online, intervalMs: 2500, maxIntervalMs: 10000 }
   )
-
-  const chatStream = useChatStream(sessionId, (info) => {
-    if (info.errorCode) {
-      toast.error(te(`errors.${info.errorCode.toLowerCase()}`, { defaultValue: '对话失败' }))
-    }
-    void loadMessages(sessionId as string)
-    void refreshTasks()
-    events.emit('quota:changed')
-    events.emit('tasks:changed')
-  })
 
   const guardAfford = (cost: number): boolean => {
     if (!canAfford(cost)) {
@@ -110,86 +390,600 @@ export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToC
     return true
   }
 
-  const send = async () => {
-    const content = input.trim()
-    if (!content || !sessionId) return
+  const orderedTasks = useMemo(
+    () => [...(tasks ?? [])].sort((a, b) => timeOf(a.created_at) - timeOf(b.created_at)),
+    [tasks]
+  )
 
-    if (mode === 'chat') {
-      if (!guardAfford(prices.chat)) return
-      chatStream.send({ content, canvasId })
-      setInput('')
+  const activeCount = useMemo(
+    () => orderedTasks.filter((task) => task.status === 'queued' || task.status === 'running').length,
+    [orderedTasks]
+  )
+
+  // 结果到达提示：不再自动落画布，必须显式告诉用户「图好了、在右边」。
+  //
+  // 去重必须**跨挂载、跨刷新**生效，所以落 localStorage 而不是 useRef：
+  // 之前用内存 Set + 「首次进会话只做基线」的逻辑，有两个必然漏弹的口子：
+  //   ① ChatPanel 重新挂载（切会话回来、路由进出、HMR）→ Set 清空 → 整批历史任务重新算「新到达」；
+  //   ② 首次进会话时任务还在 running（不在 succeeded 列表里），
+  //      基线里没有它的 id，等它变成 succeeded 就被当成新结果弹一次——
+  //      而这个任务其实用户早就看过了。
+  // 现在记录的是 { 任务 id: 已提示过的结果张数 }：
+  //   - 任务历史里就有、且提示过 → 不弹
+  //   - 只有结果张数变多（例如重试后多产出一张）才补一次提示
+  //   - 只提示「在本次停留期间真正跑完」的任务，进页面时已完成的安静地带过
+  useEffect(() => {
+    if (!sessionId) return
+    const succeeded = orderedTasks.filter((task) => task.status === 'succeeded')
+    if (succeeded.length === 0) return
+
+    const notified = readNotifiedResults()
+    const fresh = succeeded.filter((task) => {
+      const count = task.result_urls?.length ?? 0
+      if (count === 0) return false
+      const seen = notified[task.id] ?? -1
+      return count > seen
+    })
+    if (fresh.length === 0) return
+
+    // 首次见到某个任务时：只有本次停留期间见过它 running，才算"刚跑完"；
+    // 否则它是历史结果，只记账不打扰。
+    const shouldToast = fresh.filter((task) => task.id in notified || watchersRef.current.has(task.id))
+
+    fresh.forEach((task) => {
+      notified[task.id] = task.result_urls.length
+    })
+    writeNotifiedResults(notified)
+
+    if (shouldToast.length === 0) return
+    const count = shouldToast.reduce((sum, task) => sum + task.result_urls.length, 0)
+    // 演示占位图不能报「已完成」，否则用户会以为 AI 真的画了
+    if (shouldToast.some((task) => task.demo)) {
+      toast.warning(t('task.result_demo'), t('demo_hint'))
+    } else {
+      toast.success(t('task.succeeded'), t('task.result_count', { count }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderedTasks, sessionId])
+
+  /**
+   * 记录「本次停留期间见过的进行中任务」。
+   *
+   * 判断依据很朴素：一个任务只要在某次轮询里处于 queued/running，就说明
+   * 用户是"看着它跑完"的，完成时提醒一次是合理的；反过来，进页面时它已经是
+   * succeeded，那只是历史记录，不该弹窗打扰。
+   */
+  useEffect(() => {
+    orderedTasks.forEach((task) => {
+      if (task.status === 'queued' || task.status === 'running') {
+        watchersRef.current.add(task.id)
+      }
+    })
+  }, [orderedTasks])
+
+  // 时间线：消息与任务按创建时间统一排序，任务卡挂在对应提示词气泡下面
+  const timeline = useMemo<TimelineEntry[]>(() => {
+    const entries: TimelineEntry[] = [
+      ...messages.map((message) => ({
+        kind: 'message' as const,
+        at: timeOf(message.created_at),
+        message,
+      })),
+      ...orderedTasks.map((task) => ({ kind: 'task' as const, at: timeOf(task.created_at), task })),
+    ]
+    return entries.sort((a, b) => a.at - b.at || (a.kind === 'message' ? -1 : 1))
+  }, [messages, orderedTasks])
+
+  const scrollAnchorRef = useRef<HTMLDivElement>(null)
+
+  /**
+   * 底部「最近生成」展示位：本次会话**最近一次成功且有产出**的任务。
+   *
+   * 时间线按创建时间排序，最新结果不一定在最底下（例如并发两个任务，
+   * 先发的后完成）；所以这里单独按「完成时间」取最近一条，作为主展示。
+   */
+  const latestTask = useMemo(() => {
+    let picked: GenerationTask | null = null
+    let pickedAt = -1
+    for (const task of orderedTasks) {
+      if (task.status !== 'succeeded') continue
+      if (!task.result_urls?.length) continue
+      const at = timeOf(task.updated_at ?? task.created_at) || timeOf(task.created_at)
+      if (at >= pickedAt) {
+        pickedAt = at
+        picked = task
+      }
+    }
+    return picked
+  }, [orderedTasks])
+
+  /** 换了一条新结果就重新弹出展示位（用户此前关掉的只对旧结果生效）。 */
+  useEffect(() => {
+    if (!latestTask) return
+    setLatestDismissed(false)
+  }, [latestTask?.id])
+
+  /**
+   * 新结果 → 通知父级自动落画布。
+   *
+   * 只通知「本次停留期间真的跑完」的任务：进页面时已经完成的历史结果
+   * 不应该在每次挂载时被重新塞进画布。
+   */
+  useEffect(() => {
+    if (!latestTask || !onResultsReady) return
+    if (!watchersRef.current.has(latestTask.id)) return
+    const urls = latestTask.result_urls ?? []
+    if (urls.length === 0) return
+    void onResultsReady(urls, latestTask.id)
+  }, [latestTask, onResultsReady])
+
+  const scrollToBottom = useCallback(() => {
+    const viewport = scrollAnchorRef.current?.closest('[data-radix-scroll-area-viewport]')
+    if (!viewport) return
+    viewport.scrollTop = viewport.scrollHeight
+    nearBottomRef.current = true
+    setShowJump(false)
+    setNewCount(0)
+  }, [])
+
+  useEffect(() => {
+    const viewport = scrollAnchorRef.current?.closest('[data-radix-scroll-area-viewport]') as
+      | HTMLElement
+      | null
+    if (!viewport) return
+    const onScroll = () => {
+      const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+      nearBottomRef.current = distance < 80
+      setShowJump(distance > 160)
+    }
+    viewport.addEventListener('scroll', onScroll, { passive: true })
+    return () => viewport.removeEventListener('scroll', onScroll)
+  }, [])
+
+  // 只有用户本来就在底部时才自动跟随，避免把正在翻历史的人拽回来。
+  const composeRunning = composing || Boolean(analysis?.active)
+  useEffect(() => {
+    if (!nearBottomRef.current) return
+    const raf = requestAnimationFrame(() => scrollToBottom())
+    return () => cancelAnimationFrame(raf)
+  }, [timeline.length, composeSteps, composeRunning, scrollToBottom])
+
+  // 离开底部期间新到的消息计入角标
+  useEffect(() => {
+    const prev = lastTimelineLenRef.current
+    const next = timeline.length
+    lastTimelineLenRef.current = next
+    if (next > prev && !nearBottomRef.current) {
+      setNewCount((count) => count + (next - prev))
+    }
+  }, [timeline.length])
+
+  // --------------------------------------------------------------------- //
+  // 画布框选编辑（保留原有链路：按区域拆指令、判定 1/2 张）
+  // --------------------------------------------------------------------- //
+
+  /**
+   * 把画布选区整理成中转站入参。
+   *
+   * 有 `buildMask` 时先把并集掩码导成 PNG 上传，再带上 `mask_asset_id`——
+   * 掩码是「只改这一块」的唯一凭据，丢了就变成整图重绘。
+   */
+  const buildSelectionPayload = async (
+    context?: CanvasSelectionContext | null
+  ): Promise<ChatSelectionPayload | null> => {
+    if (!context) return null
+    let maskAssetId = context.mask_asset_id ?? null
+    if (context.buildMask) {
+      const file = await context.buildMask()
+      if (file) {
+        const uploaded = await assetsApi.upload(file)
+        maskAssetId = uploaded.id
+      }
+    }
+    return {
+      asset_id: context.asset_id ?? null,
+      mask_asset_id: maskAssetId,
+      width: context.width ?? 0,
+      height: context.height ?? 0,
+      has_doodle: Boolean(context.has_doodle),
+      regions: (context.regions ?? []).map((region, index) => ({
+        index: region.index ?? index + 1,
+        region: region.region,
+        path: region.path ?? null,
+        prompt: region.prompt ?? '',
+        handler: region.handler ?? '',
+      })),
+    }
+  }
+
+  /** 历史里那条 run 的选区指纹（确认时必须原样回传）。 */
+  const fingerprintOf = useCallback(
+    (runId: string): string => {
+      if (pending?.runId === runId) return pending.fingerprint
+      for (const message of messages) {
+        const run = pickSkillRun(message.attachments)
+        if (run && run.run_id === runId) return run.selection_fingerprint ?? ''
+      }
+      return ''
+    },
+    [messages, pending]
+  )
+
+  /** 用户点「就按这个来」：服务端凭 run_id 重建任务，前端只回传选了哪个方案。 */
+  const confirmOption = useCallback(
+    async (runId: string, optionId: string, imageCount: number): Promise<void> => {
+      try {
+        await chatApi.confirmRun(runId, optionId, fingerprintOf(runId))
+        resolvedRunsRef.current.add(runId)
+        toast.success(`已按 ${imageCount} 张开始生成`)
+        events.emit('tasks:changed')
+        events.emit('quota:changed')
+        await refreshTasks()
+      } catch (error) {
+        if (error instanceof ApiError && error.code === 'TASK_STATE_CONFLICT') {
+          toast.error('选区在确认前变了，这次分析已经作废，重新说一次需求就好')
+        } else {
+          toast.error(errorMessage(error, te))
+        }
+        throw error
+      }
+    },
+    [fingerprintOf, refreshTasks, toast, te]
+  )
+
+  const applyResult = useCallback(
+    (result: AnalyzeResult) => {
+      setSubmitting(false)
+      // 结果已由后端落库为 assistant 消息：这里拉一次消息即可，
+      // 绝不在本地再拼一条假消息（否则刷新后会出现重复气泡）。
+      void loadMessages(sessionId as string)
+
+      if (result.status === 'confirm' || (result.status === 'preview' && result.options.length > 0)) {
+        setNeedsImage(false)
+        setAnalysis(null)
+        setPending({
+          runId: result.run_id,
+          fingerprint: result.selection_fingerprint ?? '',
+          options: result.options,
+          reply: result.reply,
+          reason: result.reason,
+          state: 'pending',
+        })
+        return
+      }
+
+      setPending(null)
+
+      if (result.status === 'needs_image' || result.requires_image) {
+        setAnalysis(null)
+        setNeedsImage(true)
+        return
+      }
+
+      setNeedsImage(false)
+      setAnalysis(null)
+      if (result.status === 'failed') {
+        toast.error(result.reply || '这次没能完成分析，再说一次或直接框选后重试')
+        return
+      }
+      if (result.status === 'direct' || result.status === 'completed') {
+        toast.success(`已按 ${result.image_count} 张开始生成`)
+        void refreshTasks()
+        events.emit('tasks:changed')
+        events.emit('quota:changed')
+      }
+    },
+    [loadMessages, refreshTasks, sessionId, toast]
+  )
+
+  /** 画布选区提交：走 `/chat/analyze`，实时展示区域判定。 */
+  const submitSelection = async (prompt: string) => {
+    if (!sessionId || submitting) return
+    if (!guardAfford(prices.image_standard)) return
+    setSubmitting(true)
+
+    setPending((prev) => {
+      if (!prev || prev.state !== 'pending') return prev
+      resolvedRunsRef.current.add(prev.runId)
+      return { ...prev, state: 'voided' }
+    })
+    setNeedsImage(false)
+    setAnalysis({ steps: [], active: true })
+
+    let payload: ChatSelectionPayload | null = null
+    try {
+      payload = await buildSelectionPayload(selection)
+    } catch (error) {
+      setAnalysis(null)
+      setSubmitting(false)
+      toast.error(errorMessage(error, te))
       return
     }
 
-    // 文生图
-    if (!guardAfford(prices.image_standard)) return
-    const scope = `image:${sessionId}`
-    const key = idem.getKey(scope)
-    try {
-      await generateApi.image({ prompt: content, session_id: sessionId, canvas_id: canvasId }, key)
-      setInput('')
+    analyzeCancelRef.current?.()
+    let settled = false
+    const failAnalysis = () => {
+      setAnalysis(null)
+      setSubmitting(false)
+      setPending((prev) => (prev && prev.state === 'voided' ? { ...prev, state: 'pending' } : prev))
+      if (!cancelledRef.current) {
+        toast.error('这次没能完成分析，再说一次或直接框选后重试')
+      }
+    }
+    analyzeCancelRef.current = chatApi.analyzeStream(
+      {
+        session_id: sessionId,
+        content: prompt,
+        canvas_id: canvasId,
+        selection: payload,
+      },
+      {
+        onStep: (step) => {
+          setAnalysis((prev) => ({
+            steps: upsertStep(prev?.steps ?? [], step),
+            active: true,
+          }))
+        },
+        onResult: (result) => {
+          settled = true
+          applyResult(result)
+        },
+        onError: () => {
+          settled = true
+          failAnalysis()
+        },
+        onClose: () => {
+          if (settled) return
+          failAnalysis()
+        },
+      }
+    )
+  }
+
+  // --------------------------------------------------------------------- //
+  // 纯生图全链路（compose）
+  // --------------------------------------------------------------------- //
+
+  const applyComposeResult = useCallback(
+    (result: ComposeResult) => {
+      setComposing(false)
+      void loadMessages(sessionId as string).then(() => setComposeSteps([]))
+      void loadRelay()
+
+      if (result.status === 'clarify') {
+        toast.info('需要你确认一下方向', '选定后我才开始生成，不会自动扣额度')
+        return
+      }
+      if (result.status === 'unconfigured') {
+        setConfigOpen(true)
+        return
+      }
+      if (result.status === 'failed') {
+        // 失败可能是「额度不足 / 并发已满 / 模型格式不对」：把原话放回输入框，别让用户重打
+        setInput((prev) => prev || lastComposeRef.current)
+        toast.error(result.reply || '这次没能完成需求分析，再说一次试试')
+        return
+      }
+      const deduped = result.tasks.length > 0 && result.tasks.every((task) => task.deduped)
+      if (deduped) {
+        // 幂等命中：不能报「已开始生成」，否则用户会等一张永远不会新出现的图
+        toast.info('同一需求刚提交过', '没有重复扣额度，结果在下方')
+      } else {
+        toast.success('已开始生成', '提示词在思考过程里，可以复制或重新生成')
+      }
+      void refreshTasks()
       events.emit('tasks:changed')
       events.emit('quota:changed')
-      void refreshTasks()
+    },
+    [loadMessages, loadRelay, refreshTasks, sessionId, toast]
+  )
+
+  /** 全链路提交：语义分析 → 澄清 / 提示词 → 生图。返回是否真的发出了请求。 */
+  const submitCompose = async (
+    content: string,
+    allowDegraded = false,
+    refsOverride?: ComposerAttachment[]
+  ): Promise<boolean> => {
+    if (!sessionId || composing) return false
+    if (!content.trim()) {
+      toast.info('重新输入一次需求', '刷新后原话没有留在输入框里')
+      return false
+    }
+    if (!guardAfford(prices.image_standard)) {
+      // 额度不足时把用户那句话还回输入框：被拦下的需求不该随之蒸发，
+      // 否则充值回来还得凭记忆重打一遍
+      updateInput(content)
+      return false
+    }
+    cancelledRef.current = false
+    lastComposeRef.current = content
+    setComposing(true)
+    setComposeSteps([])
+    // 新提交让旧的澄清卡作废：不允许两张卡同时可点
+    setComposeRunUi((prev) => {
+      const next = { ...prev }
+      for (const [runId, state] of Object.entries(next)) {
+        if (state.state === 'pending') next[runId] = { ...state, state: 'voided' }
+      }
+      return next
+    })
+
+    composeCancelRef.current?.()
+    let settled = false
+    composeCancelRef.current = chatApi.composeStream(
+      {
+        session_id: sessionId,
+        content,
+        canvas_id: canvasId,
+        image_refs: (refsOverride ?? refs).map((item) => item.id),
+        allow_degraded: allowDegraded,
+        model: imageModel,
+      },
+      {
+        onStep: (step) => {
+          setComposeSteps((prev) => upsertStep(prev, step))
+        },
+        onResult: (result) => {
+          settled = true
+          applyComposeResult(result)
+        },
+        onError: (message) => {
+          settled = true
+          setComposing(false)
+          // 失败把原话还给用户：输入框已清空时不要让用户重打一遍
+          setInput((prev) => prev || content)
+          toast.error('需求分析中断了', message)
+        },
+        onClose: () => {
+          if (settled) return
+          setComposing(false)
+          if (!cancelledRef.current) {
+            setInput((prev) => prev || content)
+            toast.error('需求分析中断了', '再说一次，或检查中转站是否可用')
+          }
+        },
+      }
+    )
+    return true
+  }
+
+  /** 澄清方案确认：用该方案自带的提示词建任务。 */
+  const chooseClarify = async (runId: string, option: ComposeOption) => {
+    setComposeRunUi((prev) => ({ ...prev, [runId]: { state: 'choosing', chosenId: option.id } }))
+    try {
+      await chatApi.confirmRun(runId, option.id, '')
+      setComposeRunUi((prev) => ({ ...prev, [runId]: { state: 'done', chosenId: option.id } }))
+      toast.success('已开始生成', option.label)
+      events.emit('tasks:changed')
+      events.emit('quota:changed')
+      await Promise.all([refreshTasks(), loadMessages(sessionId as string)])
     } catch (error) {
-      // 失败/取消后视为新任务，换新键
-      idem.resetKey(scope)
+      setComposeRunUi((prev) => ({ ...prev, [runId]: { state: 'pending' } }))
+      // 错误已在这里 toast，卡片自己会把 loading 退回去，不再向上抛（抛了也没人接）
       toast.error(errorMessage(error, te))
     }
   }
 
-  const handlePause = async (task: GenerationTask) => {
+  // 参考图：粘贴 / 拖拽 / 选择，统一先上传成资产再随请求带走
+  const handleImageFiles = async (files: File[]) => {
+    if (files.length === 0) return
+    setUploading(true)
     try {
-      await generateApi.pause(task.id)
-      void refreshTasks()
-      events.emit('tasks:changed')
+      for (const file of files.slice(0, 4)) {
+        const asset = await assetsApi.upload(file)
+        setRefs((prev) =>
+          prev.length >= 4
+            ? prev
+            : [...prev, { id: asset.id, url: asset.url, name: file.name }]
+        )
+      }
     } catch (error) {
-      toast.error(errorMessage(error, te))
+      toast.error('参考图上传失败', errorMessage(error, te))
+    } finally {
+      setUploading(false)
     }
   }
-  const handleResume = async (task: GenerationTask) => {
+
+  const send = async () => {
+    const content = input.trim()
+    if (!content || !sessionId || submitting || composing) return
+
+    // 并发上限前置拦截：不要等后端 429 才告诉用户
+    if (activeCount >= MAX_ACTIVE_TASKS) {
+      toast.warning(t('task.limit_title'), t('task.limit_hint', { max: MAX_ACTIVE_TASKS }))
+      return
+    }
+
+    const hadSelection = hasSelection
+    if (hadSelection) {
+      // 选区编辑不需要参考图，但也不该把用户刚粘的图静默丢掉
+      setInput('')
+      clearDraft()
+      await submitSelection(content)
+      return
+    }
+
+    // 只有请求真的发出去才清空输入：被额度/并发拦下时不能吞掉用户写的内容
+    const started = await submitCompose(content)
+    if (!started) return
+    setInput('')
+    clearDraft()
+    setRefs([])
+  }
+
+  // --------------------------------------------------------------------- //
+  // 首页交接：进入工作室后自动提交那句话（只消费一次）
+  // --------------------------------------------------------------------- //
+  const submitRef = useRef(submitCompose)
+  submitRef.current = submitCompose
+  const autoSentRef = useRef(false)
+
+  useEffect(() => {
+    if (!initialPrompt || autoSentRef.current || !sessionId) return
+    autoSentRef.current = true
+    void (async () => {
+      const attachments: ComposerAttachment[] = []
+      if (initialFiles && initialFiles.length > 0) {
+        setUploading(true)
+        try {
+          for (const file of initialFiles.slice(0, 4)) {
+            const asset = await assetsApi.upload(file)
+            attachments.push({ id: asset.id, url: asset.url, name: file.name })
+          }
+          setRefs(attachments)
+        } catch (error) {
+          toast.error('参考图上传失败', errorMessage(error, te))
+        } finally {
+          setUploading(false)
+        }
+      }
+      onInitialConsumed?.()
+      await submitRef.current(initialPrompt, false, attachments)
+    })()
+    // 只在「首页那一句话 / 会话就绪」变化时触发
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPrompt, initialFiles, sessionId])
+
+  const withBusy = async (taskId: string, action: () => Promise<unknown>) => {
+    if (busyTaskId) return
+    setBusyTaskId(taskId)
     try {
-      await generateApi.resume(task.id)
-      void refreshTasks()
-      events.emit('tasks:changed')
+      await action()
     } catch (error) {
       toast.error(errorMessage(error, te))
+    } finally {
+      setBusyTaskId(null)
     }
   }
-  const handleCancel = async (task: GenerationTask) => {
-    try {
+
+  const handleCancel = (task: GenerationTask) =>
+    withBusy(task.id, async () => {
       await generateApi.cancel(task.id)
       void refreshTasks()
       events.emit('quota:changed')
       events.emit('tasks:changed')
-    } catch (error) {
-      toast.error(errorMessage(error, te))
+      toast.success(t('task.cancelled'), t('task.refunded'))
+    })
+
+  const handleRegenerate = (task: GenerationTask) =>
+    withBusy(task.id, async () => {
+      await submitCompose(task.prompt)
+    })
+
+  const handleAddToCanvas = async (task: GenerationTask) => {
+    const urls = task.result_urls.filter((url) => !placedUrls.includes(url))
+    if (urls.length === 0) return
+    for (const url of urls) {
+      await onAddResultToCanvas?.(url, task.id)
     }
-  }
-  const handleRetry = (task: GenerationTask) => {
-    setInput(task.prompt)
-    toast.info(t('task.retry'))
-  }
-  const handleRegenerate = (task: GenerationTask) => {
-    setInput(task.prompt)
-  }
-  const handleSeen = async (task: GenerationTask) => {
-    try {
-      await generateApi.markSeen(task.id)
-      void refreshTasks()
-      events.emit('tasks:changed')
-    } catch {
-      /* ignore */
-    }
-  }
-  const handleAddToCanvas = (task: GenerationTask) => {
-    const url = task.result_urls[0]
-    if (url) onAddResultToCanvas?.(url, task.id)
+    setPlacedUrls(loadPlacedUrls())
+    toast.success(t('task.add_to_canvas'), t('task.result_count', { count: urls.length }))
   }
 
   const handleCreateSession = async () => {
     try {
-      const created = await chatApi.createSession({ canvas_id: canvasId })
+      // 新对话 = 新画布：否则新对话里还留着上一轮的图
+      const created = await chatApi.createSession({ canvas_id: canvasId, new_canvas: true })
       setSessions((prev) => [created, ...prev])
       onSessionChange(created.id)
     } catch (error) {
@@ -208,97 +1002,582 @@ export function ChatPanel({ canvasId, sessionId, onSessionChange, onAddResultToC
     }
   }
 
-  // 展示顺序：最早的在上、最新的在下（聊天式时间线）
-  const orderedTasks = useMemo(
-    () =>
-      [...(tasks ?? [])].sort(
-        (a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime()
-      ),
-    [tasks]
-  )
+  /** 技能库：把骨架写进输入框（{主体} 用当前内容替换，避免让用户对着占位符发呆）。 */
+  const insertSkill = (skill: DesignSkill) => {
+    const subject = input.trim()
+    const scaffold = skill.prompt_scaffold.replace(/\{主体\}/g, subject || '（主体）')
+    updateInput(subject && !scaffold.startsWith(subject) ? `${subject}。${scaffold}` : scaffold)
+    toast.success(`已套用「${skill.name}」`, '可以再改主体与细节，出图会按这套参数执行')
+  }
 
-  // 内容变化时自动滚动到最新
-  const scrollAnchorRef = useRef<HTMLDivElement>(null)
+  /**
+   * 刷新后恢复待确认卡：assistant 消息附件里带着 `status==='confirm'` 的 skill_run。
+   *
+   * 确认成功后服务端会把该附件回写成 `status='completed' + chosen_option_id`，
+   * 所以正常情况下这里根本匹配不到（已执行过的不会重新变成可点）。
+   */
   useEffect(() => {
-    const viewport = scrollAnchorRef.current?.closest('[data-radix-scroll-area-viewport]')
-    if (viewport) {
-      viewport.scrollTop = viewport.scrollHeight
-    }
-  }, [messages.length, tasks?.length])
+    if (pending || tasks === null) return
+    const candidate = [...messages]
+      .reverse()
+      .find((message) => message.role === 'assistant' && pickSkillRun(message.attachments))
+    if (!candidate) return
+    const run = pickSkillRun(candidate.attachments)
+    if (!run || run.status !== 'confirm') return
+    if (!run.options?.length) return
+    if (resolvedRunsRef.current.has(run.run_id) || restoredRunsRef.current.has(run.run_id)) return
+    const at = timeOf(candidate.created_at)
+    if (orderedTasks.some((task) => timeOf(task.created_at) >= at)) return
+    restoredRunsRef.current.add(run.run_id)
+    setPending({
+      runId: run.run_id,
+      fingerprint: run.selection_fingerprint ?? '',
+      options: run.options,
+      reply: candidate.content,
+      reason: run.reason,
+      state: 'pending',
+    })
+  }, [messages, tasks, orderedTasks, pending])
+
+  const isEmpty =
+    !messagesLoading &&
+    timeline.length === 0 &&
+    !composing &&
+    !analysis &&
+    !pending &&
+    composeSteps.length === 0
+
+  const analysisActive = Boolean(analysis?.active)
+  /** 画布上有选区：这句话应当被当成「编辑需求」而不是从零生成。 */
+  const hasSelection = (selection?.regions?.length ?? 0) > 0
+  const configured = relay?.configured ?? false
+
+  /**
+   * 接收画布编辑层的「去创作」交接单。
+   *
+   * 编辑层只负责框选与写需求；真正生成统一走这条链路（AI 分析 → 提示词 → 出图），
+   * 这样两条入口的产出、计费、失败处理完全一致。
+   */
+  useEffect(() => {
+    return useComposerHandoff.subscribe((state) => {
+      if (!state.pending) return
+      const { text, files } = useComposerHandoff.getState().consume()
+      if (!text.trim()) return
+      setInput(text)
+      void (async () => {
+        let attachments: ComposerAttachment[] = []
+        if (files.length > 0) {
+          try {
+            const uploaded = await Promise.all(files.map((file) => assetsApi.upload(file)))
+            attachments = uploaded.map((asset) => ({
+              id: asset.id,
+              url: asset.url,
+              name: asset.source_prompt || '画布选区',
+            }))
+            setRefs(attachments)
+          } catch (error) {
+            toast.error('参考图没上传成功', errorMessage(error, te))
+          }
+        }
+        await submitCompose(text, false, attachments)
+      })()
+    })
+  }, [submitCompose, te, toast])
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
-        <SessionSelector
-          sessions={sessions}
-          currentId={sessionId}
-          onSelect={onSessionChange}
-          onCreate={handleCreateSession}
-          onDelete={handleDeleteSession}
-        />
-        <span className="text-xs text-text-tertiary">{t('panel_title')}</span>
+    <div className="flex h-full min-h-0 flex-col bg-surface">
+      {/* 顶部只留「我在跟谁说话」与状态。
+          会话切换交给左栏、模型选择交给输入框底栏——同一个动作不在两处出现。 */}
+      <div className="flex h-11 shrink-0 items-center gap-1 px-2.5">
+        <p className="min-w-0 flex-1 truncate text-ui font-semibold tracking-[-0.01em] text-text">
+          {t('panel_title')}
+        </p>
+
+        {activeCount > 0 && (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 text-micro font-medium tabular-nums text-text-secondary"
+            title={`${activeCount} 个任务生成中`}
+          >
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-strong" />
+            {activeCount}
+          </span>
+        )}
+
+        <button
+          type="button"
+          onClick={handleCreateSession}
+          title="新建对话"
+          aria-label="新建对话"
+          // 桌面端「新建」只在左栏出现一次；移动端左栏隐藏，这里才需要它
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text md:hidden"
+        >
+          <Plus size={15} />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setConfigOpen(true)}
+          title={configured ? `中转站：${relay?.provider_name || ''} ${relay?.model || ''}` : '配置 AI 中转站'}
+          aria-label="配置 AI 中转站"
+          className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text"
+        >
+          <Settings2 size={15} />
+          <span
+            className={
+              configured
+                ? 'absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-success'
+                : 'absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-warning'
+            }
+          />
+        </button>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-4 p-4">
-          {messages.length === 0 && orderedTasks.length === 0 && (
-            <p className="py-10 text-center text-sm text-text-tertiary">{t('input.placeholder')}</p>
-          )}
-          {messages.map((message) => (
-            <ChatMessage key={message.id} message={message} />
-          ))}
-          {chatStream.sending && chatStream.streamingText === '' && (
-            <div className="flex gap-2">
-              <Spinner status="running" />
-            </div>
-          )}
-          {chatStream.sending && chatStream.streamingText !== '' && (
-            <ChatMessage
-              message={{
-                id: 'streaming',
-                session_id: sessionId || '',
-                user_id: '',
-                role: 'assistant',
-                content: chatStream.streamingText,
-                attachments: [],
-              }}
-              streaming
-            />
-          )}
-
-          {orderedTasks.length > 0 && (
-            <div className="flex flex-col gap-3">
-              <span className="text-xs font-medium uppercase tracking-wide text-text-tertiary">
-                {t('active_panel.title')}
-              </span>
-              {orderedTasks.map((task) => (
-                <GenerationResultCard
-                  key={task.id}
-                  task={task}
-                  onAddToCanvas={handleAddToCanvas}
-                  onRegenerate={handleRegenerate}
-                  onPause={handlePause}
-                  onResume={handleResume}
-                  onCancel={handleCancel}
-                  onRetry={handleRetry}
-                  onSeen={handleSeen}
-                />
-              ))}
-            </div>
-          )}
-          <div ref={scrollAnchorRef} />
+      {!online && (
+        <div className="shrink-0 bg-warning-subtle px-3 py-1 text-caption text-warning">
+          {t('network.offline')}
         </div>
-      </ScrollArea>
+      )}
+
+      {!configured && relay !== null && (
+        <>
+        <button
+          type="button"
+          onClick={() => setConfigOpen(true)}
+          className="mx-2 mb-1 flex shrink-0 items-center gap-1.5 rounded-[10px] bg-warning-subtle px-2.5 py-1.5 text-left text-micro text-warning transition-opacity hover:opacity-90"
+        >
+          <Settings2 size={12} className="shrink-0" />
+          <span className="min-w-0 truncate">未连接中转站 · 点此配置</span>
+        </button>
+        </>
+      )}
+
+      <div className="relative min-h-0 flex-1">
+        <ScrollArea className="h-full">
+          <div className="flex flex-col gap-3 px-3 pb-4">
+            {/* 会话加载：给骨架而不是空白，让"正在加载"可被感知 */}
+            {messagesLoading && timeline.length === 0 && (
+              <div className="flex flex-col gap-3 pt-2">
+                <div className="ml-auto h-12 w-3/5 animate-pulse rounded-[14px] bg-bg-subtle" />
+                <div className="h-24 w-4/5 animate-pulse rounded-[14px] bg-bg-subtle" />
+                <div className="ml-auto h-10 w-2/5 animate-pulse rounded-[14px] bg-bg-subtle" />
+                <div className="mt-1 flex items-center gap-2 text-caption text-text-tertiary">
+                  <Loader2 size={13} className="animate-spin" />
+                  正在加载对话…
+                </div>
+              </div>
+            )}
+
+            {isEmpty && (
+              <div className="flex flex-col items-center gap-3 px-2 py-12 text-center">
+                <span className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-accent-soft text-accent-ink">
+                  <Sparkles size={22} />
+                </span>
+                <p className="text-h3 font-semibold tracking-[-0.01em] text-text">
+                  {t('empty.title')}
+                </p>
+                <p className="max-w-[250px] text-caption leading-relaxed text-text-tertiary">
+                  描述你想要的画面，我会先理清需求，再决定要不要向你确认方向。
+                </p>
+                <div className="mt-1 flex flex-wrap justify-center gap-1.5">
+                  {[t('empty.example_1'), t('empty.example_2'), t('empty.example_3')].map((example) => (
+                    <button
+                      key={example}
+                      type="button"
+                      onClick={() => updateInput(example)}
+                      className="rounded-full border border-border px-2.5 py-1 text-caption text-text-secondary transition-all hover:-translate-y-0.5 hover:border-accent-strong/60 hover:bg-accent-soft hover:text-text"
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {timeline.map((entry) => {
+              if (entry.kind === 'message') {
+                const run = pickSkillRun(entry.message.attachments)
+                const compose = pickComposeRun(entry.message.attachments)
+                const images = pickImages(entry.message.attachments)
+                const composeUi = compose ? composeRunUi[compose.run_id] : undefined
+                const clarifyState: ClarifyState =
+                  composeUi?.state ??
+                  (compose?.chosen_option_id ? 'done' : compose?.status === 'clarify' ? 'pending' : 'pending')
+                return (
+                  <div key={entry.message.id} className="flex flex-col gap-2">
+                    <ChatMessage message={entry.message} images={images} />
+                    {run && (
+                      <div className="ml-9">
+                        <SkillRunCard
+                          run={run}
+                          onConfirm={
+                            pending?.runId === run.run_id ||
+                            resolvedRunsRef.current.has(run.run_id)
+                              ? undefined
+                              : (runId, optionId) =>
+                                  confirmOption(
+                                    runId,
+                                    optionId,
+                                    run.options.find((item) => item.id === optionId)?.image_count ??
+                                      1
+                                  )
+                          }
+                        />
+                      </div>
+                    )}
+                    {compose && compose.status !== 'clarify' && (
+                      <div className="ml-9">
+                        <ThinkingTrace
+                          steps={compose.steps}
+                          finalPrompt={compose.final_prompt}
+                          promptSource={compose.prompt_source}
+                          defaultExpanded={false}
+                        />
+                      </div>
+                    )}
+                    {compose && compose.status === 'clarify' && (
+                      <div className="ml-9 flex flex-col gap-2">
+                        <ThinkingTrace
+                          steps={compose.steps}
+                          promptSource={compose.prompt_source}
+                          defaultExpanded={false}
+                        />
+                        <ClarifyCard
+                          runId={compose.run_id}
+                          reply={compose.reply}
+                          options={compose.options ?? []}
+                          state={clarifyState}
+                          chosenId={compose.chosen_option_id ?? composeUi?.chosenId}
+                          onChoose={(optionId) => {
+                            const option = (compose.options ?? []).find(
+                              (item) => item.id === optionId
+                            )
+                            if (!option) return Promise.reject(new Error('option missing'))
+                            return chooseClarify(compose.run_id, option)
+                          }}
+                        />
+                      </div>
+                    )}
+                    {compose && compose.status === 'unconfigured' && (
+                      <div className="ml-9 rounded-[14px] border border-warning/40 bg-surface px-3 py-2.5">
+                        <p className="text-caption font-medium text-text">先接上中转站</p>
+                        <p className="mt-0.5 text-micro text-text-tertiary">填好地址与 Key 后重试这句话</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            className="h-7 px-2.5 text-caption"
+                            onClick={() => setConfigOpen(true)}
+                          >
+                            <Settings2 size={12} /> 去配置
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2.5 text-caption"
+                            onClick={() =>
+                              void submitCompose(compose.content || lastComposeRef.current, true)
+                            }
+                          >
+                            用本地模板先试一次
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+              return (
+                <div key={entry.task.id} className="flex flex-col gap-2">
+                  {/* 生图提示词进时间线：用户原话必须可见，不能被卡片标题截断 */}
+                  <ChatMessage
+                    message={{
+                      id: `prompt-${entry.task.id}`,
+                      session_id: entry.task.session_id ?? '',
+                      user_id: entry.task.user_id,
+                      role: 'user',
+                      content: entry.task.prompt,
+                      attachments: [],
+                      created_at: entry.task.created_at,
+                    }}
+                  />
+                  {/* 这条任务已经提升到对话底部展示位 → 时间线里只留状态与操作，
+                      缩略图淡化（数据属性 + CSS），避免同一张图两处抢戏。
+                      这里不改 GenerationResultCard 本身，避免和其他并行改动冲突。 */}
+                  <div
+                    className="ml-9"
+                    data-docked={latestTask?.id === entry.task.id ? 'true' : undefined}
+                  >
+                    <GenerationResultCard
+                      task={entry.task}
+                      hidePrompt
+                      placedUrls={placedUrls}
+                      busy={busyTaskId === entry.task.id || composing}
+                      onAddToCanvas={handleAddToCanvas}
+                      onCancel={handleCancel}
+                      onRegenerate={handleRegenerate}
+                      onPreview={(task, url) => setPreview({ url, prompt: task.prompt })}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+
+            {/* 画布选区编辑：实时分析块 */}
+            {analysis && (
+              <div className="ml-9">
+                <AnalysisSteps steps={analysis.steps} active={analysis.active} />
+              </div>
+            )}
+
+            {/* 纯生图：实时全链路思考（结果落库后由消息卡接管） */}
+            {(composing || composeSteps.length > 0) && (
+              <div className="ml-9">
+                <ThinkingTrace steps={composeSteps} active={composing} defaultExpanded />
+              </div>
+            )}
+
+            {/* 待确认方案：只允许一个，且绝不到点自动执行 */}
+            {pending && (
+              <div className="ml-9">
+                <ConfirmCountCard
+                  runId={pending.runId}
+                  fingerprint={pending.fingerprint}
+                  options={pending.options}
+                  reply={pending.reply}
+                  reason={pending.reason}
+                  state={pending.state}
+                  chosenId={pending.chosenId}
+                  onChoose={async (optionId) => {
+                    const count =
+                      pending.options.find((item) => item.id === optionId)?.image_count ?? 1
+                    setPending((prev) => (prev ? { ...prev, state: 'choosing' } : prev))
+                    try {
+                      await confirmOption(pending.runId, optionId, count)
+                      setPending((prev) =>
+                        prev ? { ...prev, state: 'done', chosenId: optionId } : prev
+                      )
+                      void loadMessages(sessionId as string)
+                    } catch {
+                      setPending((prev) =>
+                        prev ? { ...prev, state: 'pending', chosenId: undefined } : prev
+                      )
+                      throw new Error('confirm failed')
+                    }
+                  }}
+                />
+              </div>
+            )}
+
+            {/* 缺少底图：给一条明确的下一步，不要只留一句错误文字 */}
+            {needsImage && (
+              <div className="ml-9 rounded-[14px] border border-border bg-surface px-3 py-2.5">
+                <div className="flex items-start gap-1.5">
+                  <span className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-caption font-medium text-text">先在画布上选一张图片</p>
+                    <p className="mt-1 text-micro leading-snug text-text-tertiary">
+                      这句话要作用在某张图上。选中图片后再说一次需求，我就直接开始。
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {onFocusCanvas && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="h-7 px-2.5 text-caption"
+                      onClick={onFocusCanvas}
+                    >
+                      去画布选一张图
+                    </Button>
+                  )}
+                  {onPickAsset && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="h-7 px-2.5 text-caption"
+                      onClick={onPickAsset}
+                    >
+                      <Images size={13} /> 从素材库选
+                    </Button>
+                  )}
+                  {onUpload && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2.5 text-caption"
+                      onClick={onUpload}
+                    >
+                      <Upload size={13} /> 上传本地
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div ref={scrollAnchorRef} />
+          </div>
+        </ScrollArea>
+
+        {showJump && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-surface-raised px-3 py-1.5 text-caption text-text-secondary shadow-sheet hover:bg-surface-hover"
+          >
+            <ArrowDown size={13} /> {t('scroll.back_to_latest')}
+            {newCount > 0 && (
+              <span className="ml-0.5 rounded-full bg-brand px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                {newCount}
+              </span>
+            )}
+          </button>
+        )}
+      </div>
+
+      {/* 最近生成展示位：钉在消息区与输入框之间，是本次结果的「主展示」 */}
+      {latestTask && !latestDismissed && (
+        <LatestResultDock
+          task={latestTask}
+          placedUrls={placedUrls}
+          modelLabel={
+            IMAGE_MODELS.find((item) => item.id === imageModel)?.label ?? IMAGE_MODELS[0].label
+          }
+          onPreview={(task, url) => setPreview({ url, prompt: task.prompt })}
+          onAddToCanvas={handleAddToCanvas}
+          onClose={() => setLatestDismissed(true)}
+        />
+      )}
 
       <ChatTextarea
         value={input}
-        onChange={setInput}
+        onChange={updateInput}
         onSend={send}
-        onStop={chatStream.stop}
-        sending={chatStream.sending}
-        mode={mode}
-        onModeChange={setMode}
+        onStop={() => {
+          cancelledRef.current = true
+          composeCancelRef.current?.()
+          analyzeCancelRef.current?.()
+          setComposing(false)
+          setSubmitting(false)
+          setAnalysis(null)
+        }}
+        sending={composing || analysisActive}
+        submitting={submitting || composing || analysisActive}
+        attachments={refs}
+        uploading={uploading}
+        onRemoveAttachment={(id) => setRefs((prev) => prev.filter((item) => item.id !== id))}
+        onImageFiles={(files) => void handleImageFiles(files)}
+        topRightSlot={
+          <PolishPopover
+            text={input}
+            scene="composer"
+            onApply={(next) => updateInput(next)}
+            disabled={!input.trim()}
+          />
+        }
+        leftSlot={
+          <button
+            type="button"
+            onClick={() => setSkillOpen(true)}
+            title="设计技能库"
+            aria-label="设计技能库"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] text-text-tertiary transition-colors hover:bg-brand-subtle hover:text-brand-text"
+          >
+            <LibraryBig size={15} />
+          </button>
+        }
+        attachSlot={
+          onUpload || onPickAsset ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label="添加参考">
+                  <Plus size={16} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="top" className="w-44">
+                {onUpload && (
+                  <DropdownMenuItem onClick={onUpload}>
+                    <Upload size={15} /> 上传本地参考
+                  </DropdownMenuItem>
+                )}
+                {onPickAsset && (
+                  <DropdownMenuItem onClick={onPickAsset}>
+                    <Images size={15} /> 从素材库选
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null
+        }
+        rightSlot={
+          /* 生图模型选择：贴在输入框底栏、发送键左边。
+             放在面板顶部时它离"我要生成什么"太远，而且和标题抢一行。 */
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                title="选择生图模型"
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+              >
+                <Sparkles size={11} />
+                {IMAGE_MODELS.find((item) => item.id === imageModel)?.short ?? 'GPT 2.0'}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" side="top" className="w-60">
+              {IMAGE_MODELS.map((item) => (
+                <DropdownMenuItem
+                  key={item.id}
+                  onClick={() => chooseModel(item.id)}
+                  className="flex flex-col items-start gap-0"
+                >
+                  <span className="flex w-full items-center gap-1.5">
+                    <span className="text-caption text-text">{item.label}</span>
+                    {imageModel === item.id && <Check size={12} className="ml-auto text-brand-text" />}
+                  </span>
+                  <span className="font-mono text-[10px] text-text-faint">{item.id}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        }
       />
+
+      <AIConfigDialog
+        open={configOpen}
+        onOpenChange={setConfigOpen}
+        onChanged={() => {
+          void loadRelay()
+        }}
+      />
+      <SkillLibraryPanel open={skillOpen} onOpenChange={setSkillOpen} onPick={insertSkill} />
+
+      {preview && (
+        <div
+          className="fixed inset-0 z-[1200] flex items-center justify-center bg-[rgba(8,10,18,0.78)] p-6"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setPreview(null)}
+        >
+          <button
+            type="button"
+            aria-label="关闭"
+            onClick={() => setPreview(null)}
+            className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-[rgba(255,255,255,0.15)] text-white"
+          >
+            <X size={18} />
+          </button>
+          <figure className="max-h-full max-w-full" onClick={(event) => event.stopPropagation()}>
+            <img
+              src={preview.url}
+              alt={preview.prompt.slice(0, 40)}
+              className="max-h-[78vh] max-w-[86vw] rounded-[3px] bg-mat object-contain shadow-lg"
+            />
+            <figcaption className="mt-2 max-w-[86vw] truncate text-center text-caption text-white/80">
+              {preview.prompt}
+            </figcaption>
+          </figure>
+        </div>
+      )}
     </div>
   )
 }

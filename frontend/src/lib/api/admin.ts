@@ -85,7 +85,7 @@ export const adminApi = {
   // 系统配置
   getConfig: () => api.get<{ items: SystemConfigItem[] }>('/admin/config'),
   updateConfig: (values: Record<string, unknown>) => api.put<{ updated: string[] }>('/admin/config', values),
-  testConfig: (target: 'sub2api' | 'chatgpt2api' | 'proxy') =>
+  testConfig: (target: 'text' | 'image' | 'llm' | 'pool' | 'proxy') =>
     api.post<{ ok: boolean; latency_ms: number; message: string; error_code?: string }>(
       '/admin/config/test',
       { target }

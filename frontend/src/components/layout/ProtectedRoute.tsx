@@ -1,27 +1,37 @@
 import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Loader2 } from 'lucide-react'
 import { useAuth } from '@/hooks/use-auth'
+import { useUIStore } from '@/stores/ui'
 
 function FullScreenLoader() {
   return (
-    <div className="flex h-screen items-center justify-center bg-bg text-text-tertiary">
-      <Loader2 className="animate-spin" />
+    <div className="flex h-screen items-center justify-center bg-bg">
+      <div className="flex flex-col items-center gap-3">
+        <span className="h-7 w-7 animate-spin rounded-full border-2 border-border-strong border-t-accent-strong" />
+        <span className="text-micro text-text-tertiary">正在打开工作室…</span>
+      </div>
     </div>
   )
 }
 
-/** 登录守卫：未登录跳转 /login。 */
+/**
+ * 登录守卫：未登录时回到首页并唤起登录弹窗。
+ *
+ * 不再跳转独立登录页——用户刚刚才在首页输入了需求，把他甩到一个空白的登录页
+ * 等于把上下文弄丢。首页 + 弹窗的组合，关掉弹窗就还是原来那一屏。
+ */
 export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { isAuthenticated, initialized } = useAuth()
   const navigate = useNavigate()
+  const openAuth = useUIStore((s) => s.openAuth)
 
   useEffect(() => {
     if (initialized && !isAuthenticated) {
-      void navigate({ to: '/login' })
+      openAuth('login', '登录后即可进入工作室继续创作')
+      void navigate({ to: '/' })
     }
-  }, [initialized, isAuthenticated, navigate])
+  }, [initialized, isAuthenticated, navigate, openAuth])
 
   if (!initialized || !isAuthenticated) return <FullScreenLoader />
   return <>{children}</>

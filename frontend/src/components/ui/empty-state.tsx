@@ -15,12 +15,18 @@ interface EmptyStateProps {
 /** 空状态组件。 */
 export function EmptyState({ icon: Icon, title, description, action, className, children }: EmptyStateProps) {
   return (
-    <div className={cn('flex flex-col items-center justify-center gap-3 px-6 py-12 text-center', className)}>
-      {Icon && <Icon size={48} strokeWidth={1.5} className="text-text-tertiary" />}
-      <h3 className="text-md font-semibold text-text">{title}</h3>
-      {description && <p className="max-w-sm text-sm text-text-secondary">{description}</p>}
+    <div className={cn('flex flex-col items-center justify-center gap-3 px-6 py-16 text-center', className)}>
+      {Icon && (
+        <span className="mb-1 flex h-14 w-14 items-center justify-center rounded-full bg-bg-subtle text-text-tertiary">
+          <Icon size={26} strokeWidth={1.6} />
+        </span>
+      )}
+      <h3 className="text-h3 font-semibold tracking-[-0.01em] text-text">{title}</h3>
+      {description && (
+        <p className="max-w-[42ch] text-ui leading-relaxed text-text-secondary">{description}</p>
+      )}
       {action && (
-        <Button size="sm" onClick={action.onClick}>
+        <Button size="sm" className="mt-1" onClick={action.onClick}>
           {action.label}
         </Button>
       )}

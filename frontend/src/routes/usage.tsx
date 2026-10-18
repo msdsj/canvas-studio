@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { AppShell } from '@/components/layout/AppShell'
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute'
-import { AppSidebar } from '@/components/layout/WorkspaceLeftbar'
+import { PageShell } from '@/components/layout/PageShell'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Pagination } from '@/components/ui/pagination'
@@ -61,11 +61,9 @@ function UsagePage() {
   return (
     <ProtectedRoute>
       <AppShell>
-        <div className="flex h-full">
-          <AppSidebar />
-          <div className="min-h-0 flex-1 overflow-y-auto p-6">
-            <h1 className="mb-5 text-xl font-semibold text-text">{t('title')}</h1>
-
+          <PageShell
+            title={t('title')}
+          >
             <div className="grid gap-4 sm:grid-cols-3">
               <Card>
                 <p className="text-sm text-text-secondary">{t('current_balance')}</p>
@@ -133,8 +131,7 @@ function UsagePage() {
                 setPage(1)
               }}
             />
-          </div>
-        </div>
+          </PageShell>
       </AppShell>
     </ProtectedRoute>
   )

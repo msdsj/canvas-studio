@@ -3,13 +3,41 @@ from __future__ import annotations
 
 import base64
 import io
-import textwrap
 from collections.abc import AsyncIterator
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from app.utils.streaming import openai_chunk, sse_line
+
+# 各平台常见的中文字体，按优先级尝试。
+# Pillow 的默认位图字体只有 ASCII，直接画中文会得到一排「豆腐块」（▯▯▯）。
+_FONT_CANDIDATES = (
+    # macOS
+    "/System/Library/Fonts/PingFang.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "/Library/Fonts/Arial Unicode.ttf",
+    # Linux
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    # Windows
+    "C:/Windows/Fonts/msyh.ttc",
+    "C:/Windows/Fonts/simhei.ttf",
+)
+
+
+@lru_cache(maxsize=8)
+def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """加载支持中文的系统字体；都找不到时退回默认字体（英文仍可读）。"""
+    for candidate in _FONT_CANDIDATES:
+        try:
+            if Path(candidate).exists():
+                return ImageFont.truetype(candidate, size)
+        except Exception:  # noqa: BLE001 - 字体损坏时继续尝试下一个
+            continue
+    return ImageFont.load_default()
 
 
 def parse_size(size: str, default: tuple[int, int] = (1024, 1024)) -> tuple[int, int]:
@@ -26,18 +54,55 @@ def placeholder_png(prompt: str, size: str = "1024x1024") -> bytes:
     width, height = parse_size(size)
     img = Image.new("RGB", (width, height), color=(245, 247, 250))
     draw = ImageDraw.Draw(img)
+
+    # 字号随画布尺寸缩放，小图上也不会挤成一团
+    title_font = _load_font(max(18, width // 42))
+    body_font = _load_font(max(14, width // 62))
+    watermark_font = _load_font(max(12, width // 76))
+
     # 边框
     draw.rectangle([8, 8, width - 8, height - 8], outline=(120, 130, 145), width=3)
     # 标题
-    draw.text((24, 20), "CANVAS STUDIO · DEMO", fill=(200, 60, 60))
-    # prompt 文字（自动换行）
-    wrapped = textwrap.wrap(prompt or "（无提示词）", width=max(20, width // 12))
+    draw.text((24, 18), "CANVAS STUDIO · DEMO", fill=(200, 60, 60), font=title_font)
+
+    # prompt 文字：按实际字宽换行（中英文混排也准确）
+    body = prompt or "（无提示词）"
+    line_height = int(getattr(body_font, "size", 16) * 1.5)
+    max_width = width - 48
+    lines: list[str] = []
+    current = ""
+    for char in body:
+        if char == "\n":
+            lines.append(current)
+            current = ""
+            continue
+        trial = current + char
+        try:
+            too_wide = draw.textlength(trial, font=body_font) > max_width
+        except Exception:  # noqa: BLE001 - 极老版本 Pillow 无 textlength
+            too_wide = len(trial) > max(20, width // 12)
+        if too_wide and current:
+            lines.append(current)
+            current = char
+        else:
+            current = trial
+    if current:
+        lines.append(current)
+
     y = 60
-    for line in wrapped[:20]:
-        draw.text((24, y), line, fill=(30, 34, 40))
-        y += 22
-    # 大水印
-    draw.text((24, height - 40), "DEMO PLACEHOLDER", fill=(180, 190, 200))
+    for line in lines[:24]:
+        if y > height - 70:
+            break
+        draw.text((24, y), line, fill=(30, 34, 40), font=body_font)
+        y += line_height
+
+    # 水印
+    draw.text(
+        (24, height - 46),
+        "DEMO PLACEHOLDER",
+        fill=(180, 190, 200),
+        font=watermark_font,
+    )
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()

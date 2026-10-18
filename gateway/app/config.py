@@ -18,15 +18,21 @@ class GatewaySettings(BaseSettings):
     app_version: str = "1.0.0"
 
     internal_token: str = Field(default="dev-internal-token", validation_alias="CS_GATEWAY_INTERNAL_TOKEN")
-    demo_mode: str = Field(default="auto", validation_alias="CS_DEMO_MODE")
+    demo_mode: str = Field(default="off", validation_alias="CS_DEMO_MODE")
     connect_timeout: float = Field(default=10.0, validation_alias="CS_GW_CONNECT_TIMEOUT")
     read_timeout: float = Field(default=300.0, validation_alias="CS_GW_READ_TIMEOUT")
     max_retries: int = Field(default=2, validation_alias="CS_GW_MAX_RETRIES")
 
-    sub2api_base_url: str = Field(default="http://localhost:8080", validation_alias="SUB2API_BASE_URL")
-    sub2api_api_key: str = Field(default="sk-xxx", validation_alias="SUB2API_API_KEY")
-    chatgpt2api_base_url: str = Field(default="http://localhost:3000", validation_alias="CHATGPT2API_BASE_URL")
-    chatgpt2api_admin_key: str = Field(default="xxx", validation_alias="CHATGPT2API_ADMIN_KEY")
+    text_base_url: str = Field(default="", validation_alias="TEXT_API_BASE_URL")
+    text_api_key: str = Field(default="", validation_alias="TEXT_API_KEY")
+    text_model: str = Field(default="gpt-4o-mini", validation_alias="TEXT_MODEL")
+    llm_base_url: str = Field(default="", validation_alias="LLM_BASE_URL")
+    llm_api_key: str = Field(default="", validation_alias="LLM_API_KEY")
+    llm_model: str = Field(default="", validation_alias="LLM_MODEL")
+    image_base_url: str = Field(default="", validation_alias="IMAGE_API_BASE_URL")
+    image_api_key: str = Field(default="", validation_alias="IMAGE_API_KEY")
+    image_model: str = Field(default="gpt-image-2", validation_alias="IMAGE_MODEL")
+    pool_file: str = Field(default="./data/provider_accounts.json", validation_alias="POOL_FILE")
 
     http_proxy: str = Field(default="", validation_alias="HTTP_PROXY")
     https_proxy: str = Field(default="", validation_alias="HTTPS_PROXY")

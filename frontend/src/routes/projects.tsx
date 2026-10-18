@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Plus } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute'
-import { AppSidebar } from '@/components/layout/WorkspaceLeftbar'
+import { PageShell } from '@/components/layout/PageShell'
 import { Button } from '@/components/ui/button'
 import { Pagination } from '@/components/ui/pagination'
 import { ProjectList } from '@/components/projects/ProjectList'
@@ -69,16 +69,14 @@ function ProjectsPage() {
   return (
     <ProtectedRoute>
       <AppShell>
-        <div className="flex h-full">
-          <AppSidebar />
-          <div className="min-h-0 flex-1 overflow-y-auto p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <h1 className="text-xl font-semibold text-text">{t('title')}</h1>
+          <PageShell
+            title={t('title')}
+            actions={
               <Button onClick={() => setCreateOpen(true)}>
                 <Plus size={16} /> {t('create')}
               </Button>
-            </div>
-
+            }
+          >
             <ProjectList
               projects={projects}
               loading={loading}
@@ -98,8 +96,7 @@ function ProjectsPage() {
                 setPage(1)
               }}
             />
-          </div>
-        </div>
+          </PageShell>
       </AppShell>
 
       <CreateProjectDialog

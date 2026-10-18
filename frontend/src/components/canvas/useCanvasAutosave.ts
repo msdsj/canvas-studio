@@ -9,6 +9,22 @@ export function useCanvasAutosave(canvasId: string | null) {
   const markSaved = useCanvasStore((s) => s.markSaved)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingRef = useRef<CanvasState | null>(null)
+  /**
+   * 场景已加载完成之前，一律不写盘。
+   *
+   * 画布还在「加载中」时 Excalidraw 会先报一次空场景的 onChange，
+   * 若照单保存，两秒后就把后端的真实内容覆盖成空画布（实测整块画布被清空）。
+   * 加载完成由调用方用 `setReady(true)` 打开闸门。
+   */
+  const readyRef = useRef(false)
+  const setReady = useCallback((ready: boolean) => {
+    readyRef.current = ready
+    if (!ready && timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+      pendingRef.current = null
+    }
+  }, [])
 
   const flush = useCallback(async () => {
     if (!canvasId || !pendingRef.current) return
@@ -23,12 +39,31 @@ export function useCanvasAutosave(canvasId: string | null) {
     }
   }, [canvasId, setSaveStatus, markSaved])
 
+  /**
+   * 丢弃待写内容：清掉防抖定时器与 pending 场景。
+   *
+   * 切换画布时必须「先 flush 再 cancel」——flush 把旧画布的编辑落盘，
+   * cancel 保证定时器不会在画布 id 已经换掉之后再把旧场景写进新画布。
+   */
+  const cancel = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    pendingRef.current = null
+  }, [])
+
   const schedule = useCallback(
     (state: CanvasState) => {
+      // 闸门没开（场景尚未加载完）时丢弃：宁可少存一次，也不能把内容覆盖成空
+      if (!readyRef.current) return
       pendingRef.current = state
       setSaveStatus('dirty')
       if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => void flush(), 2000)
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null
+        void flush()
+      }, 2000)
     },
     [flush, setSaveStatus]
   )
@@ -41,5 +76,5 @@ export function useCanvasAutosave(canvasId: string | null) {
     }
   }, [flush])
 
-  return { schedule, flush }
+  return { schedule, flush, cancel, setReady }
 }

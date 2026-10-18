@@ -60,7 +60,7 @@ class UpstreamTarget(BaseModel):
 
     base_url: str = ""
     api_key: str | None = None
-    admin_key: str | None = None
+    model: str | None = None
 
 
 class ProxyConfig(BaseModel):
@@ -73,8 +73,9 @@ class ProxyConfig(BaseModel):
 class ConfigPushRequest(BaseModel):
     """backend 推送的运行时配置。"""
 
-    sub2api: UpstreamTarget | None = None
-    chatgpt2api: UpstreamTarget | None = None
+    text: UpstreamTarget | None = None
+    llm: UpstreamTarget | None = None
+    image: UpstreamTarget | None = None
     proxy: ProxyConfig | None = None
     demo_mode: str | None = None
 
@@ -82,4 +83,4 @@ class ConfigPushRequest(BaseModel):
 class ConfigTestRequest(BaseModel):
     """连通性测试请求。"""
 
-    target: str = "sub2api"
+    target: str = "text"

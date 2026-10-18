@@ -1,0 +1,293 @@
+/* ---------------------------------------------------------------------------
+ * Toast 视觉（sonner 类名定制）
+ *
+ * 设计意图：让提示卡看起来像「从桌上递过来的一张便签」——
+ * 白纸、细边、软影、左侧一道语义色，而不是系统级弹窗那种硬边框。
+ *
+ * 语义色不铺满整块底：整卡染色会让成功/失败变刺眼，也和品牌青柠撞色。
+ * 只在左侧留 3px 竖条 + 图标底色上做语义。
+ *
+ * ⚠️ 特异性必须高于 sonner 内置的 `[data-sonner-toast][data-styled='true']`
+ * （双属性 + 它的样式表后加载）。否则圆角、内边距、阴影会被压回去，
+ * 表现就是"改了 CSS 但界面没变"。这里统一用双属性前缀 + `!important` 兜底。
+ * ------------------------------------------------------------------------- */
+
+/* 容器宽度：sonner 用 `--width` 同时决定 toaster 与每张卡的宽度。
+ * 332px 是「两行中文说明 + 关闭按钮」的舒适宽度；移动端交给下面的媒体查询。 */
+[data-sonner-toaster] {
+  --width: 332px;
+  --border-radius: 14px;
+  --gap: 10px;
+  /* sonner 默认字体栈英文优先，这里接到站点无衬线族上，中文才不会显得"外来" */
+  font-family: var(--font-sans) !important;
+}
+
+@media (max-width: 640px) {
+  [data-sonner-toaster] {
+    --width: calc(100vw - 24px);
+  }
+}
+
+[data-sonner-toast][data-styled='true'].cs-toast {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+  /* 宽度交给 sonner 的 --width（Toaster 的 width 属性），这里只跟随 */
+  width: var(--width) !important;
+  min-width: 0;
+  padding: 12px 34px 12px 13px !important;
+  border-radius: 14px !important;
+  background: var(--color-surface-raised) !important;
+  color: var(--color-text) !important;
+  border: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent) !important;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--color-text) 6%, transparent),
+    0 10px 28px -10px color-mix(in srgb, var(--color-text) 22%, transparent) !important;
+  position: relative;
+  overflow: hidden;
+  font-size: 13px !important;
+  /* 进出场沿用 sonner 的 transform/opacity 过渡，只替换时长与曲线 */
+  transition:
+    transform var(--motion-base) var(--ease-out),
+    opacity var(--motion-base) var(--ease-out),
+    height var(--motion-base) var(--ease-out),
+    box-shadow var(--motion-base) var(--ease-out) !important;
+}
+
+/* 左侧语义竖条：伪元素，不占内边距，图标可以贴得更近 */
+[data-sonner-toast][data-styled='true'].cs-toast::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--color-border-strong);
+  opacity: 0.9;
+}
+
+[data-sonner-toast].cs-toast--success::before {
+  background: var(--color-accent-strong);
+}
+[data-sonner-toast].cs-toast--error::before {
+  background: var(--color-danger);
+}
+[data-sonner-toast].cs-toast--warning::before {
+  background: var(--color-warning);
+}
+[data-sonner-toast].cs-toast--info::before {
+  background: var(--color-brand);
+}
+[data-sonner-toast].cs-toast--loading::before {
+  background: var(--color-accent-strong);
+}
+
+/* 悬停：只加深阴影。
+ * 不能写 transform —— sonner 用 transform 做堆叠位移，覆盖会让卡片错位。 */
+[data-sonner-toast][data-styled='true'].cs-toast:hover {
+  box-shadow:
+    0 2px 4px color-mix(in srgb, var(--color-text) 7%, transparent),
+    0 14px 34px -10px color-mix(in srgb, var(--color-text) 26%, transparent) !important;
+}
+
+/* ---- 图标：26px 圆形色底 ---- */
+[data-sonner-toast][data-styled='true'] .cs-toast-icon {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 26px !important;
+  height: 26px !important;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: var(--color-bg-subtle);
+  color: var(--color-text-secondary);
+  margin-top: 1px;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+[data-sonner-toast][data-styled='true'] .cs-toast-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+[data-sonner-toast].cs-toast--success .cs-toast-icon {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-ink);
+}
+[data-sonner-toast].cs-toast--error .cs-toast-icon {
+  background: var(--color-danger-subtle);
+  color: var(--color-danger);
+}
+[data-sonner-toast].cs-toast--warning .cs-toast-icon {
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
+}
+[data-sonner-toast].cs-toast--info .cs-toast-icon {
+  background: var(--color-brand-subtle);
+  color: var(--color-brand-text);
+}
+[data-sonner-toast].cs-toast--loading .cs-toast-icon {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-ink);
+}
+
+/* ---- 文本 ---- */
+[data-sonner-toast][data-styled='true'] .cs-toast-title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 1.45 !important;
+  letter-spacing: -0.006em;
+  color: var(--color-text) !important;
+  /* 右侧给关闭按钮留位 */
+  padding-right: 14px;
+}
+
+[data-sonner-toast][data-styled='true'] .cs-toast-desc,
+[data-sonner-toast][data-styled='true'] [data-description] {
+  margin-top: 1px !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+  font-weight: 400 !important;
+  color: var(--color-text-tertiary) !important;
+  /* 长提示最多两行，超出省略——toast 不该变成一段文章 */
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---- 堆叠收缩态 ----
+ * sonner 默认把非首条卡片的正文 opacity 归零，但仍保留整卡高度，
+ * 看上去就是「下面叠着两个空白壳」。
+ *
+ * 这里把它压成一条 6px、左右各内收 6px 的窄边——像一叠纸的边缘。
+ * 比压成 0 好：用户知道"后面还有几条"，但不会看到大片空白。
+ * 鼠标进入提示区时 sonner 会置 expanded=true，自动恢复完整卡片。
+ */
+[data-sonner-toast][data-styled='true'].cs-toast[data-front='false'] {
+  height: 6px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin-left: 6px;
+  margin-right: 6px;
+  border-radius: 0 0 8px 8px !important;
+  border-top: none !important;
+  background: var(--color-surface-raised) !important;
+  box-shadow: 0 2px 6px -2px color-mix(in srgb, var(--color-text) 18%, transparent) !important;
+}
+
+[data-sonner-toast][data-styled='true'].cs-toast[data-front='false'] > * {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+/* 收缩态不需要左侧语义竖条 */
+[data-sonner-toast].cs-toast[data-front='false']::before {
+  display: none;
+}
+
+/* 鼠标进入提示区 → 全部展开 */
+[data-sonner-toast][data-expanded='true'][data-styled='true'].cs-toast {
+  height: auto !important;
+  padding: 12px 34px 12px 13px !important;
+  margin-left: 0;
+  margin-right: 0;
+  border-radius: 14px !important;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent) !important;
+}
+
+[data-sonner-toast][data-expanded='true'][data-styled='true'].cs-toast > * {
+  opacity: 1 !important;
+}
+
+[data-sonner-toast].cs-toast[data-expanded='true']::before {
+  display: block;
+}
+
+/* ---- 关闭按钮：放进卡片内部右上角 ----
+ * sonner 默认按「卡片外沿左上」定位，会骑在圆角外面（截图里那个悬空圆钮）。
+ */
+[data-sonner-toast][data-styled='true'] .cs-toast-close {
+  position: absolute !important;
+  top: 9px !important;
+  right: 9px !important;
+  left: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px !important;
+  height: 16px !important;
+  border-radius: 9999px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: var(--color-text-faint) !important;
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out) !important;
+}
+
+[data-sonner-toast].cs-toast:hover .cs-toast-close {
+  border-color: color-mix(in srgb, var(--color-border) 90%, transparent) !important;
+  background: var(--color-surface) !important;
+}
+
+[data-sonner-toast] .cs-toast-close:hover {
+  background: var(--color-surface-hover) !important;
+  border-color: var(--color-border-strong) !important;
+  color: var(--color-text) !important;
+}
+
+[data-sonner-toast][data-styled='true'] .cs-toast-close svg {
+  width: 9px !important;
+  height: 9px !important;
+}
+
+/* ---- 操作 / 取消按钮（少数 toast 会用）---- */
+[data-sonner-toast][data-styled='true'] .cs-toast-action {
+  height: 24px !important;
+  padding: 0 10px !important;
+  border-radius: 9999px !important;
+  background: var(--color-brand) !important;
+  color: var(--color-text-inverse) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+}
+
+[data-sonner-toast][data-styled='true'] .cs-toast-cancel {
+  height: 24px !important;
+  padding: 0 10px !important;
+  border-radius: 9999px !important;
+  background: var(--color-bg-subtle) !important;
+  color: var(--color-text-secondary) !important;
+  font-size: 11px !important;
+}
+
+/* ---- 暗色：抬升面 + 更弱的边，靠投影分层 ---- */
+[data-sonner-toaster][data-sonner-theme='dark'] [data-sonner-toast][data-styled='true'].cs-toast {
+  background: color-mix(in srgb, var(--color-surface-raised) 96%, #fff 4%) !important;
+  border-color: color-mix(in srgb, var(--color-border) 60%, transparent) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent),
+    0 12px 32px -12px rgba(0, 0, 0, 0.7) !important;
+}
+
+/* ---- 移动端：贴边、少留白 ---- */
+@media (max-width: 640px) {
+  [data-sonner-toast][data-styled='true'].cs-toast {
+    padding: 11px 32px 11px 12px !important;
+    border-radius: 13px !important;
+  }
+}
+
+/* ---- 减弱动效 ---- */
+@media (prefers-reduced-motion: reduce) {
+  [data-sonner-toast][data-styled='true'].cs-toast {
+    transition:
+      opacity var(--motion-fast) linear,
+      transform var(--motion-fast) linear !important;
+  }
+}

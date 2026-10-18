@@ -40,5 +40,7 @@ export const assetsApi = {
   promptPresets: () => api.get<PromptPresets>('/assets/prompt-presets'),
   get: (id: string) => api.get<Asset>(`/assets/${id}`),
   remove: (id: string) => api.del<unknown>(`/assets/${id}`),
+  /** 批量删除（「全选」后用），后端一次软删 */
+  removeMany: (ids: string[]) => api.post<{ deleted: number }>('/assets/batch-delete', { ids }),
   downloadUrl: (id: string) => apiUrl(`/assets/${id}/download`),
 }

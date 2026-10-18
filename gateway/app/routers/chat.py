@@ -13,8 +13,15 @@ router = APIRouter(prefix="/gw/chat", tags=["gateway-chat"])
 
 @router.post("/completions")
 async def chat_completions(payload: ChatCompletionRequest):
-    """转发 sub2api；SSE 透传；demo 时模拟回复。"""
+    """转发配置的文本 provider；SSE 透传；demo 时模拟回复。"""
     body = payload.model_dump()
     if payload.stream:
         return StreamingResponse(chat_router.stream_chat(body), media_type="text/event-stream")
     return ok(await chat_router.complete_chat(body))
+
+
+@router.post("/llm-completions")
+async def llm_completions(payload: ChatCompletionRequest):
+    """调用独立的意图分析模型配置；未配置时复用文本 provider。"""
+    body = payload.model_dump()
+    return ok(await chat_router.complete_llm(body))

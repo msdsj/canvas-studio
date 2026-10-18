@@ -31,6 +31,33 @@ def headers() -> dict[str, str]:
     return {"X-Internal-Token": TOKEN}
 
 
+@pytest.fixture(autouse=True)
+def isolated_pool(monkeypatch):
+    """让每个用例使用独立号池文件，避免污染仓库里的真实 data/。
+
+    号池默认落在 ./data/provider_accounts.json，测试若直接复用会写入脏数据、
+    并让后续用例的账号数对不上。这里把 POOL_FILE 指到 tests/.tmp 并重置内存缓存。
+    """
+    from pathlib import Path
+
+    from app.services.account_pool import account_pool
+
+    pool_dir = Path(__file__).resolve().parent / ".tmp"
+    try:
+        pool_dir.mkdir(exist_ok=True)
+    except Exception:  # noqa: BLE001 - 沙箱 shim 对 mkdir 会抛 EEXIST，目录已存在即可
+        pass
+    pool_path = pool_dir / "provider_accounts.json"
+    pool_path.write_text('{"version": 1, "accounts": []}', encoding="utf-8")
+
+    monkeypatch.setattr("app.config.settings.pool_file", str(pool_path), raising=False)
+    monkeypatch.setattr(account_pool, "_accounts", {}, raising=False)
+    monkeypatch.setattr(account_pool, "_loaded", False, raising=False)
+    yield
+    monkeypatch.setattr(account_pool, "_accounts", {}, raising=False)
+    monkeypatch.setattr(account_pool, "_loaded", False, raising=False)
+
+
 @pytest.fixture
 def mock_upstream(monkeypatch):
     """把上游客户端替换为 httpx.MockTransport。"""
@@ -43,10 +70,16 @@ def mock_upstream(monkeypatch):
                 transport=transport, base_url="http://upstream", trust_env=False
             )
 
-        monkeypatch.setattr("app.upstream.chatgpt2api_client", factory)
-        monkeypatch.setattr("app.upstream.sub2api_client", factory)
-        monkeypatch.setattr("app.services.pool_proxy.chatgpt2api_client", factory)
-        monkeypatch.setattr("app.services.image_router.chatgpt2api_client", factory)
-        monkeypatch.setattr("app.services.chat_router.sub2api_client", factory)
+        # 新架构统一走 provider_client(role) 工厂；各模块各自持有一份引用，需逐个替换。
+        monkeypatch.setattr("app.upstream.provider_client", factory, raising=False)
+        for module in (
+            "app.services.pool_proxy",
+            "app.services.image_router",
+            "app.services.chat_router",
+        ):
+            monkeypatch.setattr(f"{module}.provider_client", factory, raising=False)
+        # 兼容仍按旧名导入的调用点
+        monkeypatch.setattr("app.upstream.chatgpt2api_client", factory, raising=False)
+        monkeypatch.setattr("app.upstream.sub2api_client", factory, raising=False)
 
     return _install

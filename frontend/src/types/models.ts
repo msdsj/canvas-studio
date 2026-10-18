@@ -200,6 +200,7 @@ export interface PoolStats {
 }
 
 export interface PoolAccount {
+  id: string
   token_masked: string
   type: string
   status: 'normal' | 'limited' | 'abnormal' | 'disabled'

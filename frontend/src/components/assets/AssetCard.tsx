@@ -15,17 +15,18 @@ interface AssetCardProps {
 export function AssetCard({ asset, onUse, onDelete, onPreview }: AssetCardProps) {
   const { t } = useTranslation('assets')
   return (
-    <div className="group overflow-hidden rounded-lg border border-border bg-surface">
+    <div className="group overflow-hidden rounded-md bg-surface shadow-sheet">
+      {/* 图片区 = 相纸：3px 近直角 + 白色衬边，与 UI 的 14px 软角形成「硬边图 / 软边界面」对比 */}
       <button
         type="button"
         onClick={() => onPreview?.(asset)}
-        className="relative block aspect-square w-full overflow-hidden"
+        className="relative block aspect-square w-full overflow-hidden bg-mat p-[3px]"
       >
         <img
           src={asset.thumb_url || asset.url}
           alt={asset.source_prompt || asset.kind}
           loading="lazy"
-          className="h-full w-full object-cover transition-transform group-hover:scale-105"
+          className="h-full w-full rounded-[3px] object-cover transition-transform duration-200 group-hover:scale-[1.03]"
         />
         {asset.is_demo && (
           <span className="absolute left-2 top-2">
@@ -34,7 +35,7 @@ export function AssetCard({ asset, onUse, onDelete, onPreview }: AssetCardProps)
         )}
       </button>
       <div className="flex items-center justify-between gap-1 px-2 py-2">
-        <span className="truncate text-xs text-text-tertiary">
+        <span className="truncate text-caption text-text-tertiary">
           {asset.width}×{asset.height}
         </span>
         <div className="flex items-center gap-0.5">

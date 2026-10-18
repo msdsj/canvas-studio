@@ -36,15 +36,52 @@ async def list_sessions(
 
 
 async def create_session(
-    db: AsyncSession, user_id: str, canvas_id: str | None, title: str | None
+    db: AsyncSession,
+    user_id: str,
+    canvas_id: str | None,
+    title: str | None,
+    *,
+    new_canvas: bool = False,
 ) -> ChatSession:
-    """新建会话。"""
+    """新建会话。
+
+    ``new_canvas=True`` 时同时开一张干净画布：对话与画布是 1:1 绑定的，
+    只建会话不建画布，用户点「新建对话」后画布上还留着上一轮的图，
+    对话与画布的对应关系会立刻错位。
+    """
+    if new_canvas or not canvas_id:
+        canvas_id = await _create_conversation_canvas(db, user_id, title)
     session = ChatSession(
         id=new_id(), user_id=user_id, canvas_id=canvas_id, title=title or "新对话"
     )
     db.add(session)
     await db.flush()
     return session
+
+
+async def _create_conversation_canvas(
+    db: AsyncSession, user_id: str, title: str | None
+) -> str:
+    """在用户的首个项目下开一张空画布（没有项目就先建一个）。"""
+    from app.models.project import CanvasProject
+    from app.services import canvas_service, project_service
+
+    project_id = (
+        await db.execute(
+            select(CanvasProject.id)
+            .where(CanvasProject.owner_id == user_id, CanvasProject.deleted_at.is_(None))
+            .order_by(CanvasProject.updated_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if project_id is None:
+        project = await project_service.create_project(db, user_id, "我的项目")
+        project_id = project.id
+    name = (title or "新对话").strip()[:40] or "新对话"
+    canvas = await canvas_service.create_canvas(
+        db, user_id, project_id, name=f"{name} · 画布"
+    )
+    return canvas.id
 
 
 async def get_session(db: AsyncSession, user_id: str, session_id: str) -> ChatSession:
@@ -61,12 +98,18 @@ async def get_session(db: AsyncSession, user_id: str, session_id: str) -> ChatSe
 
 
 async def update_session(
-    db: AsyncSession, user_id: str, session_id: str, title: str | None
+    db: AsyncSession,
+    user_id: str,
+    session_id: str,
+    title: str | None,
+    canvas_id: str | None = None,
 ) -> ChatSession:
-    """重命名会话。"""
+    """重命名会话 / 重新绑定画布。"""
     session = await get_session(db, user_id, session_id)
     if title is not None:
         session.title = title
+    if canvas_id is not None:
+        session.canvas_id = canvas_id
     session.updated_at = utcnow()
     await db.flush()
     return session
@@ -84,7 +127,9 @@ async def list_messages(
 ) -> tuple[list[ChatMessage], int]:
     """分页查询会话消息（时间正序）。"""
     await get_session(db, user_id, session_id)
-    base = select(ChatMessage).where(ChatMessage.session_id == session_id)
+    base = select(ChatMessage).where(
+        ChatMessage.session_id == session_id, ChatMessage.deleted_at.is_(None)
+    )
     total = int(
         (
             await db.execute(select(func.count()).select_from(base.order_by(None).subquery()))
@@ -174,46 +219,60 @@ async def stream_and_finalize(
     collected: list[str] = []
     demo = False
     error_code: str | None = None
+    finalized = False
     async with AsyncSessionLocal() as db:
         try:
-            async for raw in gateway_client.chat_completions_stream(payload):
-                for line in raw.decode("utf-8", "ignore").splitlines():
-                    line = line.strip()
-                    if not line.startswith("data:"):
-                        continue
-                    data_str = line[5:].strip()
-                    if data_str == "[DONE]":
-                        continue
-                    try:
-                        obj = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
-                    if obj.get("demo") is True:
-                        demo = True
-                    delta = _extract_delta(obj)
-                    if delta:
-                        collected.append(delta)
-                        yield sse_chunk({"delta": delta, "done": False, "demo": demo})
-        except AppError as exc:
-            error_code = exc.code.value
-            logger.warning("对话流失败: %s", exc.message)
-        except Exception as exc:  # noqa: BLE001
-            error_code = ErrorCode.UPSTREAM_ERROR.value
-            logger.exception("对话流异常: %s", exc)
+            try:
+                async for raw in gateway_client.chat_completions_stream(payload):
+                    for line in raw.decode("utf-8", "ignore").splitlines():
+                        line = line.strip()
+                        if not line.startswith("data:"):
+                            continue
+                        data_str = line[5:].strip()
+                        if data_str == "[DONE]":
+                            continue
+                        try:
+                            obj = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        if obj.get("demo") is True:
+                            demo = True
+                        delta = _extract_delta(obj)
+                        if delta:
+                            collected.append(delta)
+                            yield sse_chunk({"delta": delta, "done": False, "demo": demo})
+            except AppError as exc:
+                error_code = exc.code.value
+                logger.warning("对话流失败: %s", exc.message)
+            except Exception as exc:  # noqa: BLE001
+                error_code = ErrorCode.UPSTREAM_ERROR.value
+                logger.exception("对话流异常: %s", exc)
 
-        full_text = "".join(collected)
-        if error_code is None:
-            if full_text:
-                await append_message(db, session_id, user_id, "assistant", full_text)
-            if cost > 0:
-                await quota_service.confirm(db, ref_id)
-            await db.commit()
-            yield sse_chunk({"delta": "", "done": True, "demo": demo})
-        else:
-            if cost > 0:
-                await quota_service.refund(db, ref_id)
-            await db.commit()
-            yield sse_chunk({"delta": "", "done": True, "error_code": error_code})
+            full_text = "".join(collected)
+            if error_code is None:
+                if full_text:
+                    await append_message(db, session_id, user_id, "assistant", full_text)
+                if cost > 0:
+                    await quota_service.confirm(db, ref_id)
+                finalized = True
+                await db.commit()
+                yield sse_chunk({"delta": "", "done": True, "demo": demo})
+            else:
+                if cost > 0:
+                    await quota_service.refund(db, ref_id)
+                finalized = True
+                await db.commit()
+                yield sse_chunk({"delta": "", "done": True, "error_code": error_code})
+        finally:
+            # 用户中途关页面 / 断网：生成器被关闭，这里必须把预扣额度退回，
+            # 否则会出现「额度扣了但什么都没拿到」的黑洞。
+            if not finalized and cost > 0:
+                try:
+                    await quota_service.refund(db, ref_id)
+                    await db.commit()
+                    logger.info("对话流中断，已退回预扣额度 ref=%s", ref_id)
+                except Exception:  # noqa: BLE001
+                    logger.exception("对话流中断退款失败 ref=%s", ref_id)
 
 
 def _extract_delta(obj: dict[str, Any]) -> str:
@@ -231,3 +290,41 @@ def _extract_delta(obj: dict[str, Any]) -> str:
     except (AttributeError, KeyError, TypeError):
         return ""
     return ""
+
+
+async def delete_message(db: AsyncSession, user_id: str, message_id: str) -> None:
+    """软删单条消息（仅能删自己会话里的）。"""
+    row = (
+        await db.execute(
+            select(ChatMessage).where(
+                ChatMessage.id == message_id,
+                ChatMessage.user_id == user_id,
+                ChatMessage.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise AppError(ErrorCode.NOT_FOUND, "这条消息已经不存在了")
+    row.deleted_at = utcnow()
+    await db.flush()
+
+
+async def delete_messages(db: AsyncSession, user_id: str, message_ids: list[str]) -> int:
+    """批量软删消息（只删属于当前用户的），返回实际删除条数。"""
+    ids = [item for item in dict.fromkeys(message_ids) if item]
+    if not ids:
+        return 0
+    rows = (
+        await db.execute(
+            select(ChatMessage).where(
+                ChatMessage.id.in_(ids),
+                ChatMessage.user_id == user_id,
+                ChatMessage.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    now = utcnow()
+    for row in rows:
+        row.deleted_at = now
+    await db.flush()
+    return len(rows)

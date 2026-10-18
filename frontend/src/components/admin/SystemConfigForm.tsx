@@ -11,8 +11,8 @@ import type { SystemConfigItem } from '@/types/models'
 interface SystemConfigFormProps {
   items: SystemConfigItem[]
   onSave: (values: Record<string, unknown>) => Promise<void> | void
-  onTest: (target: 'sub2api' | 'chatgpt2api' | 'proxy') => void
-  testing?: 'sub2api' | 'chatgpt2api' | 'proxy' | null
+  onTest: (target: 'text' | 'image' | 'llm' | 'pool' | 'proxy') => void
+  testing?: 'text' | 'image' | 'llm' | 'pool' | 'proxy' | null
   testResult?: { ok: boolean; message: string; latency_ms: number } | null
 }
 
@@ -47,11 +47,17 @@ export function SystemConfigForm({ items, onSave, onTest, testing, testResult }:
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="secondary" onClick={() => onTest('sub2api')} loading={testing === 'sub2api'}>
-          <Plug size={15} /> 测试 sub2api
+        <Button variant="secondary" onClick={() => onTest('text')} loading={testing === 'text'}>
+          <Plug size={15} /> 测试文本服务
         </Button>
-        <Button variant="secondary" onClick={() => onTest('chatgpt2api')} loading={testing === 'chatgpt2api'}>
-          <Plug size={15} /> 测试 chatgpt2api
+        <Button variant="secondary" onClick={() => onTest('image')} loading={testing === 'image'}>
+          <Plug size={15} /> 测试图片服务
+        </Button>
+        <Button variant="secondary" onClick={() => onTest('llm')} loading={testing === 'llm'}>
+          <Plug size={15} /> 测试意图模型
+        </Button>
+        <Button variant="secondary" onClick={() => onTest('pool')} loading={testing === 'pool'}>
+          <Plug size={15} /> 测试账号池
         </Button>
         <Button variant="secondary" onClick={() => onTest('proxy')} loading={testing === 'proxy'}>
           <Plug size={15} /> 测试代理

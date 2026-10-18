@@ -73,7 +73,7 @@ async def test_concurrency_limit(db):
 
 
 async def test_pause_resume_cancel(db):
-    """running→paused→running；cancel 回滚预扣。"""
+    """running→paused；paused 不再支持「继续」（resume 会二次 dispatch 上游）；cancel 回滚预扣。"""
     uid = await make_user(200)
     task, _ = await task_service.create_or_get(
         db, uid, "k-pause", "generate", "p", {}, 10, None, None
@@ -81,12 +81,31 @@ async def test_pause_resume_cancel(db):
     paused = await task_service.pause(db, uid, task.id)
     assert paused.status == "paused"
 
-    resumed = await task_service.resume(db, uid, task.id)
-    assert resumed.status == "running"
+    # 产品口径：上游是同步长请求，没有真挂起能力，resume 会让同一任务双跑 → 禁止
+    with pytest.raises(AppError) as exc:
+        await task_service.resume(db, uid, task.id)
+    assert exc.value.code == ErrorCode.TASK_STATE_CONFLICT
 
     cancelled = await task_service.cancel(db, uid, task.id)
     assert cancelled.status == "cancelled"
     assert await balance_of(uid) == 200  # 未完成不扣费
+
+
+async def test_reclaim_covers_paused(db):
+    """paused 也必须被回收：否则会永久滞留、预扣停在 processing。"""
+    uid = await make_user(200)
+    task, _ = await task_service.create_or_get(
+        db, uid, "k-paused-orphan", "generate", "p", {}, 10, None, None
+    )
+    await task_service.pause(db, uid, task.id)
+    task.last_activity_at = utcnow() - timedelta(seconds=9999)
+    await db.commit()
+
+    count = await task_service.reclaim_orphans(db)
+    assert count >= 1
+    refreshed = await task_service.get_task(db, uid, task.id)
+    assert refreshed.status == "timeout"
+    assert await balance_of(uid) == 200
 
 
 async def test_pause_invalid_transition(db):

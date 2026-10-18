@@ -24,11 +24,11 @@ def restore_runtime():
     """在每个用例前后保存/恢复运行时配置，避免相互污染。"""
     saved = (
         runtime_config.demo_mode,
-        runtime_config.sub2api_base_url,
-        runtime_config.chatgpt2api_base_url,
+        runtime_config.text_base_url,
+        runtime_config.image_base_url,
     )
     yield
-    runtime_config.demo_mode, runtime_config.sub2api_base_url, runtime_config.chatgpt2api_base_url = saved
+    runtime_config.demo_mode, runtime_config.text_base_url, runtime_config.image_base_url = saved
 
 
 def _png_b64() -> str:
@@ -147,7 +147,14 @@ async def test_qa_demo_auto_fallback_on_unreachable(client, headers, mock_upstre
 # 上游健康探测：PROXY_UNREACHABLE vs UPSTREAM_ERROR
 # --------------------------------------------------------------------------
 async def test_qa_upstream_health_proxy_unreachable(client, headers, monkeypatch, restore_runtime):
-    """上游地址不可达（连接异常）→ 两个上游均报 PROXY_UNREACHABLE，整体 ok=false。"""
+    """上游地址不可达（连接异常）→ 两个上游均报 PROXY_UNREACHABLE，整体 ok=false。
+
+    注意：health 的 overall_ok 在 demo 可用时会为 True，
+    要验证「上游全挂」必须显式关掉 demo 兜底。
+    """
+    runtime_config.demo_mode = "off"
+    runtime_config.text_base_url = "http://upstream-text"
+    runtime_config.image_base_url = "http://upstream-image"
 
     def fake_make_client(base_url: str, *, read_timeout: float | None = None):
         def _raise(request: httpx.Request) -> httpx.Response:
@@ -161,12 +168,15 @@ async def test_qa_upstream_health_proxy_unreachable(client, headers, monkeypatch
     assert resp.status_code == 200
     data = resp.json()["data"]
     assert data["ok"] is False
-    assert data["sub2api"]["error_code"] == "PROXY_UNREACHABLE"
-    assert data["chatgpt2api"]["error_code"] == "PROXY_UNREACHABLE"
+    assert data["text"]["error_code"] == "PROXY_UNREACHABLE"
+    assert data["image"]["error_code"] == "PROXY_UNREACHABLE"
 
 
 async def test_qa_upstream_health_upstream_error(client, headers, monkeypatch, restore_runtime):
     """上游返回 5xx → UPSTREAM_ERROR（区别于代理不可达）。"""
+    runtime_config.demo_mode = "off"
+    runtime_config.text_base_url = "http://upstream-text"
+    runtime_config.image_base_url = "http://upstream-image"
 
     def fake_make_client(base_url: str, *, read_timeout: float | None = None):
         transport = httpx.MockTransport(lambda request: httpx.Response(500, json={"err": "x"}))
@@ -177,8 +187,8 @@ async def test_qa_upstream_health_upstream_error(client, headers, monkeypatch, r
     assert resp.status_code == 200
     data = resp.json()["data"]
     assert data["ok"] is False
-    assert data["sub2api"]["error_code"] == "UPSTREAM_ERROR"
-    assert data["chatgpt2api"]["error_code"] == "UPSTREAM_ERROR"
+    assert data["text"]["error_code"] == "UPSTREAM_ERROR"
+    assert data["image"]["error_code"] == "UPSTREAM_ERROR"
 
 
 # --------------------------------------------------------------------------

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Upload } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute'
-import { AppSidebar } from '@/components/layout/WorkspaceLeftbar'
+import { PageShell } from '@/components/layout/PageShell'
 import { Button } from '@/components/ui/button'
 import { Pagination } from '@/components/ui/pagination'
 import { AssetGrid } from '@/components/assets/AssetGrid'
@@ -75,13 +75,11 @@ function AssetsPage() {
   return (
     <ProtectedRoute>
       <AppShell>
-        <div className="flex h-full">
-          <AppSidebar />
-          <div className="min-h-0 flex-1 overflow-y-auto p-6">
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-              <h1 className="text-xl font-semibold text-text">{t('title')}</h1>
-              <div className="flex items-center gap-3">
-                <div className="flex rounded-md bg-bg-subtle p-1">
+          <PageShell
+            title={t('title')}
+            actions={
+              <>
+                <div className="flex rounded-full bg-bg-subtle p-1">
                   {(['all', 'generated', 'uploaded'] as Filter[]).map((f) => (
                     <button
                       key={f}
@@ -91,8 +89,10 @@ function AssetsPage() {
                         setPage(1)
                       }}
                       className={
-                        'rounded-sm px-3 py-1 text-sm transition-colors ' +
-                        (filter === f ? 'bg-surface text-text shadow-xs' : 'text-text-secondary')
+                        'rounded-full px-3 py-1 text-caption transition-colors ' +
+                        (filter === f
+                          ? 'bg-surface text-text shadow-xs'
+                          : 'text-text-secondary hover:text-text')
                       }
                     >
                       {t(`filter.${f}`)}
@@ -102,8 +102,9 @@ function AssetsPage() {
                 <Button onClick={() => inputRef.current?.click()}>
                   <Upload size={16} /> {t('upload')}
                 </Button>
-              </div>
-            </div>
+              </>
+            }
+          >
 
             <AssetGrid
               assets={assets}
@@ -122,8 +123,7 @@ function AssetsPage() {
                 setPage(1)
               }}
             />
-          </div>
-        </div>
+          </PageShell>
       </AppShell>
 
       <AssetPreviewModal asset={preview} onOpenChange={(open) => !open && setPreview(null)} />

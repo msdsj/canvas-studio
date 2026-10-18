@@ -61,11 +61,11 @@ export function PoolTable({
       </TableHeader>
       <TableBody>
         {accounts.map((account) => (
-          <TableRow key={account.token_masked}>
+          <TableRow key={account.id}>
             <TableCell>
               <Checkbox
-                checked={selected.includes(account.token_masked)}
-                onCheckedChange={() => onToggle(account.token_masked)}
+                checked={selected.includes(account.id)}
+                onCheckedChange={() => onToggle(account.id)}
                 aria-label="select"
               />
             </TableCell>
@@ -85,7 +85,7 @@ export function PoolTable({
                   size="icon-sm"
                   variant="ghost"
                   aria-label={t('pool.delete')}
-                  onClick={() => onDelete(account.token_masked)}
+                  onClick={() => onDelete(account.id)}
                 >
                   <Trash2 size={15} />
                 </Button>

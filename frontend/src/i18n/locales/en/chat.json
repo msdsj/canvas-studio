@@ -8,15 +8,21 @@
     "delete_confirm": "Delete this chat?"
   },
   "input": {
-    "placeholder": "Type a prompt to generate or chat (Enter to send, Shift+Enter for newline)",
+    "placeholder": "Describe the image you want…",
     "send": "Send",
     "attach": "Attach reference",
-    "stop": "Stop"
+    "stop": "Stop",
+    "submitting": "Sending…",
+    "too_long": "Max {{max}} characters, currently {{count}}",
+    "shortcut_hint": "Enter to send · Shift+Enter for a new line",
+    "placeholder_chat": "Ask anything, or describe the change you want…"
   },
   "message": {
     "thinking": "Thinking…",
     "assistant": "AI",
-    "you": "You"
+    "you": "You",
+    "expand": "Show more",
+    "collapse": "Show less"
   },
   "mode": {
     "chat": "Chat",
@@ -82,24 +88,42 @@
     "no_result": "This task has no editable image"
   },
   "task": {
-    "queued": "Queued…",
-    "running": "Generating…",
-    "paused": "Paused",
-    "cancelled": "Cancelled",
+    "queued": "Queued",
+    "running": "Generating",
+    "paused": "Stopped",
+    "cancelled": "Stopped",
     "succeeded": "Done",
-    "failed": "Failed",
-    "timeout": "Timed out",
+    "failed": "Didn't come out",
+    "timeout": "Took too long — stopped automatically",
     "progress": "Progress {{progress}}%",
     "pause": "Pause",
     "resume": "Resume",
-    "cancel": "Abandon",
-    "retry": "Retry",
-    "cancel_confirm": "Abandon this task? You won't be charged if it didn't finish.",
+    "cancel": "Stop generating",
+    "retry": "Generate again",
+    "cancel_confirm": "Credits will be refunded. Stop this generation?",
     "add_to_canvas": "Add to canvas",
-    "regenerate": "Regenerate",
-    "result_demo": "Demo result",
+    "regenerate": "Generate again",
+    "result_demo": "Demo placeholder",
     "unread": "Unseen",
-    "marked_seen": "Marked as seen"
+    "marked_seen": "Marked as seen",
+    "stop": "Stop generating",
+    "placed": "Added",
+    "refunded": "Credits refunded",
+    "elapsed": "Generating · {{seconds}}s, usually 30–90s",
+    "slow_90": "Slower than usual — feel free to check the canvas meanwhile",
+    "slow_180": "Still generating — it will stop and refund automatically if it times out",
+    "image_failed": "Image failed to load",
+    "image_retry": "Retry",
+    "copy_prompt": "Copy prompt",
+    "copied": "Prompt copied",
+    "download": "Download",
+    "preview": "View full size",
+    "result_count": "{{count}} images",
+    "limit_title": "Too many at once",
+    "limit_hint": "Up to {{max}} tasks at a time — wait or stop one",
+    "thinking_title": "Reasoning",
+    "thinking_steps": "{{count}} steps",
+    "optimized_prompt": "Optimized prompt"
   },
   "edit": {
     "compare": "Edit compare",
@@ -107,7 +131,7 @@
     "result": "New version"
   },
   "active_panel": {
-    "title": "Active tasks",
+    "title": "Generation history",
     "empty": "No active tasks",
     "count": "{{count}} active"
   },
@@ -116,5 +140,22 @@
     "locate": "Locate",
     "dismiss": "Dismiss"
   },
-  "demo_hint": "Demo mode: upstream unreachable, placeholder result generated."
+  "demo_hint": "Demo placeholder: no image service is connected, so this isn't AI-generated",
+  "empty": {
+    "title": "Describe the image you want",
+    "hint": "Be specific: subject, material, lighting, style",
+    "example_1": "A ceramic coffee cup on a minimal white background, soft side light",
+    "example_2": "Neon-lit street on a rainy night, cinematic, shallow depth of field",
+    "example_3": "Flat illustration of a little fox avatar, warm palette"
+  },
+  "scroll": {
+    "back_to_latest": "Back to latest"
+  },
+  "network": {
+    "offline": "Connection lost — reconnecting…",
+    "restored": "Back online"
+  },
+  "draft": {
+    "restored": "Restored your unsent draft"
+  }
 }

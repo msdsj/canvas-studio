@@ -1,0 +1,19 @@
+<!-- canvas-studio · 横排组合：概念 1「入框一笔」+ Canvas Studio
+     来源：docs/09-visual-language-v2.md §C 概念 1
+     说明：图形部分与 logo-mark.svg 一致（currentColor / stroke 4 / round），按 0.75 缩放与文字视觉等高。
+           文字用 <text> 渲染，字体栈 Plus Jakarta Sans → PingFang SC → 系统 sans。
+           ⚠ 作为 <img src> 引用时无法加载 webfont，会退化到系统无衬线；
+             需要锁定字形时请在前端内联使用（此时 webfont 已由页面加载），
+             或后续把文字替换为路径。字重 600、字距 -0.01em 与页面内 wordmark 一致。 -->
+<svg viewBox="0 0 236 48" fill="none" xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="canvas-studio">
+  <g transform="translate(2 6) scale(0.75)" stroke="currentColor" stroke-width="4"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 18 A6 6 0 0 1 18 12 H30 A6 6 0 0 1 36 18 V30
+             A6 6 0 0 1 30 36 H18 A6 6 0 0 1 12 30"/>
+    <path d="M5 24 H17"/>
+  </g>
+  <text x="46" y="24" fill="currentColor" dominant-baseline="central"
+        font-family="'Plus Jakarta Sans','PingFang SC','Noto Sans SC','Hiragino Sans GB',-apple-system,'Segoe UI',sans-serif"
+        font-size="20" font-weight="600" letter-spacing="-0.2">Canvas Studio</text>
+</svg>

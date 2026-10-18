@@ -12,7 +12,9 @@
     "delete_selected": "Delete selected",
     "delete_short": "Delete",
     "download": "Download",
-    "align": "Align"
+    "align": "Align",
+    "upload": "Upload image",
+    "layers": "Layers"
   },
   "save": {
     "saving": "Saving…",

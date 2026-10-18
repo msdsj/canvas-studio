@@ -172,7 +172,7 @@ function AdminPoolPage() {
         onToggle={(token) =>
           setSelected((prev) => (prev.includes(token) ? prev.filter((t2) => t2 !== token) : [...prev, token]))
         }
-        onToggleAll={() => setSelected(selected.length === accounts.length ? [] : accounts.map((a) => a.token_masked))}
+        onToggleAll={() => setSelected(selected.length === accounts.length ? [] : accounts.map((a) => a.id))}
         onDelete={(token) => adminApi.poolDelete([token]).then(() => void load()).catch((e) => toast.error(errorMessage(e, te)))}
         onToggleStatus={toggleStatus}
       />

@@ -13,10 +13,15 @@ class RuntimeConfig:
     """可变的运行时配置（内存缓存）。"""
 
     def __init__(self) -> None:
-        self.sub2api_base_url: str = settings.sub2api_base_url
-        self.sub2api_api_key: str = settings.sub2api_api_key
-        self.chatgpt2api_base_url: str = settings.chatgpt2api_base_url
-        self.chatgpt2api_admin_key: str = settings.chatgpt2api_admin_key
+        self.text_base_url: str = settings.text_base_url
+        self.text_api_key: str = settings.text_api_key
+        self.text_model: str = settings.text_model
+        self.llm_base_url: str = settings.llm_base_url
+        self.llm_api_key: str = settings.llm_api_key
+        self.llm_model: str = settings.llm_model
+        self.image_base_url: str = settings.image_base_url
+        self.image_api_key: str = settings.image_api_key
+        self.image_model: str = settings.image_model
         self.proxy_http: str = settings.http_proxy
         self.proxy_https: str = settings.https_proxy
         self.no_proxy: str = settings.no_proxy
@@ -29,17 +34,28 @@ class RuntimeConfig:
 
     def update(self, payload: dict[str, Any]) -> None:
         """按 backend 推送的 payload 更新配置。"""
-        sub = payload.get("sub2api") or {}
-        cg2 = payload.get("chatgpt2api") or {}
+        text = payload.get("text") or {}
+        image = payload.get("image") or {}
         proxy = payload.get("proxy") or {}
-        if sub.get("base_url"):
-            self.sub2api_base_url = str(sub["base_url"])
-        if sub.get("api_key"):
-            self.sub2api_api_key = str(sub["api_key"])
-        if cg2.get("base_url"):
-            self.chatgpt2api_base_url = str(cg2["base_url"])
-        if cg2.get("admin_key"):
-            self.chatgpt2api_admin_key = str(cg2["admin_key"])
+        if "base_url" in text:
+            self.text_base_url = str(text.get("base_url") or "")
+        if "api_key" in text and text.get("api_key"):
+            self.text_api_key = str(text["api_key"])
+        if "model" in text:
+            self.text_model = str(text.get("model") or "")
+        llm = payload.get("llm") or {}
+        if "base_url" in llm:
+            self.llm_base_url = str(llm.get("base_url") or "")
+        if "api_key" in llm and llm.get("api_key"):
+            self.llm_api_key = str(llm["api_key"])
+        if "model" in llm:
+            self.llm_model = str(llm.get("model") or "")
+        if "base_url" in image:
+            self.image_base_url = str(image.get("base_url") or "")
+        if "api_key" in image and image.get("api_key"):
+            self.image_api_key = str(image["api_key"])
+        if "model" in image:
+            self.image_model = str(image.get("model") or "")
         if "http_proxy" in proxy:
             self.proxy_http = str(proxy.get("http_proxy") or "")
         if "https_proxy" in proxy:
@@ -48,21 +64,26 @@ class RuntimeConfig:
         if demo in {"auto", "on", "off"}:
             self.demo_mode = demo
         logger.info(
-            "运行时配置已更新：sub2api=%s chatgpt2api=%s demo=%s",
-            self.sub2api_base_url,
-            self.chatgpt2api_base_url,
+            "运行时配置已更新：text=%s image=%s demo=%s",
+            self.text_base_url,
+            self.image_base_url,
             self.demo_mode,
         )
 
     def snapshot(self) -> dict[str, Any]:
         """返回当前配置快照（不含密钥明文）。"""
         return {
-            "sub2api_base_url": self.sub2api_base_url,
-            "chatgpt2api_base_url": self.chatgpt2api_base_url,
+            "text_base_url": self.text_base_url,
+            "image_base_url": self.image_base_url,
             "demo_mode": self.demo_mode,
             "proxy_enabled": bool(self.proxy_url),
-            "sub2api_key_set": bool(self.sub2api_api_key),
-            "chatgpt2api_key_set": bool(self.chatgpt2api_admin_key),
+            "text_key_set": bool(self.text_api_key),
+            "text_model": self.text_model,
+            "llm_base_url": self.llm_base_url,
+            "llm_model": self.llm_model,
+            "llm_key_set": bool(self.llm_api_key),
+            "image_key_set": bool(self.image_api_key),
+            "image_model": self.image_model,
         }
 
 

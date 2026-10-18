@@ -7,7 +7,10 @@ __pycache__/
 
 # 运行时数据
 backend/data/
+gateway/data/
 *.db
+.run/
+logs/
 
 # 环境变量
 .env
@@ -17,3 +20,4 @@ backend/data/
 .DS_Store
 .idea/
 .vscode/
+tests/.tmp/

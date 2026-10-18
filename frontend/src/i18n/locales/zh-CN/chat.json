@@ -8,15 +8,21 @@
     "delete_confirm": "确定删除该对话？"
   },
   "input": {
-    "placeholder": "输入提示词，让 AI 生成图片或回答（Enter 发送，Shift+Enter 换行）",
+    "placeholder": "描述你想要的画面…",
     "send": "发送",
     "attach": "添加参考图",
-    "stop": "停止"
+    "stop": "停止",
+    "submitting": "提交中…",
+    "too_long": "最多 {{max}} 字，当前 {{count}} 字",
+    "shortcut_hint": "Enter 发送 · Shift+Enter 换行",
+    "placeholder_chat": "问点什么，或描述你想改的画面…"
   },
   "message": {
     "thinking": "思考中…",
     "assistant": "AI",
-    "you": "你"
+    "you": "你",
+    "expand": "展开",
+    "collapse": "收起"
   },
   "mode": {
     "chat": "对话",
@@ -82,24 +88,42 @@
     "no_result": "该任务没有可编辑的图片"
   },
   "task": {
-    "queued": "排队中…",
-    "running": "生成中…",
-    "paused": "已暂停",
-    "cancelled": "已取消",
+    "queued": "排队中，前面还有任务",
+    "running": "生成中",
+    "paused": "已停止",
+    "cancelled": "已停止",
     "succeeded": "已完成",
-    "failed": "生成失败",
-    "timeout": "已超时",
+    "failed": "没画成",
+    "timeout": "等太久了，已自动停止",
     "progress": "进度 {{progress}}%",
     "pause": "暂停",
     "resume": "继续",
-    "cancel": "放弃",
-    "retry": "重试",
-    "cancel_confirm": "确定放弃该任务？未完成不会扣费。",
-    "add_to_canvas": "加入画布",
-    "regenerate": "再生成",
-    "result_demo": "演示结果",
+    "cancel": "停止生成",
+    "retry": "重新生成",
+    "cancel_confirm": "停止后额度会退回，确定停止这次生成？",
+    "add_to_canvas": "放入画布",
+    "regenerate": "重新生成",
+    "result_demo": "演示占位图",
     "unread": "未查看",
-    "marked_seen": "已标记为已读"
+    "marked_seen": "已标记为已读",
+    "stop": "停止生成",
+    "placed": "已放入",
+    "refunded": "额度已退回",
+    "elapsed": "生成中 · {{seconds}}s，通常 30–90 秒",
+    "slow_90": "比平时慢一些，可以先去画布看看",
+    "slow_180": "仍在生成，超时会自动结束并退回额度",
+    "image_failed": "图片加载失败",
+    "image_retry": "重试",
+    "copy_prompt": "复制提示词",
+    "copied": "提示词已复制",
+    "download": "下载",
+    "preview": "查看大图",
+    "result_count": "{{count}} 张",
+    "limit_title": "同时生成的数量有点多",
+    "limit_hint": "最多同时 {{max}} 个任务，等一张完成或先停一张",
+    "thinking_title": "思考过程",
+    "thinking_steps": "{{count}} 步",
+    "optimized_prompt": "优化后指令"
   },
   "edit": {
     "compare": "编辑对比",
@@ -107,7 +131,7 @@
     "result": "新版本"
   },
   "active_panel": {
-    "title": "进行中任务",
+    "title": "生成记录",
     "empty": "当前没有进行中的任务",
     "count": "{{count}} 个进行中"
   },
@@ -116,5 +140,22 @@
     "locate": "定位",
     "dismiss": "忽略"
   },
-  "demo_hint": "演示模式：上游不可达，已生成占位结果。"
+  "demo_hint": "演示占位图：当前没有连上可用的生图服务，这张不是 AI 画的",
+  "empty": {
+    "title": "描述你想要的画面",
+    "hint": "越具体越好：主体、材质、光线、风格",
+    "example_1": "极简白色背景的陶瓷咖啡杯，柔和侧光",
+    "example_2": "雨夜霓虹街道，电影感，浅景深",
+    "example_3": "扁平插画风格的小狐狸头像，暖色调"
+  },
+  "scroll": {
+    "back_to_latest": "回到最新"
+  },
+  "network": {
+    "offline": "网络已断开，正在重连…",
+    "restored": "网络已恢复"
+  },
+  "draft": {
+    "restored": "已恢复上次未发送的内容"
+  }
 }

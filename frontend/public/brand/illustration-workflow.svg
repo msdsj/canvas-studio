@@ -1,0 +1,95 @@
+<!-- canvas-studio · 插画 ①「三步手势」工作流演示配图
+     来源：docs/09-visual-language-v2.md §D.2 ①
+     规格：整幅 1200×750（16:10），单格 336×560，格间 48px 空白（不画分隔线）
+     语言：2px 墨色圆头线稿 + 单色平涂，允许 ±1px 抖动；4 色：墨 / 纸 / 靛（选区）/ 陶土浅底（完成晕）
+     颜色：全部走 currentColor 或 CSS 变量，未硬编码任何十六进制；变量缺失时退化为单色线稿
+     ⚠ 说明：① 的「手势」用笔尖表达（2px 线稿画手掌在 336px 宽下会糊成团，也规避 AI 手部硬伤），
+              笔尖同样表达「手动拉出一个框」这个动作。
+     2026-10-17 返工（对齐评审 P0-3）：01/02/03 现在是同一张图的三态——
+              内容（圆 + 波浪）完全一致，03 只把框线由虚变实、框内底由 canvas 变 mat。 -->
+<svg viewBox="0 0 1200 750" fill="none" xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="三步工作流：框选、用一句话说明、挑结果放进画布">
+  <!-- 共用：照片相纸（外层衬边 + 内层画布） -->
+  <defs>
+    <g id="cs-photo">
+      <rect x="78" y="124" width="180" height="150" rx="3"
+            fill="var(--color-mat, none)" stroke="currentColor" stroke-opacity=".22" stroke-width="1.5"/>
+      <rect x="84" y="130" width="168" height="138" rx="2"
+            fill="var(--color-canvas, none)" stroke="currentColor" stroke-width="2"/>
+      <g stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-opacity=".55">
+        <circle cx="118" cy="162" r="11"/>
+        <path d="M84 250 C 112 214, 146 244, 176 220 S 226 240, 252 212"/>
+      </g>
+    </g>
+    <g id="cs-select-dashed">
+      <rect x="108" y="160" width="104" height="84" rx="2"
+            stroke="var(--color-select, currentColor)" stroke-width="2" stroke-dasharray="7 6"/>
+      <g fill="var(--color-mat, currentColor)" stroke="var(--color-select, currentColor)" stroke-width="2">
+        <rect x="103.5" y="155.5" width="9" height="9" rx="1.5"/>
+        <rect x="207.5" y="155.5" width="9" height="9" rx="1.5"/>
+        <rect x="103.5" y="239.5" width="9" height="9" rx="1.5"/>
+        <rect x="207.5" y="239.5" width="9" height="9" rx="1.5"/>
+      </g>
+    </g>
+    <g id="cs-pen">
+      <g stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M254 293 L228 259"/>
+        <path d="M246 299 L220 265"/>
+        <path d="M254 293 L246 299"/>
+        <path d="M228 259 L216 250 L220 265"/>
+      </g>
+    </g>
+  </defs>
+
+  <!-- ① 框选要改的地方 -->
+  <g transform="translate(48 96)">
+    <text x="0" y="16" font-family="ui-monospace,'JetBrains Mono',Menlo,monospace" font-size="12"
+          letter-spacing="1" fill="var(--color-text-tertiary, currentColor)">01</text>
+    <use href="#cs-photo"/>
+    <use href="#cs-select-dashed"/>
+    <use href="#cs-pen"/>
+    <text x="0" y="440" font-family="'Plus Jakarta Sans','PingFang SC',sans-serif" font-size="14"
+          fill="var(--color-text-secondary, currentColor)">框选要改的地方</text>
+  </g>
+
+  <!-- ② 用一句话说清要什么 -->
+  <g transform="translate(432 96)">
+    <text x="0" y="16" font-family="ui-monospace,'JetBrains Mono',Menlo,monospace" font-size="12"
+          letter-spacing="1" fill="var(--color-text-tertiary, currentColor)">02</text>
+    <use href="#cs-photo"/>
+    <use href="#cs-select-dashed"/>
+    <!-- 空口语气泡：从选框右上角冒出，气泡内只画三条不等长短横代表「一句话」 -->
+    <path d="M210 76 H300 A14 14 0 0 1 314 90 V132 A14 14 0 0 1 300 146 H248 L214 178 L222 146
+             H210 A14 14 0 0 1 196 132 V90 A14 14 0 0 1 210 76 Z"
+          fill="var(--color-bg, none)" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+    <g fill="currentColor" fill-opacity=".42">
+      <rect x="212" y="96" width="60" height="3.5" rx="1.75"/>
+      <rect x="212" y="110" width="42" height="3.5" rx="1.75"/>
+      <rect x="212" y="124" width="52" height="3.5" rx="1.75"/>
+    </g>
+    <text x="0" y="440" font-family="'Plus Jakarta Sans','PingFang SC',sans-serif" font-size="14"
+          fill="var(--color-text-secondary, currentColor)">用一句话说清要什么</text>
+  </g>
+
+  <!-- ③ 挑结果，放进画布 -->
+  <g transform="translate(816 96)">
+    <text x="0" y="16" font-family="ui-monospace,'JetBrains Mono',Menlo,monospace" font-size="12"
+          letter-spacing="1" fill="var(--color-text-tertiary, currentColor)">03</text>
+    <!-- 完成晕：照片外一圈陶土浅底（变量缺失时退化为极浅暖调，不写成十六进制） -->
+    <rect x="66" y="112" width="204" height="174" rx="16"
+          fill="var(--color-brand-subtle, rgba(181,80,44,.14))"/>
+    <!-- 与 01 完全相同的一张图：只有「框内底」从 canvas 变成 mat，靠框变实线 + 底变白表达「已改」 -->
+    <rect x="78" y="124" width="180" height="150" rx="3"
+          fill="var(--color-mat, none)" stroke="currentColor" stroke-opacity=".22" stroke-width="1.5"/>
+    <rect x="84" y="130" width="168" height="138" rx="2"
+          fill="var(--color-mat, none)" stroke="currentColor" stroke-width="2"/>
+    <g stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-opacity=".55">
+      <circle cx="118" cy="162" r="11"/>
+      <path d="M84 250 C 112 214, 146 244, 176 220 S 226 240, 252 212"/>
+    </g>
+    <rect x="108" y="160" width="104" height="84" rx="2"
+          stroke="var(--color-select, currentColor)" stroke-width="2"/>
+    <text x="0" y="440" font-family="'Plus Jakarta Sans','PingFang SC',sans-serif" font-size="14"
+          fill="var(--color-text-secondary, currentColor)">挑结果，放进画布</text>
+  </g>
+</svg>

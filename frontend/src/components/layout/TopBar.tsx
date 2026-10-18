@@ -1,38 +1,99 @@
-import { Link } from '@tanstack/react-router'
-import { Sparkles } from 'lucide-react'
+import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
+import { FolderOpen, Images, LayoutGrid, ListChecks, Settings, Wallet } from 'lucide-react'
 import { useCanvasStore } from '@/stores/canvas'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { QuotaBadge } from './QuotaBadge'
 import { NotificationBell } from './NotificationBell'
-import { LocaleToggle } from './LocaleToggle'
-import { ThemeToggle } from './ThemeToggle'
 import { UserMenu } from './UserMenu'
 
-/** 全局顶栏：Logo + 项目名 | 额度 · 通知 · 语言 · 主题 · 头像。 */
+const NAV = [
+  { to: '/workspace', key: 'workspace', icon: LayoutGrid },
+  { to: '/projects', key: 'projects', icon: FolderOpen },
+  { to: '/assets', key: 'assets', icon: Images },
+  { to: '/tasks', key: 'tasks', icon: ListChecks },
+] as const
+
+const ACCOUNT = [
+  { to: '/usage', key: 'usage', icon: Wallet },
+  { to: '/settings', key: 'settings', icon: Settings },
+] as const
+
+/**
+ * 顶部通栏。
+ *
+ * 工作区（`/workspace`）里**整条不渲染**：那里 48px 高度要留给画布，
+ * 身份区（工作室名 / 消息 / 额度 / 账号）改由左栏左上角承担，
+ * 导航从左侧栏与头像菜单进入。
+ *
+ * 其它页面（项目 / 素材 / 任务 / 用量…）仍是列表型页面，需要一条明确的
+ * 返回与切换入口，所以保留这条轻量顶栏。
+ */
 export function TopBar() {
   const { t } = useTranslation('common')
+  const navigate = useNavigate()
   const canvasName = useCanvasStore((s) => s.canvas?.name)
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+
+  if (pathname.startsWith('/workspace')) return null
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-surface px-4">
-      <div className="flex min-w-0 items-center gap-3">
-        <Link to="/workspace" className="flex items-center gap-2 text-text">
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-brand text-text-inverse">
-            <Sparkles size={16} />
-          </span>
-          <span className="text-md font-semibold">{t('app_name')}</span>
+    <header className="mx-2.5 mt-2.5 flex h-11 shrink-0 items-center justify-between gap-3 rounded-[14px] border border-border/60 bg-surface/70 px-2 shadow-sheet backdrop-blur-md">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={t('nav.workspace')}
+              className="flex h-7 w-7 items-center justify-center rounded-[8px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+            >
+              <LayoutGrid size={15} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-48">
+            {NAV.map((item) => {
+              const Icon = item.icon
+              return (
+                <DropdownMenuItem key={item.to} onClick={() => navigate({ to: item.to })}>
+                  <Icon size={15} /> {t(`nav.${item.key}`)}
+                </DropdownMenuItem>
+              )
+            })}
+            <DropdownMenuSeparator />
+            {ACCOUNT.map((item) => {
+              const Icon = item.icon
+              return (
+                <DropdownMenuItem key={item.to} onClick={() => navigate({ to: item.to })}>
+                  <Icon size={15} /> {t(`nav.${item.key}`)}
+                </DropdownMenuItem>
+              )
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <Link to="/workspace" className="flex shrink-0 items-center gap-2 text-text">
+          <span aria-hidden className="cs-logo-mark h-5 w-5" />
+          <span className="text-ui font-semibold leading-none tracking-[-0.01em]">我的工作室</span>
         </Link>
         {canvasName && (
-          <span className="hidden max-w-[240px] truncate border-l border-border pl-3 text-sm text-text-secondary sm:inline">
-            {canvasName}
-          </span>
+          <>
+            <span className="mx-1 hidden h-4 w-px bg-border sm:block" />
+            <span className="hidden max-w-[240px] truncate text-caption text-text-tertiary sm:inline">
+              {canvasName}
+            </span>
+          </>
         )}
       </div>
-      <div className="flex items-center gap-1">
+
+      <div className="flex shrink-0 items-center gap-1">
         <QuotaBadge />
         <NotificationBell />
-        <LocaleToggle />
-        <ThemeToggle />
         <UserMenu />
       </div>
     </header>

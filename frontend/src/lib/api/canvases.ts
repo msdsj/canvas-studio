@@ -14,4 +14,40 @@ export const canvasesApi = {
     api.get<{ id: string; name: string; state: CanvasState; thumbnail_url?: string }>(
       `/share/${token}`
     ),
+
+  // ---- 对话分享：整段对话（消息 + 提示词 + 画布快照）----
+  shareSession: (sessionId: string) =>
+    api.post<{ share_token: string; url: string }>(`/chat/sessions/${sessionId}/share`),
+  unshareSession: (sessionId: string) => api.del<unknown>(`/chat/sessions/${sessionId}/share`),
+  /** 会话分享状态：刷新后仍能显示链接与「关闭分享」 */
+  getSessionShare: (sessionId: string) =>
+    api.get<{ shared: boolean; url: string }>(`/chat/sessions/${sessionId}/share`),
+  getSharedChat: (token: string) =>
+    api.get<SharedChat>(`/share/chat/${token}`),
+  /** 「基于它继续创作」：复制一份到我的账号下 */
+  forkSharedChat: (token: string) =>
+    api.post<{ session_id: string; canvas_id: string | null }>(`/share/chat/${token}/fork`),
+}
+
+/** 分享出去的对话视图（公开只读）。 */
+export interface SharedChatMessage {
+  id: string
+  role: string
+  content: string
+  attachments: unknown[]
+  created_at?: string | null
+}
+
+export interface SharedChat {
+  session_id: string
+  title: string
+  updated_at?: string | null
+  messages: SharedChatMessage[]
+  canvas: {
+    id: string
+    name: string
+    state: CanvasState
+    thumbnail_url?: string
+    updated_at?: string | null
+  } | null
 }

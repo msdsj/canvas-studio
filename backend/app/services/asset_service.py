@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.asset import Asset
+from app.models.user import User
 from app.services import storage_service
 from app.utils.errors import AppError, ErrorCode
 from app.utils.ids import new_id, utcnow
@@ -144,3 +145,24 @@ def local_path_from_url(url: str) -> str | None:
     if not url.startswith(base):
         return None
     return url[len(base):].lstrip("/")
+
+
+async def delete_assets(db: AsyncSession, user: User, asset_ids: list[str]) -> int:
+    """批量软删资产，返回实际删除条数（越权 id 会被静默跳过）。"""
+    ids = [item for item in dict.fromkeys(asset_ids) if item]
+    if not ids:
+        return 0
+    rows = (
+        await db.execute(
+            select(Asset).where(
+                Asset.id.in_(ids),
+                Asset.owner_id == user.id,
+                Asset.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    now = utcnow()
+    for row in rows:
+        row.deleted_at = now
+    await db.flush()
+    return len(rows)
