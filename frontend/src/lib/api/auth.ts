@@ -10,20 +10,15 @@ export interface LoginResult {
 export interface RegisterPayload {
   email: string
   password: string
-  display_name?: string
-  invite_code?: string
 }
 
-export interface RegisterResult {
-  user_id: string
-  email: string
-  status: string
-}
+/** 注册响应与登录一致：直接带回可用登录态（注册即登录，无邮箱确认环节）。 */
+export type RegisterResult = LoginResult
 
 export const authApi = {
   register: (payload: RegisterPayload) => api.post<RegisterResult>('/auth/register', payload),
+  /** 兼容历史确认链接落地页（后台代发确认邮件的账号仍可用）。 */
   verifyEmail: (token: string) => api.post<{ status: string }>('/auth/verify-email', { token }),
-  resendVerification: (email: string) => api.post<unknown>('/auth/resend-verification', { email }),
   login: async (email: string, password: string) => {
     const result = await api.post<LoginResult>('/auth/login', { email, password })
     setToken(result.access_token)

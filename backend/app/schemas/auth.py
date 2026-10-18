@@ -7,20 +7,19 @@ from app.schemas.user import UserOut
 
 
 class RegisterRequest(BaseModel):
-    """注册请求。"""
+    """注册请求（仅邮箱 + 密码，注册即登录，无需邮箱确认）。"""
 
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     display_name: str | None = Field(default=None, max_length=128)
-    invite_code: str | None = Field(default=None, max_length=64)
 
 
 class RegisterResponse(BaseModel):
-    """注册响应。"""
+    """注册响应（与登录一致，直接带回可用的登录态）。"""
 
-    user_id: str
-    email: str
-    status: str
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
 
 
 class VerifyEmailRequest(BaseModel):

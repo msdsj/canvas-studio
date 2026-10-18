@@ -19,34 +19,66 @@ async def _latest_token(token_type: str) -> str:
         return result.scalars().first()
 
 
-async def test_register_pending_then_verify(client):
-    """注册后为 pending，确认后为 active。"""
+async def _seed_pending_user(email: str, password: str = "Passw0rd123") -> None:
+    """直接建一个 `pending_verification` 账号并发 verify 令牌。
+
+    注册流程已不再产生这类账号，但仍可能由历史数据 / 后台代建产生，
+    「未确认禁止登录 + 确认后可登录」这条兜底路径需要保留覆盖。
+    """
+    from datetime import timedelta
+
+    from app.models.user import User
+    from app.security import hash_password
+    from app.utils.ids import new_id, utcnow
+
+    async with AsyncSessionLocal() as session:
+        user = User(
+            id=new_id(),
+            email=email,
+            password_hash=hash_password(password),
+            role="user",
+            status="pending_verification",
+            display_name=email.split("@")[0],
+        )
+        session.add(user)
+        await session.flush()
+        session.add(
+            EmailToken(
+                id=new_id(),
+                user_id=user.id,
+                token=new_id().replace("-", ""),
+                type="verify",
+                expires_at=utcnow() + timedelta(hours=24),
+            )
+        )
+        await session.commit()
+
+
+async def test_register_returns_login_token(client):
+    """注册即登录：直接返回 access_token，账号 active 且邮箱已标记确认。"""
     resp = await client.post(
         "/api/auth/register", json={"email": "a@example.com", "password": "Passw0rd123"}
     )
     assert resp.status_code == 200
-    assert resp.json()["data"]["status"] == "pending_verification"
+    data = resp.json()["data"]
+    assert data["access_token"]
+    assert data["user"]["status"] == "active"
+    assert data["user"]["role"] == "user"
+    assert data["user"]["email_verified_at"] is not None
 
-    token = await _latest_token("verify")
-    assert token
+    me = await client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {data['access_token']}"}
+    )
+    assert me.status_code == 200
+    assert me.json()["data"]["email"] == "a@example.com"
 
-    resp = await client.post("/api/auth/verify-email", json={"token": token})
-    assert resp.status_code == 200
-    assert resp.json()["data"]["status"] == "active"
 
-
-async def test_verify_grants_initial_balance(client):
-    """邮箱确认后发放初始额度 200。"""
-    await client.post(
+async def test_register_grants_initial_balance(client):
+    """注册即发放初始额度 200（不再需要邮箱确认这一步）。"""
+    resp = await client.post(
         "/api/auth/register", json={"email": "b@example.com", "password": "Passw0rd123"}
     )
-    token = await _latest_token("verify")
-    await client.post("/api/auth/verify-email", json={"token": token})
-
-    login = await client.post(
-        "/api/auth/login", json={"email": "b@example.com", "password": "Passw0rd123"}
-    )
-    headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
+    headers = {"Authorization": f"Bearer {resp.json()['data']['access_token']}"}
     quota = await client.get("/api/me/quota", headers=headers)
     assert quota.json()["data"]["balance"] == 200
 
@@ -69,16 +101,25 @@ async def test_login_wrong_password(client):
     assert resp.json()["code"] == "UNAUTHORIZED"
 
 
-async def test_login_before_verify_forbidden(client):
-    """未确认邮箱禁止登录。"""
-    await client.post(
-        "/api/auth/register", json={"email": "e@example.com", "password": "Passw0rd123"}
-    )
+async def test_legacy_pending_user_blocked_until_verified(client):
+    """历史 pending 账号禁止登录；确认邮箱后才可登录（保留兜底路径）。"""
+    await _seed_pending_user("e@example.com")
     resp = await client.post(
         "/api/auth/login", json={"email": "e@example.com", "password": "Passw0rd123"}
     )
     assert resp.status_code == 403
     assert resp.json()["code"] == "FORBIDDEN"
+
+    token = await _latest_token("verify")
+    assert token
+    assert (
+        await client.post("/api/auth/verify-email", json={"token": token})
+    ).status_code == 200
+
+    resp = await client.post(
+        "/api/auth/login", json={"email": "e@example.com", "password": "Passw0rd123"}
+    )
+    assert resp.status_code == 200
 
 
 async def test_forgot_and_reset_password(client):
@@ -100,18 +141,15 @@ async def test_forgot_and_reset_password(client):
 
 
 async def test_resend_verification_rate_limited(client):
-    """注册后 60s 内重发被限流；超窗后允许重发。"""
+    """60s 内重发被限流；超窗后允许重发。"""
     from datetime import timedelta
 
     from sqlalchemy import update
 
-    from app.models.email_token import EmailToken
     from app.utils.ids import utcnow
 
-    await client.post(
-        "/api/auth/register", json={"email": "g@example.com", "password": "Passw0rd123"}
-    )
-    # 注册本身已发送一封，60s 内重发应被限流
+    await _seed_pending_user("g@example.com")
+    # 刚建号就已发过一封，60s 内重发应被限流
     blocked = await client.post("/api/auth/resend-verification", json={"email": "g@example.com"})
     assert blocked.status_code == 429
     assert blocked.json()["code"] == "RATE_LIMITED"

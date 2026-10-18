@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from app.schemas.common import ORMModel
 
@@ -35,6 +35,15 @@ class BanRequest(BaseModel):
     """封禁请求。"""
 
     reason: str = Field(default="", max_length=255)
+
+
+class AdminUserCreateRequest(BaseModel):
+    """后台新建用户请求（默认创建可直接登录的普通用户）。"""
+
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str | None = Field(default=None, max_length=128)
+    role: str = Field(default="user")
 
 
 class QuotaAdjustResult(BaseModel):

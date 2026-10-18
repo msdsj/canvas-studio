@@ -35,7 +35,19 @@
     "reset_result": "临时密码：{{password}}",
     "empty": "没有匹配的用户",
     "role_all": "全部角色",
-    "status_all": "全部状态"
+    "status_all": "全部状态",
+    "create": "新建用户"
+  },
+  "create_user_dialog": {
+    "title": "新建用户",
+    "email": "邮箱",
+    "password": "初始密码",
+    "role": "角色",
+    "success": "用户已创建",
+    "email_invalid": "请填写合法的邮箱地址",
+    "password_weak": "密码至少 8 位",
+    "email_required": "请填写邮箱",
+    "password_required": "请填写初始密码"
   },
   "quota_dialog": {
     "title": "分配额度",

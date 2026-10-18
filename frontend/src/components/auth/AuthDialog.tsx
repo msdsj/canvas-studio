@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { ArrowRight, Check, Loader2, MailCheck, Sparkles, X } from 'lucide-react'
+import { ArrowRight, Check, Loader2, Sparkles, X } from 'lucide-react'
 import gsap from 'gsap'
 import { Input } from '@/components/ui/input'
 import { FormField } from '@/components/ui/form-field'
@@ -12,6 +12,9 @@ import { useUIStore } from '@/stores/ui'
 import { useToast } from '@/hooks/use-toast'
 import { prefersReducedMotion } from '@/lib/motion'
 import { cn } from '@/lib/utils'
+
+/** 邮箱格式校验：本地先拦一次，避免把明显非法的输入发到后端再吃 422。 */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /**
  * 全站唯一的登录入口（弹窗，不是页面）。
@@ -35,24 +38,18 @@ export function AuthDialog() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
-  const [displayName, setDisplayName] = useState('')
-  const [inviteCode, setInviteCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [sent, setSent] = useState<string | null>(null)
-  const [countdown, setCountdown] = useState(0)
 
   const panelRef = useRef<HTMLDivElement>(null)
   const formRef = useRef<HTMLDivElement>(null)
 
   const isRegister = mode === 'register'
 
-  // 每次打开都清掉上一次的报错与「已发送」态：不要把上一个用户的中间状态带进来
+  // 每次打开都清掉上一次的报错与密码：不要把上一个用户的中间状态带进来
   useEffect(() => {
     if (!open) return
     setError('')
-    setSent(null)
-    setCountdown(0)
     setPassword('')
     setConfirm('')
   }, [open, mode])
@@ -78,55 +75,35 @@ export function AuthDialog() {
       }
     })
     return () => ctx.revert()
-  }, [open, mode, sent])
-
-  useEffect(() => {
-    if (countdown <= 0) return
-    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000)
-    return () => clearTimeout(timer)
-  }, [countdown])
+  }, [open, mode])
 
   const submit = async () => {
     setError('')
-    if (!email.trim()) return setError(t('validation.email_required'))
+    const mail = email.trim()
+    if (!mail) return setError(t('validation.email_required'))
+    if (!EMAIL_RE.test(mail)) return setError(t('validation.email_invalid'))
     if (!password) return setError(t('validation.password_required'))
     if (isRegister) {
-      if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password))
-        return setError(t('validation.password_weak'))
+      if (password.length < 8) return setError(t('validation.password_weak'))
       if (password !== confirm) return setError(t('validation.password_mismatch'))
     }
     setLoading(true)
     try {
       if (!isRegister) {
-        const result = await authApi.login(email.trim(), password)
+        const result = await authApi.login(mail, password)
         setSession(result.access_token, result.user)
         toast.success('欢迎回来', result.user.display_name || result.user.email)
-        closeAuth()
       } else {
-        await authApi.register({
-          email: email.trim(),
-          password,
-          display_name: displayName || undefined,
-          invite_code: inviteCode || undefined,
-        })
-        setSent(email.trim())
-        setCountdown(60)
+        // 注册即登录：后端直接激活账号并签发 JWT，无需再走邮箱确认
+        const result = await authApi.register({ email: mail, password })
+        setSession(result.access_token, result.user)
+        toast.success('账号已创建', '已为你登录，可以直接开始创作')
       }
+      closeAuth()
     } catch (err) {
       setError(errorMessage(err, te))
     } finally {
       setLoading(false)
-    }
-  }
-
-  const resend = async () => {
-    if (!sent) return
-    try {
-      await authApi.resendVerification(sent)
-      setCountdown(60)
-      toast.success(t('verify.resend_success'))
-    } catch (err) {
-      setError(errorMessage(err, te))
     }
   }
 
@@ -198,42 +175,7 @@ export function AuthDialog() {
 
             {/* 右：表单 */}
             <div ref={formRef} className="relative px-6 py-8 sm:px-9 sm:py-10">
-              {sent ? (
-                <div className="flex flex-col items-start gap-4">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-[14px] bg-accent-soft text-accent-ink">
-                    <MailCheck size={22} />
-                  </span>
-                  <div>
-                    <h2 className="text-h3 font-semibold tracking-[-0.01em] text-text">
-                      {t('verify.title')}
-                    </h2>
-                    <p className="mt-1.5 text-caption leading-relaxed text-text-secondary">
-                      {t('verify.desc', { email: sent })}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={countdown > 0}
-                      onClick={() => void resend()}
-                      className="inline-flex h-9 items-center rounded-full border border-border-strong px-4 text-caption font-medium text-text transition-colors hover:bg-surface-hover disabled:opacity-45"
-                    >
-                      {countdown > 0 ? t('verify.resend_in', { seconds: countdown }) : t('verify.resend')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSent(null)
-                        openAuth('login')
-                      }}
-                      className="inline-flex h-9 items-center gap-1.5 rounded-full bg-brand px-4 text-caption font-medium text-text-inverse transition-[filter] hover:brightness-110"
-                    >
-                      {t('verify.done')} <ArrowRight size={13} />
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
+              <>
                   <div className="mb-6">
                     <h2 className="font-display text-[30px] leading-tight tracking-[-0.02em] text-text">
                       {isRegister ? '创建账号' : '欢迎回来'}
@@ -279,19 +221,6 @@ export function AuthDialog() {
                       </FormField>
                     </div>
 
-                    {isRegister && (
-                      <div data-auth-field>
-                        <FormField label={t('login.display_name')} htmlFor="auth-name">
-                          <Input
-                            id="auth-name"
-                            value={displayName}
-                            placeholder="怎么称呼你"
-                            onChange={(e) => setDisplayName(e.target.value)}
-                          />
-                        </FormField>
-                      </div>
-                    )}
-
                     <div data-auth-field>
                       <FormField label={t('login.password')} required htmlFor="auth-password">
                         <Input
@@ -299,38 +228,31 @@ export function AuthDialog() {
                           type="password"
                           value={password}
                           autoComplete={isRegister ? 'new-password' : 'current-password'}
-                          placeholder={isRegister ? '至少 8 位，含字母与数字' : '••••••••'}
+                          placeholder={isRegister ? '至少 8 位' : '••••••••'}
                           onChange={(e) => setPassword(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !isRegister) void submit()
+                            if (e.key === 'Enter') void submit()
                           }}
                         />
                       </FormField>
                     </div>
 
                     {isRegister && (
-                      <>
-                        <div data-auth-field>
-                          <FormField label={t('login.confirm_password')} required htmlFor="auth-confirm">
-                            <Input
-                              id="auth-confirm"
-                              type="password"
-                              value={confirm}
-                              autoComplete="new-password"
-                              onChange={(e) => setConfirm(e.target.value)}
-                            />
-                          </FormField>
-                        </div>
-                        <div data-auth-field>
-                          <FormField label={t('login.invite_code')} htmlFor="auth-invite">
-                            <Input
-                              id="auth-invite"
-                              value={inviteCode}
-                              onChange={(e) => setInviteCode(e.target.value)}
-                            />
-                          </FormField>
-                        </div>
-                      </>
+                      <div data-auth-field>
+                        <FormField label={t('login.confirm_password')} required htmlFor="auth-confirm">
+                          <Input
+                            id="auth-confirm"
+                            type="password"
+                            value={confirm}
+                            autoComplete="new-password"
+                            placeholder="再输入一次密码"
+                            onChange={(e) => setConfirm(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void submit()
+                            }}
+                          />
+                        </FormField>
+                      </div>
                     )}
 
                     {error && (
@@ -377,8 +299,7 @@ export function AuthDialog() {
                       </button>
                     </div>
                   </div>
-                </>
-              )}
+              </>
             </div>
           </div>
         </DialogPrimitive.Content>

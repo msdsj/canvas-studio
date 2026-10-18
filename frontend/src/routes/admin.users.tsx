@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { Search } from 'lucide-react'
+import { Search, UserPlus } from 'lucide-react'
 import { AdminShell } from '@/components/layout/AdminShell'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { Pagination } from '@/components/ui/pagination'
 import {
   Select,
@@ -14,6 +15,7 @@ import {
 } from '@/components/ui/select'
 import { UserTable } from '@/components/admin/UserTable'
 import { QuotaAssignDialog } from '@/components/admin/QuotaAssignDialog'
+import { CreateUserDialog } from '@/components/admin/CreateUserDialog'
 import { adminApi } from '@/lib/api/admin'
 import { useToast } from '@/hooks/use-toast'
 import { errorMessage } from '@/lib/errors'
@@ -39,6 +41,7 @@ function AdminUsersPage() {
   const [loading, setLoading] = useState(true)
   const [quotaTarget, setQuotaTarget] = useState<AdminUser | null>(null)
   const [banTarget, setBanTarget] = useState<AdminUser | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -112,6 +115,10 @@ function AdminUsersPage() {
             <SelectItem value="banned">banned</SelectItem>
           </SelectContent>
         </Select>
+        <Button className="ml-auto" onClick={() => setCreateOpen(true)}>
+          <UserPlus size={15} />
+          {t('users.create')}
+        </Button>
       </div>
 
       <UserTable
@@ -145,6 +152,20 @@ function AdminUsersPage() {
           try {
             await adminApi.adjustQuota(quotaTarget.id, payload)
             toast.success(t('quota_dialog.success'))
+            void load()
+          } catch (error) {
+            toast.error(errorMessage(error, te))
+          }
+        }}
+      />
+
+      <CreateUserDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onSubmit={async (payload) => {
+          try {
+            await adminApi.createUser(payload)
+            toast.success(t('create_user_dialog.success'), payload.email)
             void load()
           } catch (error) {
             toast.error(errorMessage(error, te))

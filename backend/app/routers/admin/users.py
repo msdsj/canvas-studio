@@ -10,7 +10,7 @@ from app.deps import require_admin
 from app.models.email_token import EmailToken
 from app.models.quota import QuotaTransaction
 from app.models.user import User
-from app.schemas.admin import AdminUserOut, BanRequest
+from app.schemas.admin import AdminUserCreateRequest, AdminUserOut, BanRequest
 from app.schemas.quota import AdminQuotaAdjustRequest, QuotaTransactionOut
 from app.security import generate_token, hash_password
 from app.services import audit_service, email_service, quota_service
@@ -67,6 +67,47 @@ async def list_users(
     )
     items = [AdminUserOut.model_validate(u).model_dump() for u in result.scalars().all()]
     return envelope(paginated(items, total, page, size))
+
+
+@router.post("")
+async def create_user(
+    payload: AdminUserCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict:
+    """后台新建用户（默认普通用户，直接 active 并发放初始额度）。"""
+    email = payload.email.strip().lower()
+    existing = await db.execute(select(User).where(User.email == email))
+    if existing.scalar_one_or_none() is not None:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "该邮箱已被注册")
+
+    role = payload.role if payload.role in ("user", "pro", "admin") else "user"
+    user = User(
+        id=new_id(),
+        email=email,
+        password_hash=hash_password(payload.password),
+        role=role,
+        status="active",
+        display_name=payload.display_name or email.split("@")[0],
+        email_verified_at=utcnow(),
+    )
+    db.add(user)
+    await db.flush()
+
+    if settings.initial_grant > 0:
+        await quota_service.grant(db, user.id, settings.initial_grant, note="管理员创建用户初始赠送")
+
+    await audit_service.log(
+        db,
+        action="user_create",
+        actor=admin,
+        target_type="user",
+        target_id=user.id,
+        detail={"email": email, "role": role},
+    )
+    await db.commit()
+    await db.refresh(user)
+    return envelope(AdminUserOut.model_validate(user).model_dump())
 
 
 @router.get("/{user_id}")

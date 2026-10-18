@@ -46,41 +46,24 @@ async def db():
 async def register_and_activate(
     client, email: str, password: str = "Passw0rd123", role: str = "pro"
 ) -> str:
-    """辅助：注册 → 确认 → 登录，返回 access_token。
+    """辅助：注册 → 按需提权 → 登录，返回 access_token。
+
+    注册流程已简化为「注册即激活并直接签发 JWT」，不再有邮箱确认环节，
+    所以这里不再需要读 verify token 去调 verify-email。
 
     默认把账号设为 `pro`：本平台的画布 / 抠图 / AI 对话 / 润色 / 图生图 属 Pro 能力，
     功能用例需要在「已解锁」的前提下验证行为；要验证普通用户受限，显式传 `role="user"`。
     """
     from sqlalchemy import select
 
-    from app.models.email_token import EmailToken
     from app.models.user import User
 
     resp = await client.post("/api/auth/register", json={"email": email, "password": password})
     assert resp.status_code == 200, resp.text
-    async with AsyncSessionLocal() as session:
-        user_id = (
-            await session.execute(select(User.id).where(User.email == email))
-        ).scalar_one()
-        token = (
-            await session.execute(
-                select(EmailToken.token)
-                .where(
-                    EmailToken.user_id == user_id,
-                    EmailToken.type == "verify",
-                    EmailToken.used_at.is_(None),
-                )
-                .order_by(EmailToken.created_at.desc())
-            )
-        ).scalars().first()
-    resp = await client.post("/api/auth/verify-email", json={"token": token})
-    assert resp.status_code == 200, resp.text
     if role != "user":
-        from app.models.user import User as _User
-
         async with AsyncSessionLocal() as session:
             row = (
-                await session.execute(select(_User).where(_User.id == user_id))
+                await session.execute(select(User).where(User.email == email))
             ).scalar_one()
             row.role = role
             await session.commit()

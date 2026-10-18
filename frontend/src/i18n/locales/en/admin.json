@@ -35,7 +35,19 @@
     "reset_result": "Temporary password: {{password}}",
     "empty": "No matching users",
     "role_all": "All roles",
-    "status_all": "All statuses"
+    "status_all": "All statuses",
+    "create": "New user"
+  },
+  "create_user_dialog": {
+    "title": "New user",
+    "email": "Email",
+    "password": "Initial password",
+    "role": "Role",
+    "success": "User created",
+    "email_invalid": "Enter a valid email address",
+    "password_weak": "Password must be at least 8 characters",
+    "email_required": "Email is required",
+    "password_required": "Initial password is required"
   },
   "quota_dialog": {
     "title": "Adjust credits",

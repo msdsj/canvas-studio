@@ -16,6 +16,7 @@ from app.schemas.auth import (
     VerifyEmailRequest,
 )
 from app.schemas.user import UserOut
+from app.security import create_access_token
 from app.services import auth_service
 from app.utils.errors import envelope
 
@@ -24,15 +25,21 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/register")
 async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db)) -> dict:
-    """注册账号并发送确认邮件。"""
+    """注册账号：直接激活并签发 JWT（不再需要邮箱确认，注册即登录）。"""
     user = await auth_service.register(
         db,
         email=payload.email,
         password=payload.password,
         display_name=payload.display_name,
-        invite_code=payload.invite_code,
     )
-    return envelope({"user_id": user.id, "email": user.email, "status": user.status})
+    token = create_access_token(user.id, user.role, user.token_version)
+    return envelope(
+        {
+            "access_token": token,
+            "token_type": "bearer",
+            "user": UserOut.model_validate(user).model_dump(),
+        }
+    )
 
 
 @router.post("/verify-email")

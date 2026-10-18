@@ -15,7 +15,7 @@ from app.security import (
     hash_password,
     verify_password,
 )
-from app.services import email_service, invite_service, quota_service
+from app.services import email_service, quota_service
 from app.utils.errors import AppError, ErrorCode
 from app.utils.ids import new_id, utcnow
 
@@ -50,9 +50,12 @@ async def register(
     email: str,
     password: str,
     display_name: str | None = None,
-    invite_code: str | None = None,
 ) -> User:
-    """注册用户（状态 pending_verification）并发确认邮件。"""
+    """注册用户：直接创建为 active 并发放初始额度（注册流程不再需要邮箱确认）。
+
+    历史实现创建 `pending_verification` 账号并寄送确认邮件，用户在此阶段无法登录，
+    等于「注册完也用不了」。现在注册即完成激活，由路由层直接签发 JWT 自动登录。
+    """
     from app.services import config_service
 
     email = _normalize_email(email)
@@ -63,23 +66,24 @@ async def register(
     if existing.scalar_one_or_none() is not None:
         raise AppError(ErrorCode.VALIDATION_ERROR, "该邮箱已被注册")
 
-    if invite_code:
-        await invite_service.consume_code(db, invite_code)
-
     user = User(
         id=new_id(),
         email=email,
         password_hash=hash_password(password),
         role="user",
-        status="pending_verification",
+        status="active",
         display_name=display_name or email.split("@")[0],
+        email_verified_at=utcnow(),
     )
     db.add(user)
     await db.flush()
 
-    token = await _create_token(db, user.id, "verify", settings.verify_token_ttl_hours)
+    initial = int(await config_service.get_value(db, "INITIAL_GRANT", settings.initial_grant))
+    if initial > 0:
+        await quota_service.grant(db, user.id, initial, note="新用户初始赠送")
+
     await db.commit()
-    await email_service.send_verify_email(email, token)
+    await db.refresh(user)
     return user
 
 

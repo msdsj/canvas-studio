@@ -1,14 +1,16 @@
 """QA 独立测试 · 认证与权限（HTTP API 契约层）。
 
 对照 PRD 验收标准：
-- P0-01 邮箱注册（格式/密码强度校验）
-- P0-02 邮箱二次确认（pending 不可登录 → active 可登录；token 一次性）
+- P0-01 邮箱注册（格式/密码强度校验、重复邮箱拦截、注册即登录）
+- P0-02 邮箱二次确认（历史 pending 不可登录 → active 可登录；token 一次性）
 - P0-03 确认链接时效与重发限流
-- P0-04 登录（错误凭据通用提示、未确认拦截）
+- P0-04 登录（错误凭据通用提示）
 - P0-05 忘记密码/重置（旧密码失效）
 - P0-06 权限模型（普通用户访问 /api/admin/* → 403；管理员可访问）
 
-说明：本文件由 QA 独立编写，使用内存 ASGI 客户端做黑盒契约验证，
+说明：注册流程已简化为「邮箱 + 密码 + 确认密码 → 直接激活并签发 JWT」，
+不再有邮箱确认环节；未确认拦截 / 重发限流等用例改为直接落库造 pending 账号。
+本文件由 QA 独立编写，使用内存 ASGI 客户端做黑盒契约验证，
 不依赖工程师既有用例的断言。
 """
 from __future__ import annotations
@@ -41,6 +43,40 @@ async def _user_id(email: str) -> str:
         return (
             await session.execute(select(User.id).where(User.email == email))
         ).scalar_one()
+
+
+async def _seed_pending(email: str, password: str = "Passw0rd123") -> None:
+    """直接建一个 `pending_verification` 账号并发 verify 令牌。
+
+    注册流程已简化为「注册即激活」，此处用于覆盖仍然保留的
+    未确认拦截 / token 一次性 / 过期 / 重发限流等兜底路径。
+    """
+    from datetime import timedelta
+
+    from app.security import hash_password
+    from app.utils.ids import new_id
+
+    async with AsyncSessionLocal() as session:
+        user = User(
+            id=new_id(),
+            email=email,
+            password_hash=hash_password(password),
+            role="user",
+            status="pending_verification",
+            display_name=email.split("@")[0],
+        )
+        session.add(user)
+        await session.flush()
+        session.add(
+            EmailToken(
+                id=new_id(),
+                user_id=user.id,
+                token=new_id().replace("-", ""),
+                type="verify",
+                expires_at=utcnow() + timedelta(hours=24),
+            )
+        )
+        await session.commit()
 
 
 async def _admin_headers(client) -> dict[str, str]:
@@ -85,11 +121,10 @@ async def test_qa_register_duplicate_email_rejected(client):
 
 async def test_qa_register_normalizes_email_case(client):
     """邮箱大小写归一：大写注册、小写登录视为同账号（§5.1）。"""
-    await client.post(
+    reg = await client.post(
         "/api/auth/register", json={"email": "CaseTest@Example.com", "password": "Passw0rd123"}
     )
-    token = await _latest_token("verify")
-    await client.post("/api/auth/verify-email", json={"token": token})
+    assert reg.status_code == 200
     login = await client.post(
         "/api/auth/login", json={"email": "casetest@example.com", "password": "Passw0rd123"}
     )
@@ -97,14 +132,12 @@ async def test_qa_register_normalizes_email_case(client):
 
 
 # --------------------------------------------------------------------------
-# P0-02 / P0-04 邮箱确认与登录
+# P0-02 / P0-04 邮箱确认（历史遗留账号兜底）与登录
 # --------------------------------------------------------------------------
 async def test_qa_pending_cannot_login_then_active_can(client):
     """未确认不可登录（403）；确认后可登录（P0-02 / P0-04）。"""
     email = "pending@example.com"
-    reg = await client.post("/api/auth/register", json={"email": email, "password": "Passw0rd123"})
-    assert reg.status_code == 200
-    assert reg.json()["data"]["status"] == "pending_verification"
+    await _seed_pending(email)
 
     blocked = await client.post(
         "/api/auth/login", json={"email": email, "password": "Passw0rd123"}
@@ -124,9 +157,7 @@ async def test_qa_pending_cannot_login_then_active_can(client):
 
 async def test_qa_verify_token_single_use(client):
     """确认 token 一次性消费：二次使用 → 422（P0-02）。"""
-    await client.post(
-        "/api/auth/register", json={"email": "once@example.com", "password": "Passw0rd123"}
-    )
+    await _seed_pending("once@example.com")
     token = await _latest_token("verify")
     assert (await client.post("/api/auth/verify-email", json={"token": token})).status_code == 200
     reuse = await client.post("/api/auth/verify-email", json={"token": token})
@@ -147,9 +178,7 @@ async def test_qa_verify_expired_token_rejected(client):
 
     from sqlalchemy import update
 
-    await client.post(
-        "/api/auth/register", json={"email": "expired@example.com", "password": "Passw0rd123"}
-    )
+    await _seed_pending("expired@example.com")
     token = await _latest_token("verify")
     async with AsyncSessionLocal() as session:
         await session.execute(
@@ -169,8 +198,6 @@ async def test_qa_login_wrong_password_generic(client):
     await client.post(
         "/api/auth/register", json={"email": "u1@example.com", "password": "Passw0rd123"}
     )
-    token = await _latest_token("verify")
-    await client.post("/api/auth/verify-email", json={"token": token})
 
     wrong_pw = await client.post(
         "/api/auth/login", json={"email": "u1@example.com", "password": "WrongPass9"}
@@ -192,9 +219,7 @@ async def test_qa_resend_rate_limited_then_allowed(client):
 
     from sqlalchemy import update
 
-    await client.post(
-        "/api/auth/register", json={"email": "resend@example.com", "password": "Passw0rd123"}
-    )
+    await _seed_pending("resend@example.com")
     blocked = await client.post(
         "/api/auth/resend-verification", json={"email": "resend@example.com"}
     )
@@ -225,8 +250,6 @@ async def test_qa_reset_password_old_invalid(client):
     """重置密码后旧密码失效、新密码可登录（P0-05）。"""
     email = "resetme@example.com"
     await client.post("/api/auth/register", json={"email": email, "password": "Passw0rd123"})
-    verify = await _latest_token("verify")
-    await client.post("/api/auth/verify-email", json={"token": verify})
 
     await client.post("/api/auth/forgot-password", json={"email": email})
     reset = await _latest_token("reset")
@@ -250,8 +273,6 @@ async def test_qa_non_admin_forbidden_on_all_admin_endpoints(client):
     await client.post(
         "/api/auth/register", json={"email": "normal@example.com", "password": "Passw0rd123"}
     )
-    token = await _latest_token("verify")
-    await client.post("/api/auth/verify-email", json={"token": token})
     login = await client.post(
         "/api/auth/login", json={"email": "normal@example.com", "password": "Passw0rd123"}
     )
@@ -291,8 +312,6 @@ async def test_qa_banned_user_login_forbidden(client):
     """被封禁账号登录 → 403（P0-06/P0-04）。"""
     email = "banned@example.com"
     await client.post("/api/auth/register", json={"email": email, "password": "Passw0rd123"})
-    token = await _latest_token("verify")
-    await client.post("/api/auth/verify-email", json={"token": token})
     uid = await _user_id(email)
 
     admin = await _admin_headers(client)
@@ -302,3 +321,51 @@ async def test_qa_banned_user_login_forbidden(client):
     login = await client.post("/api/auth/login", json={"email": email, "password": "Passw0rd123"})
     assert login.status_code == 403
     assert login.json()["code"] == "FORBIDDEN"
+
+
+async def test_qa_admin_creates_user_can_login(client):
+    """超管新建普通用户：直接 active、可立即登录、带初始额度（P0-06）。"""
+    admin = await _admin_headers(client)
+    created = await client.post(
+        "/api/admin/users",
+        json={"email": "byadmin@example.com", "password": "Member12345"},
+        headers=admin,
+    )
+    assert created.status_code == 200, created.text
+    data = created.json()["data"]
+    assert data["role"] == "user"
+    assert data["status"] == "active"
+
+    login = await client.post(
+        "/api/auth/login", json={"email": "byadmin@example.com", "password": "Member12345"}
+    )
+    assert login.status_code == 200
+    assert login.json()["data"]["user"]["role"] == "user"
+
+
+async def test_qa_admin_create_user_duplicate_email_rejected(client):
+    """超管新建用户时重复邮箱 → 422（P0-06）。"""
+    admin = await _admin_headers(client)
+    payload = {"email": "dup-by-admin@example.com", "password": "Member12345"}
+    assert (await client.post("/api/admin/users", json=payload, headers=admin)).status_code == 200
+    second = await client.post("/api/admin/users", json=payload, headers=admin)
+    assert second.status_code == 422
+    assert second.json()["code"] == "VALIDATION_ERROR"
+
+
+async def test_qa_non_admin_cannot_create_user(client):
+    """普通用户调用后台新建用户 → 403（P0-06）。"""
+    await client.post(
+        "/api/auth/register", json={"email": "nosy@example.com", "password": "Passw0rd123"}
+    )
+    login = await client.post(
+        "/api/auth/login", json={"email": "nosy@example.com", "password": "Passw0rd123"}
+    )
+    headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
+    resp = await client.post(
+        "/api/admin/users",
+        json={"email": "hacked@example.com", "password": "Member12345"},
+        headers=headers,
+    )
+    assert resp.status_code == 403
+    assert resp.json()["code"] == "FORBIDDEN"
