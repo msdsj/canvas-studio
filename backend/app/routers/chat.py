@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, require_pro
 from app.models.skill import SkillRun
 from app.models.user import User
 from app.schemas.chat import (
@@ -46,7 +46,7 @@ async def list_sessions(
 @router.post("/sessions")
 async def create_session(
     payload: ChatSessionCreateRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """新建会话（可选同时开一张干净画布）。"""
@@ -137,7 +137,7 @@ async def batch_delete_messages(
 @router.post("/analyze")
 async def analyze(
     payload: ChatAnalyzeRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """需求分析中转站：实时吐判定步骤，必要时停下来等用户选方案。
@@ -165,7 +165,7 @@ async def analyze(
 @router.post("/compose")
 async def compose(
     payload: ChatComposeRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """纯生图全链路：需求分析 → 歧义澄清 → 方案推导 → 最终提示词 → 生图。
@@ -197,7 +197,7 @@ async def compose(
 async def confirm_run(
     run_id: str,
     payload: ChatConfirmRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """按用户选定的方案执行（服务端凭 run_id 重建任务，不信任客户端回传的计划）。
@@ -228,7 +228,7 @@ async def list_skills(user: User = Depends(get_current_user)) -> dict:
 @router.post("/messages")
 async def send_message(
     payload: ChatMessageCreateRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """发送消息 → SSE 流式回复（经网关；demo 时模拟）。"""

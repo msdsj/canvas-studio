@@ -23,6 +23,9 @@ class ProviderUpsertRequest(BaseModel):
     base_url: str = Field(default="", max_length=500)
     api_key: str = Field(default="", max_length=500)
     model: str = Field(default="", max_length=120)
+    # 备用模型链（0–3 个有序）：服务端会 strip / 去空 / 去重 / 去掉等于主模型的项 / 截断到 3。
+    # 传 None 表示「不改这一项」（PATCH 语义），传 [] 表示清空。
+    fallback_models: list[str] | None = Field(default=None, max_length=12)
     temperature: float = Field(default=0.7, ge=0, le=2)
     max_tokens: int = Field(default=2048, ge=64, le=32000)
     extra: dict[str, Any] = Field(default_factory=dict)
@@ -40,6 +43,8 @@ class ProviderOut(ORMModel):
     kind: str
     base_url: str
     model: str
+    # 备用模型链（已归一：≤3、去重、不含主模型）
+    fallback_models: list[str] = Field(default_factory=list)
     temperature: float
     max_tokens: int
     extra: dict[str, Any] = Field(default_factory=dict)
@@ -74,6 +79,12 @@ class RelayStatusOut(BaseModel):
     kind: str = ""
     reason: str = ""
     skills_count: int = 0
+    # 用户配置的备用模型原始值（已归一，≤3）
+    fallback_models: list[str] = Field(default_factory=list)
+    # 实际会遍历的链（含跨 provider 互备的第 4 个）；与 fallback_models 不同的原因见 ADR-3
+    chain_preview: list[str] = Field(default_factory=list)
+    # 跨 provider 互备候选（只给 id / name / model，不含 base_url 与 Key）
+    backup_provider: dict[str, Any] | None = None
 
 
 class PolishRequest(BaseModel):

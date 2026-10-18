@@ -30,12 +30,19 @@ from app.database import AsyncSessionLocal
 from app.models.chat import ChatMessage, ChatSession
 from app.models.skill import SkillRun
 from app.models.user import User
+from app.schemas.compose_plan import (
+    MAX_PROMPT_CHARS,
+    PLAN_SCHEMA_VERSION,
+    ComposeOption,
+)
 from app.services import (
     asset_service,
     design_skills,
     generate_service,
+    plan_validator,
     prompt_service,
     relay_service,
+    relay_types,
 )
 from app.utils.errors import AppError, ErrorCode
 from app.utils.ids import new_id, utcnow
@@ -44,8 +51,14 @@ from app.utils.logging import get_logger
 logger = get_logger("app.compose_service")
 
 SKILL_COMPOSE = "image_compose"
+# 「不做任何改写、直接用原话」的选项 id：前端据此把它渲染成兜底选项
+VERBATIM_OPTION_ID = "verbatim"
 _ALLOWED_SIZES = {"1024x1024", "1536x1024", "1024x1536"}
 _MAX_PROMPT = 3800
+#: 语义纠错总尝试次数（1 次原始 + 2 次纠错），R05 明确「最多修复 2 次」
+MAX_SEMANTIC_ATTEMPTS = 3
+#: 保留到日志里的非法输出前缀长度（R05 明确要求 200 字符）
+INVALID_HEAD_CHARS = 200
 
 STEPS: tuple[tuple[str, str], ...] = (
     ("analyze", "读懂需求"),
@@ -221,7 +234,15 @@ def _confidence(value: Any, default: float = 0.9) -> int:
 
 
 def _normalize_options(raw: Any) -> list[dict[str, Any]]:
-    """把模型给的方案收敛成前端可渲染的结构；没有 prompt 的方案直接丢弃。"""
+    """把模型给的方案收敛成前端可渲染的结构；没有 prompt 的方案直接丢弃。
+
+    顺序即推荐序：模型排在前面的是它认为最贴合的方案，前端把第一条标成「最推荐」。
+
+    契约说明：模型给的是 `size`（一期字段），契约要的是 `aspect`（R04/C1）。
+    这里按 `ASPECT_TO_SIZE` 反向映射补上 `aspect`，并用 `ComposeOption` 做一次
+    **只记日志、不改行为**的漂移检测——澄清卡丢掉一个方案，用户就少一个方向，
+    代价远大于「格式洁癖」。
+    """
     items = raw if isinstance(raw, list) else []
     options: list[dict[str, Any]] = []
     for position, item in enumerate(items[:3], start=1):
@@ -230,17 +251,77 @@ def _normalize_options(raw: Any) -> list[dict[str, Any]]:
         prompt = str(item.get("prompt") or "").strip()
         if len(prompt) < 8:
             continue
-        options.append(
-            {
-                "id": str(item.get("id") or chr(96 + position))[:8],
-                "label": str(item.get("label") or f"方案 {position}").strip()[:20],
-                "description": str(item.get("description") or "").strip()[:120],
-                "prompt": prompt[:_MAX_PROMPT],
-                "size": _normalize_size(item.get("size")),
-                "image_count": 1,
-            }
-        )
+        size = _normalize_size(item.get("size"))
+        option = {
+            "id": str(item.get("id") or chr(96 + position))[:8],
+            "label": str(item.get("label") or f"方案 {position}").strip()[:20],
+            "description": str(item.get("description") or "").strip()[:120],
+            "prompt": prompt[:_MAX_PROMPT],
+            "size": size,
+            # 契约字段（R04）：由 size 派生，保证前端两条路径拿到的比例一致
+            "aspect": plan_validator.aspect_from_size(size),
+            "image_count": 1,
+        }
+        _log_option_drift(option)
+        options.append(option)
     return options
+
+
+def _log_option_drift(option: dict[str, Any]) -> None:
+    """用契约模型做漂移检测：只记日志，不丢弃选项（R04 的可观测性）。"""
+    projected = {**option, "prompt": str(option.get("prompt") or "")[:MAX_PROMPT_CHARS]}
+    try:
+        ComposeOption.model_validate(projected)
+    except Exception as exc:  # noqa: BLE001 - 校验失败只记日志
+        logger.info("澄清方案不符合契约（保留不丢弃）：%s", str(exc)[:300])
+
+
+def _verbatim_option(text: str, size: str = "1024x1024") -> dict[str, Any]:
+    """「直接用我的原话」——永远排在选项列表最后，且永远存在。
+
+    这是整条链的兜底与用户主权：无论模型觉得这句话多含糊、多想替他改，
+    他都可以选它，系统就按原文一字不改地去画。
+    """
+    return {
+        "id": VERBATIM_OPTION_ID,
+        "label": "直接用我的原话",
+        "description": "一字不改，按你写的这句去生成",
+        "prompt": text.strip()[:_MAX_PROMPT],
+        "size": _normalize_size(size),
+        "image_count": 1,
+    }
+
+
+def _prompt_is_actionable(analysis: dict[str, Any], text: str) -> bool:
+    """判断用户原话是否已经**足够明确、可以原样开工**。
+
+    只有三个条件同时成立才认为「可以直接画」：
+    1. 模型没有列出缺失信息（`missing` 为空）；
+    2. 模型识别出了主体；
+    3. 模型自评置信度 ≥ 0.7（<0.7 表示它自己也没把握）。
+
+    不满足就走澄清流程停下来问用户，**绝不拿改写后的提示词顶替原话**。
+    """
+    if len(text.strip()) < 8:
+        return False
+    if [item for item in (analysis.get("missing") or []) if str(item).strip()]:
+        return False
+    if not str(analysis.get("subject") or "").strip():
+        return False
+    try:
+        confidence = float(analysis.get("confidence"))
+    except (TypeError, ValueError):
+        # 模型没报置信度：沿用系统其它地方一致的默认口径（0.9）
+        confidence = 0.9
+    return confidence >= 0.7
+
+
+def _last_user_text(messages: list[dict[str, Any]]) -> str:
+    """取最后一条 user 消息的正文（模板兜底时当作「用户需求」的近似）。"""
+    for item in reversed(messages):
+        if item.get("role") == "user":
+            return str(item.get("content") or "")
+    return ""
 
 
 async def _call_json(
@@ -251,39 +332,122 @@ async def _call_json(
     temperature: float = 0.4,
     max_tokens: int = 1600,
     target: relay_service.RelayTarget | None = None,
-) -> dict[str, Any]:
-    """调中转站并要求 JSON；解析失败重试一次，仍失败则如实报错。
+    schema: type | None = None,
+    stage: str = "generic",
+    shortlisted: list[design_skills.DesignSkill] | None = None,
+) -> tuple[dict[str, Any], relay_types.RelayOutcome, list[str]]:
+    """调中转站并要求 JSON，返回 ``(plan_dict, outcome, repair_log)``。
 
-    绝不把「模型返回了一段没法解析的文本」当成计划去执行——那等于拿用户的额度
-    去跑一个没人确认过的提示词。
+    **两层重试的分工（陷阱：两层不能互相抵消）**
+
+    - **L1 传输重试**在 `relay_service.chat_resilient()` 内部：响应体是网页 / 空体 /
+      截断时，它自己同模型重试 + 换备用模型。这一层不消耗下面的纠错预算，因为
+      「上游返回网页」不是模型输出的格式问题，拿同一条坏管道做语义纠错毫无意义；
+    - **L2 语义纠错**在本函数：只有在**拿到了可解析文本、但内容不符合契约**时才追加
+      纠错提示再试（≤2 次）。纠错提示必须带「字段路径 + 期望」，否则模型改不动。
+
+    3 次仍不合法 → **模板兜底**（`source=template_fallback`），不抛异常、不阻塞建任务
+    （R05）。传输层彻底失败（链耗尽）仍然如实抛 `AppError`——那时连文本都没有，
+    用模板顶替等于骗用户。
+
+    Args:
+        schema: 传入契约模型即开启语义纠错；`None` 表示只要「能解析成 dict」。
+        stage: `analyze` / `reason` / `prompt`，仅用于日志与统计。
+        shortlisted: 技能初筛结果，模板兜底时用来选技能骨架。
     """
+    repair_log: list[str] = []
+    last_issues: list[plan_validator.PlanIssue] = []
+    outcome: relay_types.RelayOutcome | None = None
+    current = list(messages)
     attempts = 0
-    last_error: str = ""
-    while attempts < 2:
+
+    while attempts < MAX_SEMANTIC_ATTEMPTS:
         attempts += 1
-        payload = await relay_service.chat(
+        # L1：传输层的重试 / 换模型全在 chat_resilient 里，这里只关心「拿到什么文本」
+        outcome = await relay_service.chat_resilient(
             db,
             user_id,
-            messages
-            if attempts == 1
-            else [
-                *messages,
-                {"role": "user", "content": "上一次的回复不是合法 JSON。请只输出一个 JSON 对象，不要任何解释文字。"},
-            ],
+            current,
             json_mode=True,
             temperature=temperature,
             max_tokens=max_tokens,
             target=target,
+            purpose=stage,
         )
-        parsed = _extract_json(payload["content"])
-        if parsed is not None:
-            return {**parsed, "_meta": payload}
-        last_error = payload["content"][:200]
-        logger.warning("编排返回非 JSON（第 %s 次）：%s", attempts, last_error)
-    raise AppError(
-        ErrorCode.UPSTREAM_ERROR,
-        "中转站这次返回的格式不对（不是 JSON），重试一次或换一个模型",
+        parsed = _extract_json(outcome.content)
+        if parsed is None:
+            head = outcome.content[:INVALID_HEAD_CHARS]
+            logger.warning("编排返回非 JSON（第 %s 次，stage=%s）：%s", attempts, stage, head)
+            repair_log.append(f"attempt={attempts} reason=not_json head={head[:60]}")
+            if schema is None and attempts >= 2:
+                # 无契约的老路径：保留一期的「再试一次」语义，两次都不行就如实失败
+                break
+            current = [
+                *messages,
+                {
+                    "role": "user",
+                    "content": "上一次的回复无法解析成一个 JSON 对象。请只输出一个 JSON 对象，不要任何解释文字。",
+                },
+            ]
+            continue
+
+        if schema is None:
+            return (
+                {
+                    **parsed,
+                    "_meta": {
+                        "model": outcome.model,
+                        "provider": outcome.provider,
+                        "source": outcome.source,
+                        "elapsed_ms": outcome.elapsed_ms,
+                    },
+                },
+                outcome,
+                repair_log,
+            )
+
+        report = plan_validator.validate_plan(parsed, shortlisted, allow_verbatim=True)
+        if report.ok and report.plan is not None:
+            return report.plan, outcome, repair_log
+
+        last_issues = report.errors
+        logger.warning(
+            "plan 校验失败（第 %s 次，stage=%s）paths=%s head=%s",
+            attempts,
+            stage,
+            report.paths,
+            outcome.content[:INVALID_HEAD_CHARS],
+        )
+        repair_log.append(f"attempt={attempts} paths={','.join(report.paths)}")
+        # 纠错提示必须带具体字段路径与期望（R05）
+        current = [
+            *messages,
+            {"role": "user", "content": plan_validator.build_repair_hint(report.errors)},
+        ]
+
+    if schema is None:
+        raise AppError(
+            ErrorCode.UPSTREAM_FORMAT_ERROR,
+            "这次返回的内容读不出来，重试一次或换一个模型",
+            data={"reason": "not_json", "stage": stage, "attempts": attempts},
+        )
+
+    # 3 次仍不合法 → 模板兜底，不阻塞建任务（R05）
+    plan = plan_validator.template_fallback_plan(_last_user_text(messages), shortlisted)
+    logger.warning(
+        "plan 连续 %s 次未通过校验，已用技能模板兜底：stage=%s issues=%s",
+        attempts,
+        stage,
+        [issue.as_dict() for issue in last_issues],
     )
+    repair_log.append("template_fallback")
+    if outcome is None:  # 防御：循环至少执行一次，这里理论上不可达
+        raise AppError(
+            ErrorCode.UPSTREAM_FORMAT_ERROR,
+            "这次没能拿到可用的结果，换一个模型再试一次",
+            data={"reason": "no_content", "stage": stage, "attempts": attempts},
+        )
+    return plan, outcome, repair_log
 
 
 async def _load_assets(db: AsyncSession, user: User, ids: list[str]) -> list[Any]:
@@ -475,7 +639,7 @@ async def stream_compose(
             yield _sse({"event": "step", "step": dict(step)})
         else:
             try:
-                analysis = await _call_json(
+                analysis, _outcome, _repairs = await _call_json(
                     db,
                     user.id,
                     [
@@ -483,6 +647,7 @@ async def stream_compose(
                         {"role": "user", "content": user_prompt},
                     ],
                     target=target,
+                    stage="analyze",
                 )
             except AppError as exc:
                 step = trace.finish("analyze", status="failed", detail=exc.message)
@@ -521,10 +686,21 @@ async def stream_compose(
                             "prompt_source": "none",
                             "degraded": False,
                             "error_code": exc.code.value,
+                            # R03：结构化错误数据（现象 / 已尝试 / 下一步）随失败帧下发，
+                            # 前端 ErrorCard 据此渲染三段式，不依赖后端自由文本
+                            "error_data": exc.data,
                         },
                     }
                 )
                 return
+            # 契约漂移只记录、不阻塞：analyze 还带展示字段（thinking / ambiguity），
+            # 不在 ComposeAnalysis 契约范围内，投影校验只用于发现真漂移（R04 可观测性）
+            drift = plan_validator.validate_analysis(analysis)
+            if not drift.ok:
+                logger.warning(
+                    "analyze 输出不符合契约（仅记录）：%s",
+                    [issue.as_dict() for issue in drift.errors],
+                )
             thinking = [str(item) for item in (analysis.get("thinking") or []) if str(item).strip()][:5]
             step = trace.finish(
                 "analyze",
@@ -534,21 +710,40 @@ async def stream_compose(
             yield _sse({"event": "step", "step": dict(step)})
 
         # ---- 2) 歧义检查 ----
+        #
+        # 这一步决定整条链往哪走，规则只有两条，且都必须显式成立：
+        #   A. 模型说「有歧义」或判定「还不明确」→ **停下来问**，
+        #      给出多个方向选项（第一条 = 最推荐）+ 永远保留的「直接用我的原话」；
+        #   B. 模型确认原话已经足够明确 → **原样使用**，一个字都不改。
+        # 不存在第三条「悄悄改一版再画」的路——那正是重复对话与信任崩塌的来源。
         step = trace.start("ambiguity", STEPS[1][1], "检查主体、用途、约束是否足以开画")
         yield _sse({"event": "step", "step": dict(step)})
         ambiguity = analysis.get("ambiguity") if isinstance(analysis.get("ambiguity"), dict) else {}
-        options = _normalize_options(ambiguity.get("options"))
-        is_ambiguous = bool(ambiguity.get("is_ambiguous")) and bool(options)
+        is_ambiguous = bool(ambiguity.get("is_ambiguous"))
         missing = [str(item) for item in (analysis.get("missing") or []) if str(item).strip()]
+        # 本地模板模式是用户显式确认过的降级（"先试一次"），此时不再用模型口径拦他
+        local_mode = target is None
+        actionable = _prompt_is_actionable(analysis, text)
+        needs_choice = is_ambiguous or (not actionable and not local_mode)
 
-        if is_ambiguous:
-            question = str(ambiguity.get("question") or "").strip()[:200] or "这句我有两种理解，你要哪一种？"
+        if needs_choice:
+            question = str(ambiguity.get("question") or "").strip()[:200]
+            if not question:
+                question = (
+                    f"这句还差一点信息，我先不猜：「{missing[0][:40]}」"
+                    if missing
+                    else "这句我有几种画法，你要哪一种？"
+                )
             reason = str(ambiguity.get("reason") or "").strip()[:200]
+            # 模型的方案在前（默认第一条最推荐），「直接用我的原话」永远排在最后兜底
+            options = _normalize_options(ambiguity.get("options"))
+            options = [*options, _verbatim_option(text)]
             step = trace.finish(
                 "ambiguity",
                 status="blocked",
-                detail=reason or "需求不够明确，先停下来问你",
-                items=([f"还缺：{item}" for item in missing[:3]] or []) + ["未生成图片，也未扣生图额度"],
+                detail=reason or "原话还不够明确，先停下来问你",
+                items=([f"还缺：{item}" for item in missing[:3]] or [])
+                + [f"候选方向：{len(options) - 1} 个", "未生成图片，也未扣生图额度"],
             )
             yield _sse({"event": "step", "step": dict(step)})
             run = SkillRun(
@@ -587,17 +782,18 @@ async def stream_compose(
 
         step = trace.finish(
             "ambiguity",
-            detail="需求足够明确，可以进入方案推导" if not missing else f"需求基本明确，先按合理默认处理：{missing[0][:40]}",
-            items=[f"已确认：{analysis.get('subject') or '主体'}"] if analysis.get("subject") else [],
+            detail="原话已经足够明确：按原文使用，不做任何改写",
+            items=[f"已确认：{analysis.get('subject')}"] if analysis.get("subject") else [],
         )
         yield _sse({"event": "step", "step": dict(step)})
 
-        # ---- 3) 推导方案 + 4) 生成提示词 ----
-        step = trace.start("reason", STEPS[2][1], "按技能库的版式与材质参数定构图、光线、色彩")
+        # ---- 3) 方案：原话直用 / 本地兜底 ----
+        step = trace.start("reason", STEPS[2][1], "确认画幅与技能骨架")
         yield _sse({"event": "step", "step": dict(step)})
 
-        prompt_source = "template" if target is None else "relay"
-        if target is None:
+        if local_mode:
+            # 用户已确认的本地兜底：模板拼提示词（唯一一条会"改写"的路径，且是显式确认的）
+            prompt_source = "template"
             plan_data = _template_plan(text, shortlisted)
             step = trace.finish(
                 "reason",
@@ -607,109 +803,51 @@ async def stream_compose(
             )
             yield _sse({"event": "step", "step": dict(step)})
         else:
-            prompt_template = await prompt_service.load(db, "compose_prompt")
-            # 技能链要能让用户看到「按什么规则选的」：先给出确定性初筛结果（这一步是
-            # shortlist_skills 做的，与模型无关），命中与否都必须如实写进步骤文本，
-            # 否则前端只能渲染一条没有来源的「已命中技能」。
-            if shortlisted:
-                shortlist_note = "初筛命中：" + "、".join(
-                    f"{skill.name}（{skill.category}）" for skill in shortlisted[:5]
-                )
-            else:
-                shortlist_note = "初筛未命中：按通用设计原则处理"
-            skill_for_prompt = (
-                "\n\n".join(design_skills.render_detail(skill.id) for skill in shortlisted)
-                or "（本次没有命中特定技能，按通用设计原则处理）"
-            )
-            prompt_user = (
-                f"用户原话：{text}\n\n"
-                f"需求分析结论：\n{json.dumps({k: analysis.get(k) for k in ('summary', 'intent', 'subject', 'style', 'constraints', 'missing')}, ensure_ascii=False)}\n\n"
-                f"{_describe_context(assets, selection)}\n\n"
-                f"{shortlist_note}\n\n"
-                f"可参考的技能骨架：\n{skill_for_prompt}\n\n"
-                f"可选技能 id：{', '.join(skill.id for skill in shortlisted) or '无'}\n\n"
-                "请输出 JSON。"
-            )
-            try:
-                plan_data = await _call_json(
-                    db,
-                    user.id,
-                    [
-                        {"role": "system", "content": prompt_template},
-                        {"role": "user", "content": prompt_user},
-                    ],
-                    temperature=0.55,
-                    max_tokens=1400,
-                    target=target,
-                )
-            except AppError as exc:
-                step = trace.finish("reason", status="failed", detail=exc.message)
-                yield _sse({"event": "step", "step": dict(step)})
-                message = await _append_message(
-                    db, session.id, user.id, "assistant", exc.message,
-                    attachments=[
-                        {
-                            "type": "compose_run",
-                            "run_id": "",
-                            "status": "failed",
-                            "steps": list(trace.steps),
-                            "reply": exc.message,
-                            "final_prompt": "",
-                            "options": [],
-                            "tasks": [],
-                            "prompt_source": "none",
-                            "degraded": False,
-                        }
-                    ],
-                )
-                await db.commit()
-                yield _sse(
-                    {
-                        "event": "result",
-                        "result": {
-                            "run_id": "",
-                            "message_id": message.id,
-                            "user_message_id": user_message.id,
-                            "status": "failed",
-                            "reply": exc.message,
-                            "steps": list(trace.steps),
-                            "options": [],
-                            "tasks": [],
-                            "final_prompt": "",
-                            "prompt_source": "none",
-                            "degraded": False,
-                            "error_code": exc.code.value,
-                        },
-                    }
-                )
-                return
-            reasoning = [str(item) for item in (plan_data.get("reasoning") or []) if str(item).strip()][:5]
-            picked = design_skills.get_skill(str(plan_data.get("skill_id") or "").strip())
-            # 初筛结论排在推理要点之前：用户先知道「系统给过它哪几把尺子」，再看它怎么选
+            # **原话直用**：不调模型做提示词改写，也不做模板兜底。
+            prompt_source = "verbatim"
+            plan_data = {
+                "final_prompt": text.strip()[:_MAX_PROMPT],
+                "negative": "",
+                "size": "1024x1024",
+                "title": "按你的原话生成",
+                "reasoning": [
+                    "原话已足够明确，不加字也不减字",
+                    "想换个说法：用输入框右侧的「润色」，或直接在澄清卡里选一个方向",
+                ],
+            }
             step = trace.finish(
                 "reason",
-                detail=str(plan_data.get("title") or "方案已定")[:60],
-                items=[shortlist_note, *reasoning]
-                + ([f"技能命中：{picked.name}（{picked.category}）"] if picked else []),
+                status="skipped",
+                detail="原话直用：不调用模型改写提示词",
+                items=plan_data["reasoning"],
             )
             yield _sse({"event": "step", "step": dict(step)})
-
-        final_prompt = str(plan_data.get("final_prompt") or "").strip()[:_MAX_PROMPT]
-        negative = str(plan_data.get("negative") or "").strip()[:300]
-        size = _normalize_size(plan_data.get("size"))
+        # 契约归一：无论 verbatim 还是本地模板，都收敛成 ComposePlan 形状（R04）。
+        # - verbatim：用户原话直用（长度上限走派发兜底 3800，不受契约 800 约束，C2）
+        # - template：按技能骨架拼装，并补齐 aspect / negative / style_tags（R06）
+        # 归一后仍不合法会**自动退到模板兜底**，不阻塞建任务（R05）
+        plan_data = plan_validator.normalize_plan(
+            plan_data, shortlisted, prompt_source=prompt_source
+        )
+        final_prompt = str(plan_data.get("final_prompt") or "").strip()
+        negative = str(plan_data.get("negative") or "").strip()
+        # size 是 aspect 的派生字段（C1）：只从 aspect 推，避免两个字段各说一套
+        size = plan_validator.aspect_to_size(plan_data.get("aspect"))
         skill_id = str(plan_data.get("skill_id") or "").strip()
         skill = design_skills.get_skill(skill_id)
-        if skill is None:
-            skill_id = ""
-            skill = shortlisted[0] if shortlisted else None
+        prompt_source = str(plan_data.get("prompt_source") or prompt_source)
 
-        step = trace.start("prompt", STEPS[3][1], "把方案写成可直接交给图像模型的一段话")
+        step = trace.start("prompt", STEPS[3][1], "确认最终交给图像模型的提示词")
         yield _sse({"event": "step", "step": dict(step)})
 
-        # 模型没给出可用提示词：**不许拿用户原话顶替**（那正是「帮我弄好看点」被
-        # 原样送去画图的根因），也不许扣额度。如实失败，让用户重试。
-        if len(final_prompt) < 10:
-            reason_text = "模型这次没有给出可用的提示词，重试一次或换一个模型"
+        # 提示词为空/过短是硬错误：**不许拿用户原话顶替**（那会让"帮我弄好看点"被原样
+        # 送去画图），也不许扣额度。如实失败，让用户重试。
+        if len(final_prompt) < 8:
+            reason_text = (
+                "这句还是太短了，补一点主体、场景或风格再试"
+                if prompt_source == "verbatim"
+                else "模型这次没有给出可用的提示词，重试一次或换一个模型"
+            )
             step = trace.finish("prompt", status="failed", detail=reason_text)
             yield _sse({"event": "step", "step": dict(step)})
             run = SkillRun(
@@ -773,6 +911,15 @@ async def stream_compose(
                 "final_prompt": final_prompt,
                 "negative": negative,
                 "size": size,
+                # R04 新增的三个契约字段（size 保留，向后兼容）
+                "aspect": plan_data.get("aspect"),
+                "schema_version": plan_data.get("schema_version", PLAN_SCHEMA_VERSION),
+                "prompt_truncated": bool(plan_data.get("prompt_truncated")),
+                "title": plan_data.get("title") or "",
+                "subject": plan_data.get("subject") or "",
+                "style_tags": list(plan_data.get("style_tags") or []),
+                "reasoning": list(plan_data.get("reasoning") or []),
+                "source": plan_data.get("source") or "relay",
                 "skill_id": skill_id,
                 "image_refs": [asset.id for asset in assets],
                 "prompt_source": prompt_source,
@@ -785,7 +932,12 @@ async def stream_compose(
         db.add(run)
         await db.flush()
 
+        # 最终提示词只在这里拼装一次：`negative` 折进尾部（上游没有独立负向参数），
+        # R06 的「尾部含负向段」校验对象就是这段拼装后的文本
+        assembled_prompt = plan_validator.assemble_dispatch_prompt(final_prompt, negative)
+
         try:
+            plan_validator.assert_dispatchable(plan_data, assembled_prompt)
             tasks = await _dispatch(
                 db,
                 user,
@@ -829,7 +981,7 @@ async def stream_compose(
         run.steps = list(trace.steps)
         run.updated_at = utcnow()
 
-        reply = f"已开始生成：{str(plan_data.get('title') or '按你的需求')[:40]}。提示词见下方，可复制或重新生成。"
+        reply = f"已开始生成：{str(plan_data.get('title') or '按你的需求')[:40]}。"
         message = await _append_message(
             db, session.id, user.id, "assistant", reply,
             attachments=[_compose_attachment(run, reply, status="completed", tasks=tasks)],
@@ -865,6 +1017,7 @@ def _compose_attachment(
 ) -> dict[str, Any]:
     """assistant 消息上的 compose_run 快照（刷新后据此还原思考链路）。"""
     plan = run.plan or {}
+    size = plan.get("size") or "1024x1024"
     return {
         "type": "compose_run",
         "run_id": run.id,
@@ -875,10 +1028,17 @@ def _compose_attachment(
         "steps": list(run.steps or []),
         "final_prompt": plan.get("final_prompt") or "",
         "negative": plan.get("negative") or "",
-        "size": plan.get("size") or "1024x1024",
+        "size": size,
+        # R04：新增三个契约字段（size 保留，向后兼容）
+        "aspect": plan.get("aspect") or plan_validator.aspect_from_size(size),
+        "schema_version": int(plan.get("schema_version") or PLAN_SCHEMA_VERSION),
+        "prompt_truncated": bool(plan.get("prompt_truncated")),
         "skill_id": plan.get("skill_id") or "",
+        "style_tags": list(plan.get("style_tags") or []),
+        "source": plan.get("source") or "relay",
         "prompt_source": plan.get("prompt_source") or "relay",
-        "degraded": plan.get("prompt_source") == "template",
+        # 模板兜底（R05）与「用户显式选的本地模板」都算降级，前端都要提示
+        "degraded": plan.get("prompt_source") in {"template", "template_fallback"},
         "options": list(run.options or []),
         "tasks": tasks or [],
         "task_ids": list(run.task_ids or []),
@@ -895,6 +1055,7 @@ def _compose_result(
 ) -> dict[str, Any]:
     """SSE result 与消息附件共用同一套字段，避免前后端两套结构。"""
     plan = run.plan or {}
+    size = plan.get("size") or "1024x1024"
     return {
         "run_id": run.id,
         "message_id": message.id,
@@ -906,10 +1067,16 @@ def _compose_result(
         "tasks": [],
         "final_prompt": plan.get("final_prompt") or "",
         "negative": plan.get("negative") or "",
-        "size": plan.get("size") or "1024x1024",
+        "size": size,
+        # R04：新增三个契约字段（size 保留，向后兼容）
+        "aspect": plan.get("aspect") or plan_validator.aspect_from_size(size),
+        "schema_version": int(plan.get("schema_version") or PLAN_SCHEMA_VERSION),
+        "prompt_truncated": bool(plan.get("prompt_truncated")),
         "skill_id": plan.get("skill_id") or "",
+        "style_tags": list(plan.get("style_tags") or []),
+        "source": plan.get("source") or "relay",
         "prompt_source": plan.get("prompt_source") or "relay",
-        "degraded": plan.get("prompt_source") == "template",
+        "degraded": plan.get("prompt_source") in {"template", "template_fallback"},
         "image_refs": plan.get("image_refs") or [],
     }
 
@@ -969,10 +1136,11 @@ async def _dispatch(
     - 有参考图 → 图生图（以第一张为底图）；
     - 没有参考图 → 文生图；
     - `negative` 折进提示词尾部（上游 gpt-image 系列没有独立负向参数）。
+
+    拼装走 `plan_validator.assemble_dispatch_prompt()`（唯一来源），与
+    `assert_dispatchable()` 校验的是同一段文本，避免「校验的和派发的不是一份」。
     """
-    prompt = final_prompt
-    if negative:
-        prompt = f"{final_prompt}\n\n画面中避免出现：{negative}"
+    prompt = plan_validator.assemble_dispatch_prompt(final_prompt, negative)
 
     created: list[Any] = []
     if refs:
@@ -1063,11 +1231,29 @@ async def confirm_compose(
         raise AppError(ErrorCode.VALIDATION_ERROR, "这个方案缺少提示词，重新说一次需求就好")
 
     plan = {**(run.plan or {})}
-    plan["final_prompt"] = final_prompt[:_MAX_PROMPT]
-    plan["size"] = _normalize_size(chosen.get("size"), plan.get("size") or "1024x1024")
     plan["chosen_option_id"] = option_id
-    plan["prompt_source"] = "relay"
+    # 选中的是「直接用我的原话」时如实标记，前端据此显示「按你写的这句生成」
+    prompt_source = "verbatim" if option_id == VERBATIM_OPTION_ID else "relay"
+    # 澄清路径同样要过契约归一（R04）与派发前硬约束（R06），否则「点选方案」会成为
+    # 绕过校验的后门。技能初筛结果没有随 run 落库，用 plan 里已有的 skill_id 反查。
+    plan = plan_validator.normalize_plan(
+        {
+            **plan,
+            "final_prompt": final_prompt,
+            "aspect": chosen.get("aspect") or plan.get("aspect"),
+            "title": chosen.get("label") or plan.get("title"),
+        },
+        [],
+        prompt_source=prompt_source,
+    )
+    plan["chosen_option_id"] = option_id
+    plan["size"] = plan_validator.aspect_to_size(plan.get("aspect"))
     refs = [str(item) for item in (plan.get("image_refs") or []) if str(item)]
+
+    assembled_prompt = plan_validator.assemble_dispatch_prompt(
+        str(plan.get("final_prompt") or ""), str(plan.get("negative") or "")
+    )
+    plan_validator.assert_dispatchable(plan, assembled_prompt)
 
     run.plan = plan
     run.status = "dispatching"
@@ -1078,7 +1264,7 @@ async def confirm_compose(
         db,
         user,
         run,
-        final_prompt=plan["final_prompt"],
+        final_prompt=str(plan.get("final_prompt") or ""),
         negative=str(plan.get("negative") or ""),
         size=plan["size"],
         refs=refs,

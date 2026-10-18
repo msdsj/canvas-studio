@@ -15,6 +15,13 @@ export interface ComposerAttachment {
   name?: string
 }
 
+/** 输入框里的「@ 引用图」chip（来自画布 / 生成结果）。 */
+export interface ComposerMention {
+  key: string
+  url: string
+  label: string
+}
+
 interface ChatTextareaProps {
   value: string
   onChange: (value: string) => void
@@ -37,6 +44,9 @@ interface ChatTextareaProps {
   /** 已上传的参考图（粘贴 / 选择） */
   attachments?: ComposerAttachment[]
   onRemoveAttachment?: (id: string) => void
+  /** @ 引用图（点选画布 / 结果图带进来的） */
+  mentions?: ComposerMention[]
+  onRemoveMention?: (key: string) => void
   /** 从剪贴板或拖拽拿到图片文件 */
   onImageFiles?: (files: File[]) => void
   /** 上传中：附件区显示占位 */
@@ -70,6 +80,8 @@ export function ChatTextarea({
   focusSignal,
   attachments = [],
   onRemoveAttachment,
+  mentions = [],
+  onRemoveMention,
   onImageFiles,
   uploading,
   placeholder,
@@ -142,8 +154,9 @@ export function ChatTextarea({
           // 不再用 pt-[30px] 给右上角的润色按钮"让位"——那会把整张卡顶高 30px，
           // 空着一大条白边。改为让 textarea 右侧留出按钮宽度（pr），
           // 按钮浮在右上角、文字自动绕开它，垂直方向零浪费。
-          'relative rounded-[14px] border bg-surface px-2.5 pb-1.5 pt-2 shadow-sheet transition-[border-color,box-shadow] focus-within:border-border-strong',
-          tooLong ? 'border-danger' : 'border-border'
+          // 无装饰边框：一张浮起的纸（阴影 + 内侧受光边），聚焦时改用青柠外发光说明「可以打字了」。
+          'relative rounded-md bg-surface px-2.5 pb-1.5 pt-2 shadow-sheet ring-1 ring-inset ring-border-faint transition-shadow',
+          tooLong ? 'ring-danger/50' : 'focus-within:shadow-lift'
         )}
       >
         {/* 润色：输入框内部右上角（绝对定位，不占布局高度） */}
@@ -151,12 +164,38 @@ export function ChatTextarea({
           <div className="absolute right-1.5 top-1.5 z-[1] flex items-center">{topRightSlot}</div>
         )}
 
-        {(attachments.length > 0 || uploading) && (
+        {(mentions.length > 0 || attachments.length > 0 || uploading) && (
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            {/* @ 引用图：这是「点名的底图」，读作一个可整块移除的 token，
+                缩略图给辨识、标签给指代（正文里可以写「照着@图 1 的光线」）。 */}
+            {mentions.map((item) => (
+              <span
+                key={item.key}
+                title={`引用 ${item.label}`}
+                className="group/mention inline-flex max-w-[168px] shrink-0 items-center gap-1.5 rounded-full bg-accent-soft py-0.5 pl-1 pr-0.5 text-micro font-medium text-accent-ink ring-1 ring-inset ring-accent-strong"
+              >
+                <img
+                  src={item.url}
+                  alt=""
+                  className="h-5 w-5 shrink-0 rounded-full object-cover"
+                />
+                <span className="truncate">@{item.label}</span>
+                {onRemoveMention && (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveMention(item.key)}
+                    aria-label={`移除引用 ${item.label}`}
+                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-accent-ink/70 transition-colors hover:bg-accent-strong/40 hover:text-accent-ink"
+                  >
+                    <X size={10} strokeWidth={2.5} />
+                  </button>
+                )}
+              </span>
+            ))}
             {attachments.map((item) => (
               <div
                 key={item.id}
-                className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-[8px] border border-border bg-bg-subtle"
+                className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-xs bg-bg-subtle shadow-sheet"
                 title={item.name || '参考图'}
               >
                 <img src={item.url} alt={item.name || '参考图'} className="h-full w-full object-cover" />
@@ -165,7 +204,7 @@ export function ChatTextarea({
                     type="button"
                     onClick={() => onRemoveAttachment(item.id)}
                     aria-label="移除参考图"
-                    className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center rounded-bl-[6px] bg-[rgba(10,12,20,0.65)] text-white opacity-0 transition-opacity group-hover:opacity-100"
+                    className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center rounded-bl-xs bg-scrim text-scrim-text opacity-0 transition-opacity group-hover:opacity-100"
                   >
                     <X size={10} />
                   </button>
@@ -173,7 +212,7 @@ export function ChatTextarea({
               </div>
             ))}
             {uploading && (
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[8px] border border-dashed border-border bg-bg-subtle">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xs border border-dashed border-border-strong/70 bg-bg-subtle">
                 <Loader2 size={14} className="animate-spin text-text-tertiary" />
               </div>
             )}

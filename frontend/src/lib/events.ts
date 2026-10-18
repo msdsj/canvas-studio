@@ -4,6 +4,8 @@ import mitt, { type Emitter } from 'mitt'
 export type AppEvents = {
   'auth:unauthorized': void
   'quota:changed': void
+  /** 触发了 Pro 专属能力：全局弹升级 / 激活引导 */
+  'pro:required': void
   'tasks:changed': void
   'announcements:changed': void
 }

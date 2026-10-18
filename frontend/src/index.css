@@ -46,8 +46,13 @@
   --color-danger: var(--color-danger);
   --color-danger-subtle: var(--color-danger-subtle);
   --color-info: var(--color-info);
+  /* [NEW] 重遮罩 + 图上文字（图片灯箱用） */
+  --color-scrim: var(--color-scrim);
+  --color-scrim-text: var(--color-scrim-text);
 
   --radius-sheet: var(--radius-sheet);
+  /* 显式映射 8px：Tailwind 4 默认 rounded-xs 是 2px，不映射会窄得几乎看不见 */
+  --radius-xs: var(--radius-xs);
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
@@ -166,6 +171,9 @@
  * ------------------------------------------------------------------------- */
 .cs-canvas-shell {
   background: var(--color-canvas);
+  /* 画布是「台面」而不是一块平色块：用一层极淡的内阴影给出纵深与边界感。
+     刻意不用 border / ring —— 纸感语言里边界由光影交代，画一条硬线反而显脏。 */
+  box-shadow: inset 0 0 34px -14px var(--color-canvas-shade);
 }
 
 .cs-canvas-shell .excalidraw {
@@ -205,6 +213,29 @@
 
 /* 没有主菜单后，左上角留白归零，避免浮层错位 */
 .cs-canvas-shell .App-menu_top__left {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 收起 Excalidraw 原生「素材库」入口。
+ *
+ * 这个入口是 Excalidraw 自带的 Library（zh-CN 文案恰好就是「素材库」），
+ * 打开后是一套独立的本地素材收藏体系，与平台的资产库（选图对话框）并行，
+ * 同一件事有两个入口。平台的素材一律走资产库，这里整块隐藏。
+ * ------------------------------------------------------------------------- */
+.cs-canvas-shell .default-sidebar,
+.cs-canvas-shell .default-sidebar-trigger {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 收起 Excalidraw 原生「滚动回到内容」按钮。
+ *
+ * 它固定在画布底部居中（bottom: 80px），与平台自己的浮动工具栏同处一条中线，
+ * 两者在视觉上直接叠在一起。平台现在提供左下角的全局缩略图来定位内容，
+ * 这个按钮就是重复入口，隐藏掉即消除重叠。
+ * ------------------------------------------------------------------------- */
+.cs-canvas-shell .scroll-back-to-content {
   display: none !important;
 }
 

@@ -14,6 +14,10 @@
     "stop": "停止",
     "submitting": "提交中…",
     "too_long": "最多 {{max}} 字，当前 {{count}} 字",
+    "ref_limit": "引用图最多 {{max}} 张",
+    "ref_limit_hint": "先移除一张再引用",
+    "reference": "引用这张图",
+    "remove_reference": "移除引用",
     "shortcut_hint": "Enter 发送 · Shift+Enter 换行",
     "placeholder_chat": "问点什么，或描述你想改的画面…"
   },
@@ -77,6 +81,7 @@
     "generating": "生成中…",
     "generated": "生成完成，结果已放到画布",
     "gen_failed": "生成未完成，额度已退回",
+    "gen_place_failed": "结果图加载失败，请稍后在对话里重新放入画布",
     "tag_incomplete": "该区域未完成修改",
     "retry_region": "单独重试",
     "regen_region": "重新生成此区域",

@@ -36,14 +36,14 @@ function SharePage() {
 
   return (
     <div className="flex h-screen flex-col bg-bg">
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border-faint bg-surface px-4">
         <div className="flex items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-brand text-text-inverse">
             <Sparkles size={16} />
           </span>
           <span className="text-md font-semibold text-text">{name || 'Canvas Studio'}</span>
         </div>
-        <span className="text-xs text-text-tertiary">{t('share.readonly')}</span>
+        <span className="text-micro text-text-tertiary">{t('share.readonly')}</span>
       </header>
 
       <main className="min-h-0 flex-1">

@@ -26,12 +26,16 @@ class GatewaySettings(BaseSettings):
     text_base_url: str = Field(default="", validation_alias="TEXT_API_BASE_URL")
     text_api_key: str = Field(default="", validation_alias="TEXT_API_KEY")
     text_model: str = Field(default="gpt-4o-mini", validation_alias="TEXT_MODEL")
+    # 备用模型链：主模型失败（格式异常 / 限流 / 5xx）后依次尝试。逗号或空格分隔。
+    text_model_fallbacks: str = Field(default="", validation_alias="TEXT_MODEL_FALLBACKS")
     llm_base_url: str = Field(default="", validation_alias="LLM_BASE_URL")
     llm_api_key: str = Field(default="", validation_alias="LLM_API_KEY")
     llm_model: str = Field(default="", validation_alias="LLM_MODEL")
+    llm_model_fallbacks: str = Field(default="", validation_alias="LLM_MODEL_FALLBACKS")
     image_base_url: str = Field(default="", validation_alias="IMAGE_API_BASE_URL")
     image_api_key: str = Field(default="", validation_alias="IMAGE_API_KEY")
     image_model: str = Field(default="gpt-image-2", validation_alias="IMAGE_MODEL")
+    image_model_fallbacks: str = Field(default="", validation_alias="IMAGE_MODEL_FALLBACKS")
     pool_file: str = Field(default="./data/provider_accounts.json", validation_alias="POOL_FILE")
 
     http_proxy: str = Field(default="", validation_alias="HTTP_PROXY")

@@ -11,4 +11,7 @@ export const meApi = {
       new_password: newPassword,
     }),
   logoutAll: () => api.post<unknown>('/me/logout-all'),
+  /** 用激活码兑换 Pro 权限，返回最新用户资料。 */
+  redeemPro: (code: string) =>
+    api.post<{ already_pro: boolean; user: User }>('/me/pro/redeem', { code }),
 }

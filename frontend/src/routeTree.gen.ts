@@ -27,6 +27,7 @@ import { Route as AdminConfigRouteImport } from './routes/admin.config'
 import { Route as AdminInvitesRouteImport } from './routes/admin.invites'
 import { Route as AdminLogsRouteImport } from './routes/admin.logs'
 import { Route as AdminPoolRouteImport } from './routes/admin.pool'
+import { Route as AdminProCodesRouteImport } from './routes/admin.pro-codes'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as CanvasIdRouteImport } from './routes/canvas.$id'
 import { Route as ShareTokenRouteImport } from './routes/share.$token'
@@ -122,6 +123,11 @@ const AdminPoolRoute = AdminPoolRouteImport.update({
   path: '/pool',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminProCodesRoute = AdminProCodesRouteImport.update({
+  id: '/pro-codes',
+  path: '/pro-codes',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminUsersRoute = AdminUsersRouteImport.update({
   id: '/users',
   path: '/users',
@@ -161,6 +167,7 @@ export interface FileRoutesByFullPath {
   '/admin/invites': typeof AdminInvitesRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/pool': typeof AdminPoolRoute
+  '/admin/pro-codes': typeof AdminProCodesRoute
   '/admin/users': typeof AdminUsersRoute
   '/canvas/$id': typeof CanvasIdRoute
   '/share/$token': typeof ShareTokenRoute
@@ -184,6 +191,7 @@ export interface FileRoutesByTo {
   '/admin/invites': typeof AdminInvitesRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/pool': typeof AdminPoolRoute
+  '/admin/pro-codes': typeof AdminProCodesRoute
   '/admin/users': typeof AdminUsersRoute
   '/canvas/$id': typeof CanvasIdRoute
   '/share/$token': typeof ShareTokenRoute
@@ -209,6 +217,7 @@ export interface FileRoutesById {
   '/admin/invites': typeof AdminInvitesRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/pool': typeof AdminPoolRoute
+  '/admin/pro-codes': typeof AdminProCodesRoute
   '/admin/users': typeof AdminUsersRoute
   '/canvas/$id': typeof CanvasIdRoute
   '/share/$token': typeof ShareTokenRoute
@@ -235,6 +244,7 @@ export interface FileRouteTypes {
     | '/admin/invites'
     | '/admin/logs'
     | '/admin/pool'
+    | '/admin/pro-codes'
     | '/admin/users'
     | '/canvas/$id'
     | '/share/$token'
@@ -258,6 +268,7 @@ export interface FileRouteTypes {
     | '/admin/invites'
     | '/admin/logs'
     | '/admin/pool'
+    | '/admin/pro-codes'
     | '/admin/users'
     | '/canvas/$id'
     | '/share/$token'
@@ -282,6 +293,7 @@ export interface FileRouteTypes {
     | '/admin/invites'
     | '/admin/logs'
     | '/admin/pool'
+    | '/admin/pro-codes'
     | '/admin/users'
     | '/canvas/$id'
     | '/share/$token'
@@ -435,6 +447,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminPoolRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/pro-codes': {
+      id: '/admin/pro-codes'
+      path: '/pro-codes'
+      fullPath: '/admin/pro-codes'
+      preLoaderRoute: typeof AdminProCodesRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/users': {
       id: '/admin/users'
       path: '/users'
@@ -472,6 +491,7 @@ interface AdminRouteChildren {
   AdminInvitesRoute: typeof AdminInvitesRoute
   AdminLogsRoute: typeof AdminLogsRoute
   AdminPoolRoute: typeof AdminPoolRoute
+  AdminProCodesRoute: typeof AdminProCodesRoute
   AdminUsersRoute: typeof AdminUsersRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
@@ -482,6 +502,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminInvitesRoute: AdminInvitesRoute,
   AdminLogsRoute: AdminLogsRoute,
   AdminPoolRoute: AdminPoolRoute,
+  AdminProCodesRoute: AdminProCodesRoute,
   AdminUsersRoute: AdminUsersRoute,
   AdminIndexRoute: AdminIndexRoute,
 }

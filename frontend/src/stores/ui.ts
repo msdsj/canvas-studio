@@ -28,6 +28,13 @@ interface UIState {
 
   studioTab: StudioTab
   setStudioTab: (tab: StudioTab) => void
+
+  /** 升级 / 激活 Pro 弹窗：全站唯一入口，任意 Pro 能力被拦下时都能唤起 */
+  proDialogOpen: boolean
+  /** 唤起原因（用于弹窗顶部说明"你刚刚想用的功能"），留空则用通用文案 */
+  proDialogReason: string
+  openProDialog: (reason?: string) => void
+  closeProDialog: () => void
 }
 
 export const useUIStore = create<UIState>((set, get) => ({
@@ -51,4 +58,9 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   studioTab: 'chats',
   setStudioTab: (tab) => set({ studioTab: tab }),
+
+  proDialogOpen: false,
+  proDialogReason: '',
+  openProDialog: (reason = '') => set({ proDialogOpen: true, proDialogReason: reason }),
+  closeProDialog: () => set({ proDialogOpen: false, proDialogReason: '' }),
 }))

@@ -15,6 +15,8 @@ export function useAuth() {
     loading,
     isAuthenticated: Boolean(user),
     isAdmin: user?.role === 'admin',
+    /** 是否已解锁全部功能：Pro 与管理员。普通用户仅可用文生图。 */
+    isPro: user?.role === 'pro' || user?.role === 'admin',
     logout,
   }
 }

@@ -14,6 +14,7 @@ const ITEMS: AdminNavItem[] = [
   { to: '/admin/pool', key: 'pool' },
   { to: '/admin/config', key: 'config' },
   { to: '/admin/invites', key: 'invites' },
+  { to: '/admin/pro-codes', key: 'pro_codes' },
   { to: '/admin/announcements', key: 'announcements' },
   { to: '/admin/logs', key: 'logs' },
 ]

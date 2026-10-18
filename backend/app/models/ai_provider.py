@@ -39,6 +39,12 @@ class AIProvider(Base):
     api_key: Mapped[str] = mapped_column(String(500), default="")
     model: Mapped[str] = mapped_column(String(120), default="")
 
+    # 备用模型链：主模型失败时按序切换。
+    # - 0–3 个模型名（有序），**存 3 但运行时只遍历前 2 个**（延迟保护，见 ADR-3/C5）
+    # - 空列表 = 不启用 fallback（保持一期行为）
+    # - 读取处统一走 `relay_service.safe_model_list()`，兼容 None / 字符串 '[]' / 脏数据
+    fallback_models: Mapped[list] = mapped_column(JSON, default=list)
+
     temperature: Mapped[float] = mapped_column(Float, default=0.7)
     max_tokens: Mapped[int] = mapped_column(Integer, default=2048)
     # 额外请求参数（如 top_p / response_format / 自定义 header），原样并入请求体

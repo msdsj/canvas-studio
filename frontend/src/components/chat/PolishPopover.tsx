@@ -155,7 +155,7 @@ export function PolishPopover({
         title="润色这段描述"
         aria-label="润色这段描述"
         className={cn(
-          'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] text-text-tertiary transition-colors',
+          'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors',
           'hover:bg-brand-subtle hover:text-brand-text disabled:cursor-not-allowed disabled:opacity-40',
           className
         )}
@@ -168,7 +168,7 @@ export function PolishPopover({
         disabled={blocked}
         title={blocked ? '先写一句提示词' : '润色提示词'}
         className={cn(
-          'inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[11px] text-text-secondary transition-colors',
+          'inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-2 text-micro text-text-secondary transition-colors',
           'hover:bg-brand-subtle hover:text-brand-text disabled:cursor-not-allowed disabled:opacity-40',
           className
         )}
@@ -195,13 +195,13 @@ export function PolishPopover({
           <Sparkles size={13} className="shrink-0 text-brand" />
           <span className="text-caption font-medium text-text">润色提示词</span>
           {result && (
-            <span className="ml-auto rounded-full bg-bg-subtle px-1.5 py-0.5 text-[10px] text-text-tertiary">
+            <span className="ml-auto rounded-full bg-bg-subtle px-1.5 py-0.5 text-micro text-text-tertiary">
               {result.engine === 'relay' ? result.model || '中转站' : '本地规则'}
             </span>
           )}
         </div>
 
-        <div className="flex flex-wrap gap-1 border-y border-border/60 px-3 py-2">
+        <div className="flex flex-wrap gap-1 border-y border-border-faint px-3 py-2">
           {POLISH_MODES.map((item) => (
             <button
               key={item.id}
@@ -209,9 +209,9 @@ export function PolishPopover({
               title={item.hint}
               onClick={() => changeMode(item.id)}
               className={cn(
-                'rounded-full px-2 py-0.5 text-[11px] transition-colors',
+                'rounded-full px-2 py-0.5 text-micro transition-colors',
                 mode === item.id
-                  ? 'bg-brand text-white'
+                  ? 'bg-brand text-text-inverse'
                   : 'bg-bg-subtle text-text-secondary hover:bg-surface-hover'
               )}
             >
@@ -224,7 +224,7 @@ export function PolishPopover({
         {!loading && !error && active && (
           <div
             className={cn(
-              'flex items-start gap-1.5 border-b border-border/60 px-3 py-1.5 text-[10px] leading-relaxed',
+              'flex items-start gap-1.5 border-b border-border-faint px-3 py-1.5 text-micro leading-relaxed',
               active.rolledBack ? 'bg-bg-subtle text-text-secondary' : 'bg-accent-soft text-accent-ink'
             )}
           >
@@ -245,7 +245,7 @@ export function PolishPopover({
           {loading && (
             <div className="flex flex-col gap-2">
               {[0, 1].map((index) => (
-                <div key={index} className="flex flex-col gap-1.5 rounded-[10px] border border-border p-2.5">
+                <div key={index} className="flex flex-col gap-1.5 rounded-sm p-2.5 shadow-sheet ring-1 ring-inset ring-border-faint">
                   <span className="h-2 w-16 animate-pulse rounded-full bg-bg-subtle" />
                   <span className="h-2 w-full animate-pulse rounded-full bg-bg-subtle" />
                   <span className="h-2 w-3/4 animate-pulse rounded-full bg-bg-subtle" />
@@ -258,7 +258,7 @@ export function PolishPopover({
           )}
 
           {!loading && error && (
-            <p className="rounded-[10px] bg-danger-subtle px-2.5 py-2 text-micro leading-relaxed text-danger">
+            <p className="rounded-sm bg-danger-subtle px-2.5 py-2 text-micro leading-relaxed text-danger">
               {error}
             </p>
           )}
@@ -279,20 +279,20 @@ export function PolishPopover({
                     onClick={() => setSelected(item.id)}
                     aria-pressed={isActive}
                     className={cn(
-                      'rounded-[10px] border px-2.5 py-2 text-left transition-colors',
-                      isActive ? 'border-brand bg-brand-subtle/40' : 'border-border hover:bg-surface-hover'
+                      'rounded-sm px-2.5 py-2 text-left transition-colors shadow-sheet ring-1 ring-inset',
+                      isActive ? 'ring-brand bg-brand-subtle/40' : 'ring-border-faint hover:bg-surface-hover'
                     )}
                   >
                     <span className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-medium text-text">{item.label}</span>
-                      <span className="text-[10px] tabular-nums text-text-faint">{item.length} 字</span>
+                      <span className="text-micro font-medium text-text">{item.label}</span>
+                      <span className="text-micro tabular-nums text-text-faint">{item.length} 字</span>
                       {fidelity.length > 0 && !rolledBack && (
-                        <span className="rounded-full bg-accent-soft px-1.5 py-0.5 text-[9px] text-accent-ink">
+                        <span className="rounded-full bg-accent-soft px-1.5 py-0.5 text-micro text-accent-ink">
                           保真
                         </span>
                       )}
                       {rolledBack && (
-                        <span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[9px] text-text-tertiary">
+                        <span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-micro text-text-tertiary">
                           已回退
                         </span>
                       )}
@@ -302,7 +302,7 @@ export function PolishPopover({
                       {item.text}
                     </span>
                     {changes.length > 0 && (
-                      <span className="mt-1 block truncate text-[10px] text-text-tertiary">
+                      <span className="mt-1 block truncate text-micro text-text-tertiary">
                         {changes.join(' · ')}
                       </span>
                     )}
@@ -315,16 +315,16 @@ export function PolishPopover({
 
         {/* 原文对照：只列新增片段，不铺开整段 diff */}
         {!loading && !error && active && !active.rolledBack && active.added.length > 0 && (
-          <div className="border-t border-border/60 px-3 py-1.5">
-            <p className="text-[10px] text-text-tertiary">
+          <div className="border-t border-border-faint px-3 py-1.5">
+            <p className="text-micro text-text-tertiary">
               相对原文新增
               <span className="ml-1 text-text-faint">（其余内容与原文逐字一致）</span>
             </p>
-            <p className="mt-1 max-h-16 overflow-y-auto text-[10px] leading-relaxed [overflow-wrap:anywhere]">
+            <p className="mt-1 max-h-16 overflow-y-auto text-micro leading-relaxed [overflow-wrap:anywhere]">
               {active.added.map((fragment, index) => (
                 <span
                   key={`${fragment}-${index}`}
-                  className="mr-1 rounded-[3px] bg-accent-soft px-1 py-px text-accent-ink"
+                  className="mr-1 rounded-xs bg-accent-soft px-1 py-px text-accent-ink"
                 >
                   {fragment}
                 </span>
@@ -333,7 +333,7 @@ export function PolishPopover({
           </div>
         )}
 
-        <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2">
+        <div className="flex items-center gap-1.5 border-t border-border-faint px-3 py-2">
           {replacedFrom !== null && (
             <Button size="sm" variant="ghost" className="h-7 px-2 text-caption" onClick={undo}>
               <RotateCcw size={12} /> 撤销

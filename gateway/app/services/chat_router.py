@@ -1,18 +1,65 @@
-"""对话转发：SSE 透传 + 归一 + Demo 降级判定。"""
+"""对话转发：SSE 透传 + 归一 + Demo 降级判定。
+
+韧性：非流式走 `resilience.run_with_fallback`（重试 → 换备用模型 → 如实报错）；
+流式在「尚未向客户端吐出任何内容」前同样重试与换模型，吐了内容就不能重放，
+否则前端会看到重复文本。
+"""
 from __future__ import annotations
 
+import asyncio
+import logging
+
+from app.config import settings
 from app.services import demo_service
 from app.services.error_mapper import classify_exception, classify_status
+from app.services.resilience import run_with_fallback
 from app.state import runtime_config
 from app.upstream import llm_client, llm_headers, provider_client, provider_headers
 from app.utils.errors import ErrorCode, GatewayError
 from app.utils.streaming import sse_line
+from app.utils.upstream_json import check_stream_prefix, parse_json_body
 
+logger = logging.getLogger(__name__)
+
+#: 允许降级为演示回复的错误（仅「上游根本连不上」）。格式异常 / 鉴权失败等必须如实报错。
 _FALLBACK_CODES = {
     ErrorCode.PROXY_UNREACHABLE,
-    ErrorCode.UPSTREAM_ERROR,
-    ErrorCode.POOL_UNAVAILABLE,
 }
+
+
+async def _stream_once(payload: dict, model: str):
+    """单次流式请求：产出原始字节块；失败时抛归一后的 GatewayError。"""
+    body = {**payload, "stream": True}
+    if model:
+        body["model"] = model
+    client = provider_client("text")
+    try:
+        async with client.stream(
+            "POST", "/chat/completions", headers=provider_headers("text"), json=body
+        ) as resp:
+            if resp.status_code >= 400:
+                text = (await resp.aread()).decode("utf-8", "ignore")
+                raise classify_status(resp.status_code, text)
+            first = True
+            yielded = False
+            async for chunk in resp.aiter_bytes():
+                if not chunk:
+                    continue
+                if first:
+                    first = False
+                    # 先验开头：上游把网页按 200 推下来时，不拦就会被原样当成 SSE 吐给浏览器
+                    check_stream_prefix(chunk)
+                yielded = True
+                yield chunk
+            if not yielded:
+                raise GatewayError(
+                    ErrorCode.UPSTREAM_ERROR,
+                    "上游返回了空响应，已自动重试",
+                    retryable=True,
+                    switch_model=True,
+                )
+    finally:
+        await client.aclose()
 
 
 async def stream_chat(payload: dict):
@@ -24,40 +71,79 @@ async def stream_chat(payload: dict):
             yield chunk
         return
 
-    body = {**payload, "stream": True}
-    if runtime_config.text_model:
-        body["model"] = runtime_config.text_model
-    client = provider_client("text")
+    chain = runtime_config.model_chain("text") or [runtime_config.text_model]
+    retries = settings.max_retries
+    failure: GatewayError | None = None
     produced = False
-    try:
-        async with client.stream(
-            "POST", "/chat/completions", headers=provider_headers("text"), json=body
-        ) as resp:
-            if resp.status_code >= 400:
-                text = (await resp.aread()).decode("utf-8", "ignore")
-                raise classify_status(resp.status_code, text)
-            async for chunk in resp.aiter_bytes():
-                if chunk:
-                    produced = True
-                    yield chunk
-    except GatewayError as exc:
-        if mode == "auto" and exc.code in _FALLBACK_CODES:
-            async for chunk in demo_service.demo_chat_stream(messages):
-                yield chunk
-            return
-        yield sse_line({"error_code": exc.code.value, "message": exc.message, "done": True})
+
+    for index, model in enumerate(chain):
+        next_model = chain[index + 1] if index + 1 < len(chain) else None
+        for attempt_no in range(retries + 1):
+            produced = False
+            failure = None
+            try:
+                async for chunk in _stream_once(payload, model):
+                    if chunk:
+                        produced = True
+                        yield chunk
+                return
+            except Exception as exc:  # noqa: BLE001 - 归一后决定重试 / 换模型
+                failure = exc if isinstance(exc, GatewayError) else classify_exception(exc)
+
+            if produced:
+                # 已经吐出内容，中途断了不能重放：前端会看到重复文本
+                break
+            if not failure.retryable:
+                break
+            if attempt_no < retries:
+                delay = 0.4 * (2**attempt_no)
+                logger.warning(
+                    "对话流失败（%s），%.1fs 后重试模型 %s：%s",
+                    failure.code.value,
+                    delay,
+                    model or "(默认)",
+                    failure.message,
+                )
+                await asyncio.sleep(delay)
+                continue
+            break
+        if produced or failure is None or not failure.switch_model or next_model is None:
+            break
+        logger.warning(
+            "对话流换备用模型：%s → %s（%s）", model or "(默认)", next_model, failure.code.value
+        )
+
+    if produced:
+        # 半截内容已经发出去了，只能补一条收尾错误
+        error = failure or GatewayError(ErrorCode.UPSTREAM_ERROR, "这次没能回复出来，请再试一次")
+        yield sse_line({"error_code": error.code.value, "message": error.message, "done": True})
         yield b"data: [DONE]\n\n"
-    except Exception as exc:  # noqa: BLE001
-        mapped = classify_exception(exc)
-        if mode == "auto" and mapped.code in _FALLBACK_CODES:
-            async for chunk in demo_service.demo_chat_stream(messages):
-                yield chunk
-            return
-        yield sse_line({"error_code": mapped.code.value, "message": mapped.message, "done": True})
-        yield b"data: [DONE]\n\n"
-    finally:
-        await client.aclose()
-        _ = produced
+        return
+
+    if mode == "auto" and failure is not None and failure.code in _FALLBACK_CODES:
+        async for chunk in demo_service.demo_chat_stream(messages):
+            yield chunk
+        return
+
+    error = failure or GatewayError(ErrorCode.UPSTREAM_ERROR, "这次没能回复出来，请再试一次")
+    yield sse_line({"error_code": error.code.value, "message": error.message, "done": True})
+    yield b"data: [DONE]\n\n"
+
+
+async def _complete_chat_once(payload: dict, model: str) -> dict:
+    """单次非流式对话调用。"""
+    body = {**payload}
+    if model:
+        body["model"] = model
+    async with provider_client("text") as client:
+        resp = await client.post(
+            "/chat/completions", headers=provider_headers("text"), json=body
+        )
+    if resp.status_code >= 400:
+        raise classify_status(resp.status_code, resp.text)
+    data = parse_json_body(resp)
+    data.setdefault("demo", False)
+    return data
 
 
 async def complete_chat(payload: dict) -> dict:
@@ -67,28 +153,30 @@ async def complete_chat(payload: dict) -> dict:
     if mode == "on":
         return demo_service.demo_chat_completion(messages)
     try:
-        body = {**payload}
-        if runtime_config.text_model:
-            body["model"] = runtime_config.text_model
-        async with provider_client("text") as client:
-            resp = await client.post(
-                "/chat/completions", headers=provider_headers("text"), json=body
-            )
-        if resp.status_code >= 400:
-            raise classify_status(resp.status_code, resp.text)
-        data = resp.json()
-        if isinstance(data, dict):
-            data.setdefault("demo", False)
-        return data
-    except GatewayError:
-        if mode == "auto":
+        return await run_with_fallback(
+            runtime_config.model_chain("text") or [runtime_config.text_model],
+            lambda model: _complete_chat_once(payload, model),
+        )
+    except GatewayError as exc:
+        if mode == "auto" and exc.code in _FALLBACK_CODES:
             return demo_service.demo_chat_completion(messages)
         raise
-    except Exception as exc:  # noqa: BLE001
-        mapped = classify_exception(exc)
-        if mode == "auto" and mapped.code in _FALLBACK_CODES:
-            return demo_service.demo_chat_completion(messages)
-        raise mapped
+
+
+async def _complete_llm_once(payload: dict, model: str) -> dict:
+    """单次意图模型调用（独立 LLM 配置，未配置时复用文本 provider）。"""
+    body = {**payload}
+    if model:
+        # 该路由的模型由独立 LLM 配置管理；ChatCompletion Schema 的默认
+        # gpt-4o-mini 不能覆盖管理员在中转站设置的模型名。
+        body["model"] = model
+    async with llm_client() as client:
+        response = await client.post("/chat/completions", headers=llm_headers(), json=body)
+    if response.status_code >= 400:
+        raise classify_status(response.status_code, response.text)
+    data = parse_json_body(response)
+    data.setdefault("demo", False)
+    return data
 
 
 async def complete_llm(payload: dict) -> dict:
@@ -96,25 +184,13 @@ async def complete_llm(payload: dict) -> dict:
     if runtime_config.demo_mode == "on":
         return demo_service.demo_chat_completion(payload.get("messages") or [])
     try:
-        async with llm_client() as client:
-            body = {**payload}
-            if runtime_config.llm_model:
-                # 该路由的模型由独立 LLM 配置管理；ChatCompletion Schema 的默认
-                # gpt-4o-mini 不能覆盖管理员在中转站设置的模型名。
-                body["model"] = runtime_config.llm_model
-            response = await client.post("/chat/completions", headers=llm_headers(), json=body)
-        if response.status_code >= 400:
-            raise classify_status(response.status_code, response.text)
-        data = response.json()
-        if isinstance(data, dict):
-            data.setdefault("demo", False)
-        return data
-    except GatewayError:
-        if runtime_config.demo_mode == "auto":
+        return await run_with_fallback(
+            runtime_config.model_chain("llm")
+            or runtime_config.model_chain("text")
+            or [runtime_config.text_model],
+            lambda model: _complete_llm_once(payload, model),
+        )
+    except GatewayError as exc:
+        if runtime_config.demo_mode == "auto" and exc.code in _FALLBACK_CODES:
             return demo_service.demo_chat_completion(payload.get("messages") or [])
         raise
-    except Exception as exc:  # noqa: BLE001
-        mapped = classify_exception(exc)
-        if runtime_config.demo_mode == "auto" and mapped.code in _FALLBACK_CODES:
-            return demo_service.demo_chat_completion(payload.get("messages") or [])
-        raise mapped

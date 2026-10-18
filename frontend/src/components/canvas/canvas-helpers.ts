@@ -3,6 +3,7 @@ import { getStroke } from 'perfect-freehand'
 import { gsap } from '@/lib/gsap'
 import { shouldReduceMotion, EASE } from '@/lib/motion'
 import type { CanvasElement, CanvasState } from '@/types/models'
+import { annotationsBBox, indexBadgeRadius, toDoodleStroke, type AnnotationObject } from './annotations'
 
 /** Excalidraw API 的最小接口约束（避免耦合深层类型）。 */
 export interface ExcalidrawApiLike {
@@ -101,6 +102,14 @@ export function buildImageElement(params: {
   height: number
   assetId?: string
   name?: string
+  /**
+   * 这张图来自哪个 URL。
+   *
+   * 登记表（localStorage 的 placedUrls）按画布隔离、且可能被用户清掉，
+   * 只看登记表就无法判断「这张图到底还在不在画布上」。把来源 URL 写进元素本身，
+   * 判断「是否已落画布」就有了可靠依据，也才能避免同一张图被反复叠上去。
+   */
+  sourceUrl?: string
 }): CanvasElement {
   const now = Date.now()
   return {
@@ -135,6 +144,7 @@ export function buildImageElement(params: {
     customData: {
       ...(params.assetId ? { assetId: params.assetId } : {}),
       ...(params.name ? { name: params.name } : {}),
+      ...(params.sourceUrl ? { sourceUrl: params.sourceUrl } : {}),
     },
   }
 }
@@ -174,6 +184,7 @@ export async function addImageToCanvas(
     url: string
     assetId?: string
     name?: string
+    sourceUrl?: string
     width?: number
     height?: number
     x?: number
@@ -199,6 +210,7 @@ export async function addImageToCanvas(
     height,
     assetId: params.assetId,
     name: params.name,
+    sourceUrl: params.sourceUrl ?? params.url,
   })
   api.updateScene({ elements: [...elements, element] })
   return element
@@ -272,31 +284,43 @@ export function adoptImageFiles(
   return { elements: nextElements, files: outFiles }
 }
 
+/**
+ * 场景里已经存在的图片来源 URL 集合（`customData.sourceUrl`）。
+ *
+ * 读不到场景时返回 null，由调用方决定怎么保守处理。
+ */
+export function sceneSourceUrls(api: ExcalidrawApiLike | null): Set<string> | null {
+  if (!api) return null
+  try {
+    const set = new Set<string>()
+    for (const el of api.getSceneElements()) {
+      const source = (el.customData as { sourceUrl?: unknown } | undefined)?.sourceUrl
+      if (el.type === 'image' && typeof source === 'string' && source) set.add(source)
+    }
+    return set
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 判断一批结果图里哪些还没进画布（自动落图用）。
+ *
+ * 只做**防重复**，不做「补回」：用户删掉的图不能被自动复活，
+ * 否则「删掉 → 刷新 → 图又回来了」比重复投放更让人困惑。
+ * 已经登记过的直接跳过；没登记但场景里已经有同一张（登记表被清 / 换了设备）也跳过。
+ */
 export function unplacedResultUrls(
   api: ExcalidrawApiLike | null,
   urls: string[],
   placed: string[]
 ): string[] {
   const placedSet = new Set(placed)
-  let liveFiles: Set<string> | null = null
-  if (api) {
-    try {
-      liveFiles = new Set(
-        api
-          .getSceneElements()
-          .map((el) => (el.type === 'image' && el.fileId ? String(el.fileId) : ''))
-          .filter(Boolean)
-      )
-    } catch {
-      liveFiles = null
-    }
-  }
+  const liveSources = sceneSourceUrls(api)
   return urls.filter((url) => {
-    if (!placedSet.has(url)) return true
-    if (!liveFiles) return false
-    const match = url.match(/files\/([^/?#]+)\//)
-    if (!match) return false
-    return !liveFiles.has(match[1])
+    if (placedSet.has(url)) return false
+    if (liveSources?.has(url)) return false
+    return true
   })
 }
 
@@ -452,51 +476,42 @@ function focusViewportFor(
  * 每帧 setState 会让整个工作台重渲染，画布拖动必然掉帧。
  */
 /**
- * 视口缩放（真正生效的写法）。
+ * 视口缩放与平移。
  *
- * 实测结论：本版本 Excalidraw 对 `updateScene({ appState: { zoom, scrollX, scrollY } })`
- * 只认 **scrollX/scrollY 的百分比字符串**（`'285.0%'`，与 JSX 里 style 的写法一致）；
- * 传数字会被忽略。zoom 则必须在同一个 apply 里用对象 `{ value }` 一起给出，
- * 两者都写对时缩放与定位都能落到位。
+ * Excalidraw 的 `appState.scrollX/scrollY` 是**数字**（见其 `AppState` 类型，
+ * `getVisibleSceneBounds`、`viewportCoordsToSceneCoords` 都直接拿它做算术）。
+ * 历史实现写入的是 `'285.0%'` 这种百分比字符串，它会污染整个坐标换算：
+ * 可视范围算成 NaN → 场景里所有元素都被判定为「不在视口内」而被裁掉，
+ * 于是刷新后画布看上去是空的（内容其实都在，只是渲染不出来）；
+ * 手绘时新建元素的坐标同样变成 NaN，落笔位置随之跑偏。
+ * 所以这里必须写数字，zoom 用对象 `{ value }` 的形式一并给出。
  */
 function applyViewport(api: ExcalidrawApiLike, zoom: number, scrollX: number, scrollY: number) {
   api.updateScene({
     appState: {
       zoom: { value: zoom },
-      scrollX: `${scrollX.toFixed(2)}%`,
-      scrollY: `${scrollY.toFixed(2)}%`,
+      scrollX: Math.round(scrollX * 100) / 100,
+      scrollY: Math.round(scrollY * 100) / 100,
     },
   })
 }
 
-/**
- * 用滚轮事件驱动 Excalidraw 自己缩放（保留能力，当前未使用）。
- *
- * 为什么要绕这一圈：本版本 Excalidraw 不接受程序化写入的 zoom —— updateScene
- * 里的 zoom 会被它当成「用户正在缩放」而重算水平偏移，最终把内容推出画面
- * （实测：写入 zoom=0.55 后视口只剩左半张图）。唯一稳定可靠的方式是发一个
- * ctrl+wheel 给它，让它按自己的缩放逻辑居中。
- */
-function wheelZoomBy(api: ExcalidrawApiLike, steps: number) {
-  const el = document.querySelector('.cs-canvas-card .excalidraw')
-  if (!el || steps === 0) return
-  const rect = el.getBoundingClientRect()
-  const clientX = rect.left + rect.width / 2
-  const clientY = rect.top + rect.height / 2
-  const deltaY = steps > 0 ? 80 : -80
-  for (let i = 0; i < Math.abs(steps); i += 1) {
-    el.dispatchEvent(
-      new WheelEvent('wheel', {
-        deltaY,
-        deltaMode: 0,
-        ctrlKey: true,
-        bubbles: true,
-        cancelable: true,
-        clientX,
-        clientY,
-      })
-    )
-  }
+/** 当前视口在 scene 坐标系里覆盖的矩形（minimap 画取景框 / 定位用）。 */
+export function viewportSceneBox(
+  api: ExcalidrawApiLike | null
+): { x: number; y: number; w: number; h: number } | null {
+  if (!api) return null
+  const v = viewportMetrics(api)
+  if (v.width <= 0 || v.height <= 0) return null
+  return { x: -v.scrollX, y: -v.scrollY, w: v.width / v.zoom, h: v.height / v.zoom }
+}
+
+/** 把视口平移到某个 scene 坐标点（保持当前 zoom），minimap 点击/拖拽定位用。 */
+export function centerOnScenePoint(api: ExcalidrawApiLike | null, x: number, y: number): void {
+  if (!api || !Number.isFinite(x) || !Number.isFinite(y)) return
+  const v = viewportMetrics(api)
+  if (v.width <= 0 || v.height <= 0) return
+  applyViewport(api, v.zoom, v.width / 2 / v.zoom - x, v.height / 2 / v.zoom - y)
 }
 
 export function focusSceneBox(
@@ -606,12 +621,8 @@ export function fitSceneToViewport(
   }
   const fit = Math.min((v.width - padding * 2) / box.w, (v.height - padding * 2) / box.h) * ratio
   const zoom = Math.round(Math.min(maxZoom, Math.max(minZoom, fit)) * 100) / 100
-  /**
-   * 1) 先把纵向对齐（纵向的 scroll 写入是可靠的）；
-   * 2) 再用 ctrl+wheel 让 Excalidraw 自己缩放到目标值。
-   */
+  // 把内容包围盒的中心摆到视口中心：scene 中心 + 偏移 = 视口中心 / zoom
   applyViewport(api, zoom, v.width / 2 / zoom - (box.x + box.w / 2), v.height / 2 / zoom - (box.y + box.h / 2))
-  console.warn('[fitz]', JSON.stringify({ zoom, curr: viewportMetrics(api).zoom }))
 }
 
 /** 空画布 scene。 */
@@ -807,6 +818,155 @@ export function paintBrushStroke(
   ctx.globalCompositeOperation = 'source-over'
   ctx.fillStyle = BRUSH_FILL
   ctx.fill(strokeOutlinePath(stroke, w, h))
+}
+
+/** 箭头头部尺寸（像素）：跟着线宽走，细线也有可见的三角 */
+function arrowHeadSize(lineWidth: number): number {
+  return Math.max(9, Math.round(lineWidth * 4.5))
+}
+
+/**
+ * 把标注对象（涂鸦 / 边框 / 标记）画进 2D 上下文。
+ *
+ * ⚠️ **只允许画进 guideCanvas**（给上游看的视觉提示）。
+ * `baseCanvas` 是保真层——后端合成时以它为底图，把标注画进去等于污染原图。
+ * 这个函数刻意只接收 `ctx`（不接收 canvas 元素），调用方在传参时就必须
+ * 自己确认「传的是 guide 的 ctx」，见 `buildEditPayload` 里唯一的一处调用。
+ *
+ * 视觉口径与选区编号框一致：白色打底 + 实色主体，保证在任何底色上都看得见。
+ */
+export function paintAnnotations(
+  ctx: CanvasRenderingContext2D,
+  items: AnnotationObject[],
+  w: number,
+  h: number
+) {
+  if (w <= 0 || h <= 0 || items.length === 0) return
+  ctx.save()
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+
+  for (const item of items) {
+    // 1) 涂鸦：与编辑层实时预览共用 perfect-freehand 轮廓，保证所见即所画
+    if (item.kind === 'doodle') {
+      paintStrokePath(ctx, toDoodleStroke(item), w, h)
+      continue
+    }
+
+    const lineWidth = Math.max(2, Math.round(item.width * w))
+
+    // 2) 边框：矩形 / 椭圆描边，支持实线与虚线
+    if (item.kind === 'border') {
+      const bx = item.box.x * w
+      const by = item.box.y * h
+      const bw = Math.max(1, item.box.w * w)
+      const bh = Math.max(1, item.box.h * h)
+      ctx.beginPath()
+      if (item.shape === 'ellipse') {
+        ctx.ellipse(bx + bw / 2, by + bh / 2, bw / 2, bh / 2, 0, 0, Math.PI * 2)
+      } else {
+        ctx.rect(bx, by, bw, bh)
+      }
+      ctx.setLineDash(item.dash === 'dashed' ? [lineWidth * 4, lineWidth * 3] : [])
+      ctx.globalCompositeOperation = 'source-over'
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)'
+      ctx.lineWidth = lineWidth * 2.4
+      ctx.stroke()
+      ctx.strokeStyle = item.color
+      ctx.lineWidth = lineWidth
+      ctx.stroke()
+      ctx.setLineDash([])
+      continue
+    }
+
+    // 3) 标记：箭头 / 序号 / 文字标签
+    if (item.kind === 'marker') {
+      const fx = item.from.x * w
+      const fy = item.from.y * h
+      if (item.shape === 'arrow') {
+        const tx = item.to.x * w
+        const ty = item.to.y * h
+        const angle = Math.atan2(ty - fy, tx - fx)
+        const head = arrowHeadSize(lineWidth)
+        // 线段止于箭头底部，避免线尖戳出三角
+        const bodyX = tx - Math.cos(angle) * head * 0.9
+        const bodyY = ty - Math.sin(angle) * head * 0.9
+        ctx.globalCompositeOperation = 'source-over'
+        ctx.setLineDash([])
+        // 白色打底：箭头常压在深色主体上，纯色线会「消失」
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)'
+        ctx.lineWidth = lineWidth * 2.4
+        ctx.beginPath()
+        ctx.moveTo(fx, fy)
+        ctx.lineTo(bodyX, bodyY)
+        ctx.stroke()
+        ctx.strokeStyle = item.color
+        ctx.lineWidth = lineWidth
+        ctx.beginPath()
+        ctx.moveTo(fx, fy)
+        ctx.lineTo(bodyX, bodyY)
+        ctx.stroke()
+        // 三角头
+        ctx.beginPath()
+        ctx.moveTo(tx, ty)
+        ctx.lineTo(
+          tx - Math.cos(angle - Math.PI / 7) * head,
+          ty - Math.sin(angle - Math.PI / 7) * head
+        )
+        ctx.lineTo(
+          tx - Math.cos(angle + Math.PI / 7) * head,
+          ty - Math.sin(angle + Math.PI / 7) * head
+        )
+        ctx.closePath()
+        ctx.fillStyle = item.color
+        ctx.fill()
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)'
+        ctx.lineWidth = Math.max(1, lineWidth * 0.5)
+        ctx.stroke()
+        continue
+      }
+
+      if (item.shape === 'index') {
+        const radius = Math.max(11, indexBadgeRadius(item) * w)
+        ctx.globalCompositeOperation = 'source-over'
+        ctx.setLineDash([])
+        ctx.beginPath()
+        ctx.arc(fx, fy, radius, 0, Math.PI * 2)
+        ctx.fillStyle = item.color
+        ctx.fill()
+        ctx.strokeStyle = 'rgba(255, 255, 255, 1)'
+        ctx.lineWidth = Math.max(2, radius * 0.16)
+        ctx.stroke()
+        const label = String(item.index ?? 1)
+        ctx.fillStyle = '#ffffff'
+        ctx.font = `bold ${Math.round(radius * 1.15)}px sans-serif`
+        ctx.fillText(label, fx, fy)
+        continue
+      }
+
+      // 文字标签：字号按归一化线宽换算（0.009 线宽 ≈ 1024 图上的 28px）
+      const fontSize = Math.max(12, Math.round(item.width * w * 3))
+      const text = item.text ?? ''
+      if (!text) continue
+      ctx.globalCompositeOperation = 'source-over'
+      ctx.setLineDash([])
+      ctx.font = `600 ${fontSize}px sans-serif`
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'bottom'
+      // 白色描边打底 + 实色字：标签常落在任意画面上，纯色字对比度不可控
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)'
+      ctx.lineWidth = Math.max(2, fontSize * 0.16)
+      ctx.strokeText(text, fx, fy)
+      ctx.fillStyle = item.color
+      ctx.fillText(text, fx, fy)
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+    }
+  }
+
+  ctx.restore()
 }
 
 /**
@@ -1015,8 +1175,17 @@ export async function buildEditPayload(params: {
    * 否则「画了一笔」会变成「挖掉整块矩形」，上游会把整块区域重绘。
    */
   brushRegions?: BrushRegionInput[]
+  /**
+   * 标注对象（边框 / 标记 / 涂鸦）。
+   *
+   * 它们**不进 `regions`、不进掩码**（PRD D3：不产出选区），只画进 guideFile
+   * 给上游做视觉提示。纯标注无选区时，用它们的并集包围盒兜底 `regions`，
+   * 保证上游只改标注附近（框外像素由后端从原图恢复）。
+   */
+  annotations?: AnnotationObject[]
 }): Promise<EditPayload> {
   const { dataUrl, regions, strokes } = params
+  const annotationItems = params.annotations ?? []
   const resp = await fetch(dataUrl)
   const baseBlob = await resp.blob()
   const bitmap = await createImageBitmap(baseBlob)
@@ -1056,6 +1225,8 @@ export async function buildEditPayload(params: {
     requested && requested.length > 0
       ? requested.filter((index) => index >= 0 && index < effectiveRegions.length)
       : effectiveRegions.map((_, index) => index)
+  // 标注对象（边框 / 标记 / 涂鸦）只画进指导图：baseCanvas 是保真层，画进去会污染原图
+  if (annotationItems.length > 0) paintAnnotations(guideCtx, annotationItems, w, h)
   let guideFile: File | null = null
   if (markIndexes.length > 0) {
     paintRegionMarks(
@@ -1065,7 +1236,12 @@ export async function buildEditPayload(params: {
       h
     )
   }
-  if (strokes.length > 0 || brushInputs.length > 0 || markIndexes.length > 0) {
+  if (
+    strokes.length > 0 ||
+    brushInputs.length > 0 ||
+    annotationItems.length > 0 ||
+    markIndexes.length > 0
+  ) {
     const guideOut: Blob | null = await new Promise((resolve) => guideCanvas.toBlob(resolve, 'image/png'))
     if (!guideOut) throw new Error('guide export failed')
     guideFile = new File([guideOut], 'edit-guide.png', { type: 'image/png' })
@@ -1095,7 +1271,15 @@ export async function buildEditPayload(params: {
     maskFile = new File([maskOut], 'edit-mask.png', { type: 'image/png' })
   }
 
-  const fallback = effectiveRegions.length === 0 ? strokesBBox(strokes) : null
+  /**
+   * 无选区时的兜底修改区域：
+   * 优先用**标注对象**的并集包围盒（R09：纯标注也能提交，且上游只改标注附近），
+   * 退回到涂鸦笔迹包围盒（历史路径，保持既有行为不回归）。
+   */
+  const fallback =
+    effectiveRegions.length === 0
+      ? annotationsBBox(annotationItems) ?? strokesBBox(strokes)
+      : null
   bitmap.close?.()
   return {
     baseFile: new File([baseOut], 'base.png', { type: 'image/png' }),

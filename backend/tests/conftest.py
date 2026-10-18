@@ -43,8 +43,14 @@ async def db():
         yield session
 
 
-async def register_and_activate(client, email: str, password: str = "Passw0rd123") -> str:
-    """辅助：注册 → 确认 → 登录，返回 access_token。"""
+async def register_and_activate(
+    client, email: str, password: str = "Passw0rd123", role: str = "pro"
+) -> str:
+    """辅助：注册 → 确认 → 登录，返回 access_token。
+
+    默认把账号设为 `pro`：本平台的画布 / 抠图 / AI 对话 / 润色 / 图生图 属 Pro 能力，
+    功能用例需要在「已解锁」的前提下验证行为；要验证普通用户受限，显式传 `role="user"`。
+    """
     from sqlalchemy import select
 
     from app.models.email_token import EmailToken
@@ -69,6 +75,15 @@ async def register_and_activate(client, email: str, password: str = "Passw0rd123
         ).scalars().first()
     resp = await client.post("/api/auth/verify-email", json={"token": token})
     assert resp.status_code == 200, resp.text
+    if role != "user":
+        from app.models.user import User as _User
+
+        async with AsyncSessionLocal() as session:
+            row = (
+                await session.execute(select(_User).where(_User.id == user_id))
+            ).scalar_one()
+            row.role = role
+            await session.commit()
     resp = await client.post("/api/auth/login", json={"email": email, "password": password})
     assert resp.status_code == 200, resp.text
     return resp.json()["data"]["access_token"]

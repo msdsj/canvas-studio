@@ -53,6 +53,15 @@ class GatewayClient:
             body = response.json()
         except Exception as exc:  # noqa: BLE001
             raise AppError(ErrorCode.UPSTREAM_ERROR, "网关返回非 JSON 响应") from exc
+        # 先确认这是网关自己的信封。网关所有正常响应都带 `code`；缺了就说明拿到的是
+        # FastAPI 原生错误体（例如 422 的 {"detail": ...}）。以前这里把缺 code 当成 OK、
+        # 顺手返回 data=None，于是「配置推送被 422 拒绝」在日志里只显示成一句成功。
+        if not isinstance(body, dict) or "code" not in body:
+            raise AppError(
+                ErrorCode.UPSTREAM_ERROR,
+                "网关返回了非预期结构",
+                data={"status": response.status_code, "body": str(body)[:300]},
+            )
         code = str(body.get("code", "OK"))
         if code == "OK":
             return body.get("data")

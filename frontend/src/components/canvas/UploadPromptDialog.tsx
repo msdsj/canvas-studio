@@ -85,8 +85,8 @@ export function UploadPromptDialog({
                 }}
                 className={
                   activeId === item.id
-                    ? 'rounded-full border border-brand bg-brand-subtle px-2.5 py-0.5 text-[11px] text-brand-text'
-                    : 'rounded-full border border-border px-2.5 py-0.5 text-[11px] text-text-secondary transition-colors hover:border-brand hover:text-brand-text'
+                    ? 'rounded-full border border-brand bg-brand-subtle px-2.5 py-0.5 text-micro text-brand-text'
+                    : 'rounded-full border border-border px-2.5 py-0.5 text-micro text-text-secondary transition-colors hover:border-brand hover:text-brand-text'
                 }
               >
                 {item.label}

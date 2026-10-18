@@ -61,6 +61,10 @@ class UpstreamTarget(BaseModel):
     base_url: str = ""
     api_key: str | None = None
     model: str | None = None
+    # 备用模型列表。接受**字符串或字符串数组**两种形态：backend 的 system_configs
+    # 里存的就是「逗号分隔的字符串」，直接按 list 声明会让每次配置推送都 422，
+    # 而网关配置推送失败是静默的（日志里只会看到 data=None），排查成本极高。
+    fallback_models: str | list[str] | None = None
 
 
 class ProxyConfig(BaseModel):

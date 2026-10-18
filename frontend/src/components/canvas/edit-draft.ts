@@ -1,3 +1,4 @@
+import type { AnnotationObject } from './annotations'
 import type { DoodleStroke, NormRegion } from './canvas-helpers'
 
 /**
@@ -39,6 +40,18 @@ export interface EditDraft {
   regions: EditRegion[]
   /** 标注涂鸦笔迹：和选区一起恢复，否则「框还在、标注没了」同样算丢内容 */
   strokes: DoodleStroke[]
+  /**
+   * 标注对象（边框 / 标记，R07/R08）。
+   *
+   * 与选区**同生命周期**：一起存取、一起清空。不放进 `regions` 是硬约束
+   * （否则 `paintUnionMask` 会把标注当成挖洞区，见 ADR-5）。
+   */
+  annotations: AnnotationObject[]
+  /**
+   * 统一编号器（R08）：序号标注的下一可用号。
+   * 必须跟着草稿一起存取——只存标注不存它，恢复后新序号会从 1 重来并与旧号撞车。
+   */
+  annotationSeq: number
   updatedAt: number
 }
 
@@ -84,14 +97,28 @@ export function readEditDraft(key: string | null | undefined): EditDraft | null 
 /** 写入草稿（空草稿直接删键，避免「恢复了 0 个区域」这种假状态）。 */
 export function writeEditDraft(
   key: string | null | undefined,
-  draft: { regions: EditRegion[]; strokes: DoodleStroke[] }
+  draft: {
+    regions: EditRegion[]
+    strokes: DoodleStroke[]
+    annotations?: AnnotationObject[]
+    annotationSeq?: number
+  }
 ): void {
   if (!key) return
-  if (draft.regions.length === 0 && draft.strokes.length === 0) {
+  const annotations = draft.annotations ?? []
+  // 空判断必须把 annotations 算进来：只画了边框/标记（无选区、无涂鸦）也是**有内容**的草稿，
+  // 漏掉这一项会让「画完边框切走再回来」变成「边框全没了」。
+  if (draft.regions.length === 0 && draft.strokes.length === 0 && annotations.length === 0) {
     drafts.delete(key)
     return
   }
-  drafts.set(key, { ...draft, updatedAt: Date.now() })
+  drafts.set(key, {
+    regions: draft.regions,
+    strokes: draft.strokes,
+    annotations,
+    annotationSeq: Math.max(1, Math.floor(draft.annotationSeq ?? 1)),
+    updatedAt: Date.now(),
+  })
   while (drafts.size > MAX_DRAFTS) {
     const oldest = drafts.keys().next().value
     if (oldest === undefined) break

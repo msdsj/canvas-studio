@@ -62,15 +62,24 @@ async def _project_thumbnail(db: AsyncSession, project_id: str) -> str | None:
 
 
 async def create_project(
-    db: AsyncSession, owner_id: str, name: str, description: str = ""
+    db: AsyncSession,
+    owner_id: str,
+    name: str,
+    description: str = "",
+    *,
+    with_default_canvas: bool = True,
 ) -> CanvasProject:
-    """新建项目并自动创建默认画布。"""
+    """新建项目；默认顺带建一块默认画布。
+
+    画布是 Pro 能力：普通用户不给建默认画布，免得留下一堆打不开的孤儿画布。
+    """
     project = CanvasProject(
         id=new_id(), owner_id=owner_id, name=name, description=description or ""
     )
     db.add(project)
     await db.flush()
-    await canvas_service.create_canvas(db, owner_id, project.id, name=f"{name} · 默认画布")
+    if with_default_canvas:
+        await canvas_service.create_canvas(db, owner_id, project.id, name=f"{name} · 默认画布")
     return project
 
 

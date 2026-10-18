@@ -644,10 +644,7 @@ export function StudioSidebar({
               alt={preview.prompt.slice(0, 40)}
               className="max-h-[74vh] max-w-[82vw] rounded-[6px] bg-mat object-contain shadow-drag"
             />
-            <figcaption className="flex max-w-[82vw] flex-col items-center gap-2">
-              <p className="line-clamp-2 text-center text-caption leading-relaxed text-white/70">
-                {preview.prompt}
-              </p>
+            <figcaption className="flex max-w-[82vw] flex-col items-center">
               <button
                 type="button"
                 onClick={() => {

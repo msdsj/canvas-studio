@@ -43,7 +43,7 @@ export function CanvasExport({ api }: { api: ExcalidrawApiLike | null }) {
         mimeType: format === 'jpg' ? 'image/jpeg' : 'image/png',
         quality: format === 'jpg' ? 0.92 : undefined,
         appState: {
-          ...(appState as never),
+          ...(appState as Record<string, unknown>),
           // 导出时铺满背景：JPG 不支持透明，统一白底避免出现黑块
           exportBackground: true,
           viewBackgroundColor: format === 'jpg' ? '#ffffff' : background,

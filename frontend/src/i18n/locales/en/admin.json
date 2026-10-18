@@ -6,6 +6,7 @@
     "pool": "Account Pool",
     "config": "System Config",
     "invites": "Invite Codes",
+    "pro_codes": "Pro Codes",
     "announcements": "Announcements",
     "logs": "Audit Logs"
   },
@@ -104,6 +105,20 @@
     "expires_at": "Expires",
     "copy": "Copy",
     "empty": "No invite codes"
+  },
+  "pro_codes": {
+    "create": "Generate codes",
+    "count": "How many",
+    "code": "Code",
+    "max_uses": "Max uses",
+    "used": "Used",
+    "status": "Status",
+    "note": "Note",
+    "expires_at": "Expires",
+    "copy": "Copy",
+    "empty": "No Pro codes",
+    "created": "Generated {{count}} code(s)",
+    "hint": "A Pro code upgrades a regular user to Pro, unlocking canvas, cutout, AI chat, prompt polish and image-to-image."
   },
   "announcements": {
     "create": "New announcement",

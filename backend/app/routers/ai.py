@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, require_pro
 from app.models.ai_provider import AIProvider
 from app.models.user import User
 from app.schemas.ai import (
@@ -22,7 +22,7 @@ from app.schemas.ai import (
     ProviderUpsertRequest,
     RelayStatusOut,
 )
-from app.services import design_skills, polish_service, relay_service
+from app.services import design_skills, polish_service, relay_chain, relay_service
 from app.utils.errors import AppError, ErrorCode, envelope
 from app.utils.ids import utcnow
 from app.utils.logging import get_logger
@@ -56,6 +56,11 @@ def _to_out(row: AIProvider) -> dict:
         "kind": row.kind or "compatible",
         "base_url": row.base_url or "",
         "model": row.model or "",
+        # 归一后再输出：用户存了什么就回什么（≤3、去重、不含主模型），
+        # 避免「配置页显示 4 个、实际只试 2 个」这种不可解释的差异
+        "fallback_models": relay_chain.normalize_fallback_models(
+            row.fallback_models, row.model or ""
+        ),
         "temperature": float(row.temperature if row.temperature is not None else 0.7),
         "max_tokens": int(row.max_tokens or 2048),
         "extra": row.extra or {},
@@ -130,6 +135,10 @@ async def create_provider(
         base_url=payload.base_url.strip(),
         api_key=payload.api_key.strip(),
         model=payload.model.strip(),
+        # 备用模型链：strip → 去空 → 去重 → 去掉等于主模型 → 截断到 3（存 3 试 2）
+        fallback_models=relay_chain.normalize_fallback_models(
+            payload.fallback_models, payload.model.strip()
+        ),
         temperature=payload.temperature,
         max_tokens=payload.max_tokens,
         extra=payload.extra or {},
@@ -172,6 +181,16 @@ async def update_provider(
     row.kind = payload.kind
     row.base_url = payload.base_url.strip()
     row.model = payload.model.strip()
+    if payload.fallback_models is not None:
+        # None = 不改这一项（PATCH 语义）；[] = 清空
+        row.fallback_models = relay_chain.normalize_fallback_models(
+            payload.fallback_models, row.model
+        )
+    else:
+        # 主模型可能被改了：把「等于新主模型」的备用项去掉，避免自我重复
+        row.fallback_models = relay_chain.normalize_fallback_models(
+            row.fallback_models, row.model
+        )
     row.temperature = payload.temperature
     row.max_tokens = payload.max_tokens
     row.extra = payload.extra or {}
@@ -293,7 +312,12 @@ async def test_draft_provider(
 async def relay_status(
     user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> dict:
-    """当前是否可用：前端据此显示「未配置」引导，而不是等生成时才发现。"""
+    """当前是否可用：前端据此显示「未配置」引导，而不是等生成时才发现。
+
+    额外给出 `fallback_models`（用户配置）与 `chain_preview`（**实际会遍历的链**）：
+    二者不同是刻意的（存 3 试 2 + 跨 provider 追加），配置页据此做「失败时依次尝试」
+    的预览，避免用户以为填了 3 个就会试 3 个。
+    """
     target = await relay_service.resolve(db, user.id)
     if target is None:
         return envelope(
@@ -304,6 +328,8 @@ async def relay_status(
                 skills_count=len(design_skills.SKILLS),
             ).model_dump()
         )
+    # 只构造链、不发请求：状态接口不能被上游的 90 秒读超时拖住
+    plan = await relay_chain.build_chain_plan(db, user.id, target)
     return envelope(
         RelayStatusOut(
             configured=True,
@@ -312,6 +338,9 @@ async def relay_status(
             model=target.model,
             kind=target.kind,
             skills_count=len(design_skills.SKILLS),
+            fallback_models=list(plan.fallback_models),
+            chain_preview=list(plan.models),
+            backup_provider=plan.backup_provider,
         ).model_dump()
     )
 
@@ -339,10 +368,13 @@ async def list_skills(
 @router.post("/polish")
 async def polish(
     payload: PolishRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """润色提示词：6 种模式 × 1–3 个变体；无中转站时走本地规则（engine=local）。"""
+    """润色提示词：6 种模式 × 1–3 个变体；无中转站时走本地规则（engine=local）。
+
+    提示词润色属于 Pro 功能：普通用户直接使用自己输入的原文，不会被改写。
+    """
     result = await polish_service.polish(
         db,
         user.id,

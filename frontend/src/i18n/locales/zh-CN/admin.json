@@ -6,6 +6,7 @@
     "pool": "号池管理",
     "config": "系统配置",
     "invites": "邀请码",
+    "pro_codes": "Pro 激活码",
     "announcements": "公告",
     "logs": "操作日志"
   },
@@ -104,6 +105,20 @@
     "expires_at": "过期时间",
     "copy": "复制",
     "empty": "暂无邀请码"
+  },
+  "pro_codes": {
+    "create": "生成激活码",
+    "count": "生成数量",
+    "code": "激活码",
+    "max_uses": "可用次数",
+    "used": "已使用",
+    "status": "状态",
+    "note": "备注",
+    "expires_at": "过期时间",
+    "copy": "复制",
+    "empty": "暂无激活码",
+    "created": "已生成 {{count}} 个激活码",
+    "hint": "激活码可让普通用户升级为 Pro，解锁画布、抠图、AI 对话、提示词润色与图生图。"
   },
   "announcements": {
     "create": "新建公告",

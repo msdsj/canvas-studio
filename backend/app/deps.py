@@ -49,6 +49,28 @@ async def require_admin(
     return user
 
 
+# 已解锁全部功能的角色：Pro 与管理员（管理员天然直通，无需激活码）
+UNLOCKED_ROLES = ("pro", "admin")
+
+
+def is_unlocked(user: User | None) -> bool:
+    """判断用户是否已解锁全部功能（画布 / 抠图 / AI 对话 / 润色 / 图生图）。"""
+    return bool(user and user.role in UNLOCKED_ROLES)
+
+
+async def require_pro(
+    user: User = Depends(get_current_user),
+) -> User:
+    """要求 Pro（或管理员）身份。
+
+    未激活时抛 `PRO_REQUIRED`（402），前端据此弹出「升级 / 激活 Pro」引导，
+    而不是展示一条冷冰冰的 403。
+    """
+    if not is_unlocked(user):
+        raise AppError(ErrorCode.PRO_REQUIRED)
+    return user
+
+
 async def pagination_params(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
@@ -59,5 +81,6 @@ async def pagination_params(
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 AdminUser = Annotated[User, Depends(require_admin)]
+ProUser = Annotated[User, Depends(require_pro)]
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 Pagination = Annotated[tuple[int, int], Depends(pagination_params)]

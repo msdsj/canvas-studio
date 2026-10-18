@@ -13,6 +13,7 @@ class ErrorCode(str, Enum):
 
     OK = "OK"
     QUOTA_INSUFFICIENT = "QUOTA_INSUFFICIENT"
+    PRO_REQUIRED = "PRO_REQUIRED"
     UNAUTHORIZED = "UNAUTHORIZED"
     FORBIDDEN = "FORBIDDEN"
     UPSTREAM_ERROR = "UPSTREAM_ERROR"
@@ -25,11 +26,15 @@ class ErrorCode(str, Enum):
     VALIDATION_ERROR = "VALIDATION_ERROR"
     NOT_FOUND = "NOT_FOUND"
     INTERNAL_ERROR = "INTERNAL_ERROR"
+    # 上游返回的响应体不是可用的数据（网页 / 空体 / 截断 / 结构不对）。
+    # 只新增这一个码：其余 14 个复用既有语义，保证一期错误码行为零变化（ADR-7）。
+    UPSTREAM_FORMAT_ERROR = "UPSTREAM_FORMAT_ERROR"
 
 
 # 错误码 → HTTP 状态码
 ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.QUOTA_INSUFFICIENT: 402,
+    ErrorCode.PRO_REQUIRED: 402,
     ErrorCode.UNAUTHORIZED: 401,
     ErrorCode.FORBIDDEN: 403,
     ErrorCode.UPSTREAM_ERROR: 502,
@@ -42,12 +47,14 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.VALIDATION_ERROR: 422,
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.INTERNAL_ERROR: 500,
+    ErrorCode.UPSTREAM_FORMAT_ERROR: 502,
 }
 
 # 错误码 → 默认中文文案（用户可见，禁止出现「上游 / 网关 / 号池 / 代理 / 服务器」等内部词）
 ERROR_MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.OK: "成功",
     ErrorCode.QUOTA_INSUFFICIENT: "这次需要的额度不够了，去「用量」看看明细",
+    ErrorCode.PRO_REQUIRED: "这是 Pro 功能，激活 Pro 后就能用了",
     ErrorCode.UNAUTHORIZED: "登录状态过期了，重新登录就能继续",
     ErrorCode.FORBIDDEN: "这部分内容你没有权限",
     ErrorCode.UPSTREAM_ERROR: "图片没生成出来，额度已经退回给你",
@@ -60,6 +67,9 @@ ERROR_MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.VALIDATION_ERROR: "填写的内容需要调整一下",
     ErrorCode.NOT_FOUND: "没找到你要的内容",
     ErrorCode.INTERNAL_ERROR: "服务开了个小差，稍等片刻再试",
+    # 兜底文案：正常情况下前端按 `data.reason` 渲染 i18n 文案，这句不会上屏。
+    # 刻意不含 json / html / HTTP / 异常类名（R01 硬性要求）。
+    ErrorCode.UPSTREAM_FORMAT_ERROR: "这次没能拿到可用的结果，换一个模型再试一次",
 }
 
 

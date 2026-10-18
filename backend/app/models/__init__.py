@@ -8,6 +8,7 @@ from app.models.chat import ChatMessage, ChatSession
 from app.models.email_token import EmailToken
 from app.models.generation import GenerationTask
 from app.models.invite import InviteCode
+from app.models.pro_code import ProCode
 from app.models.project import CanvasProject
 from app.models.quota import QuotaTransaction
 from app.models.skill import SkillRun
@@ -25,6 +26,7 @@ __all__ = [
     "EmailToken",
     "GenerationTask",
     "InviteCode",
+    "ProCode",
     "CanvasProject",
     "QuotaTransaction",
     "SkillRun",

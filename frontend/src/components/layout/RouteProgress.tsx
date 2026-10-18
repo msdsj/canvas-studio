@@ -15,7 +15,7 @@ import { shouldReduceMotion } from '@/lib/motion'
  * - 淡出用 opacity，并延迟 120ms 复位 scaleX，避免"闪一下再消失"
  */
 export function RouteProgress() {
-  const isLoading = useRouterState({ select: (s) => s.isLoading || s.isTransitioning })
+  const isLoading = useRouterState({ select: (s) => s.isLoading })
   const barRef = useRef<HTMLDivElement>(null)
   const doneRef = useRef<gsap.core.Tween | null>(null)
 

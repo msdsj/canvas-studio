@@ -17,25 +17,25 @@ export function EditCompareCard({ task, originalUrl, onAddToCanvas, onRegenerate
   const result = task.result_urls[0]
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-3">
+    <div className="rounded-md bg-surface p-3 shadow-sheet">
       <div className="mb-2 flex items-center gap-2">
-        <span className="text-sm text-text-secondary">{t('edit.compare')}</span>
+        <span className="text-ui text-text-secondary">{t('edit.compare')}</span>
         {task.demo && <Badge variant="warning">{t('task.result_demo')}</Badge>}
       </div>
       <div className="grid grid-cols-2 gap-3">
         <figure className="flex flex-col gap-1">
-          <img src={originalUrl} alt={t('edit.original')} className="aspect-square w-full rounded-md border border-border object-cover" />
-          <figcaption className="text-xs text-text-tertiary">{t('edit.original')}</figcaption>
+          <img src={originalUrl} alt={t('edit.original')} className="aspect-square w-full rounded-md object-cover ring-1 ring-inset ring-border-faint" />
+          <figcaption className="text-micro text-text-tertiary">{t('edit.original')}</figcaption>
         </figure>
         <figure className="flex flex-col gap-1">
           {result ? (
-            <img src={result} alt={t('edit.result')} className="aspect-square w-full rounded-md border border-border object-cover" />
+            <img src={result} alt={t('edit.result')} className="aspect-square w-full rounded-md object-cover ring-1 ring-inset ring-border-faint" />
           ) : (
-            <div className="flex aspect-square w-full items-center justify-center rounded-md border border-dashed border-border text-xs text-text-tertiary">
+            <div className="flex aspect-square w-full items-center justify-center rounded-md border border-dashed border-border-strong/70 text-micro text-text-tertiary">
               {t(`task.${task.status}`)}
             </div>
           )}
-          <figcaption className="text-xs text-text-tertiary">{t('edit.result')}</figcaption>
+          <figcaption className="text-micro text-text-tertiary">{t('edit.result')}</figcaption>
         </figure>
       </div>
       {task.status === 'succeeded' && (

@@ -66,10 +66,10 @@ export function GenerationSkeleton({ count = 3 }: { count?: number }) {
         <div
           key={index}
           data-frame
-          className="cs-breathe-edge relative h-[84px] w-[84px] overflow-hidden rounded-[6px] cs-ghost-frame"
+          className="cs-breathe-edge relative h-[84px] w-[84px] overflow-hidden rounded-xs cs-ghost-frame"
         >
           {/* 相纸里的裁切线：暗示「这里将出现一张图」，比纯灰块有内容 */}
-          <span className="absolute inset-[7px] rounded-[3px] border border-dashed border-border-strong/50" />
+          <span className="absolute inset-[7px] rounded-xs border border-dashed border-border-strong/70" />
           <span className="absolute left-1/2 top-1/2 h-px w-2.5 -translate-x-1/2 -translate-y-1/2 bg-border-strong/60" />
           <span className="absolute left-1/2 top-1/2 h-2.5 w-px -translate-x-1/2 -translate-y-1/2 bg-border-strong/60" />
           {/* 扫描光带：青柠，极窄、极淡，只负责「正在动」 */}

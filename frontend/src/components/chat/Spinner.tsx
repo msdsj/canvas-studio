@@ -11,7 +11,7 @@ export function Spinner({ status }: { status?: 'queued' | 'running' | 'paused' }
         ? t('task.paused')
         : t('task.running')
   return (
-    <span className="inline-flex items-center gap-2 text-sm text-text-secondary">
+    <span className="inline-flex items-center gap-2 text-ui text-text-secondary">
       <BaseSpinner size={14} />
       {label}
     </span>

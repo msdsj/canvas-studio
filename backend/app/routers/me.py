@@ -8,8 +8,13 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models.user import User
 from app.schemas.quota import QuotaTransactionOut
-from app.schemas.user import ChangePasswordRequest, UserOut, UserUpdateRequest
-from app.services import auth_service, quota_service
+from app.schemas.user import (
+    ChangePasswordRequest,
+    ProRedeemRequest,
+    UserOut,
+    UserUpdateRequest,
+)
+from app.services import audit_service, auth_service, pro_service, quota_service
 from app.utils.errors import envelope
 from app.utils.pagination import normalize_page, paginated
 
@@ -58,6 +63,32 @@ async def logout_all(
     """登出全部设备。"""
     await auth_service.logout_all(db, user)
     return envelope({})
+
+
+@router.post("/pro/redeem")
+async def redeem_pro(
+    payload: ProRedeemRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """用激活码兑换 Pro 权限，成功后直接返回最新用户资料。"""
+    result = await pro_service.redeem(db, user, payload.code)
+    await audit_service.log(
+        db,
+        action="pro_redeem",
+        actor=user,
+        target_type="user",
+        target_id=user.id,
+        detail={"already_pro": result.get("already_pro", False)},
+    )
+    await db.commit()
+    await db.refresh(user)
+    return envelope(
+        {
+            "already_pro": result.get("already_pro", False),
+            "user": UserOut.model_validate(user).model_dump(),
+        }
+    )
 
 
 @router.get("/quota")

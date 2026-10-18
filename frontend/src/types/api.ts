@@ -3,6 +3,7 @@
 export type ErrorCode =
   | 'OK'
   | 'QUOTA_INSUFFICIENT'
+  | 'PRO_REQUIRED'
   | 'UNAUTHORIZED'
   | 'FORBIDDEN'
   | 'UPSTREAM_ERROR'

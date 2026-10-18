@@ -8,6 +8,7 @@ import type {
   Overview,
   PoolAccount,
   PoolStats,
+  ProCode,
   QuotaTransaction,
   SystemConfigItem,
 } from '@/types/models'
@@ -99,6 +100,20 @@ export const adminApi = {
   updateInvite: (id: string, status: 'active' | 'disabled') =>
     api.patch<InviteCode>(`/admin/invites/${id}`, { status }),
   deleteInvite: (id: string) => api.del<unknown>(`/admin/invites/${id}`),
+
+  // Pro 激活码
+  listProCodes: (query: PageQuery & { status?: string } = {}) => {
+    const params = new URLSearchParams()
+    params.set('page', String(query.page ?? 1))
+    params.set('size', String(query.size ?? 20))
+    if (query.status) params.set('status', query.status)
+    return api.get<PageData<ProCode>>(`/admin/pro-codes?${params.toString()}`)
+  },
+  createProCodes: (payload: { count: number; max_uses: number; note?: string; expires_at?: string | null }) =>
+    api.post<{ items: ProCode[] }>('/admin/pro-codes', payload),
+  updateProCode: (id: string, status: 'active' | 'disabled') =>
+    api.patch<ProCode>(`/admin/pro-codes/${id}`, { status }),
+  deleteProCode: (id: string) => api.del<unknown>(`/admin/pro-codes/${id}`),
 
   // 公告
   listAnnouncements: (query: PageQuery = {}) =>

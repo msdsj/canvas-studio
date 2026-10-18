@@ -1,6 +1,7 @@
 {
   "ok": "完成",
   "quota_insufficient": "这次需要的额度不够了，去「用量」看看明细",
+  "pro_required": "这是 Pro 功能，激活 Pro 后就能用了",
   "unauthorized": "登录状态过期了，重新登录就能继续",
   "forbidden": "这部分内容你没有权限",
   "upstream_error": "图片没生成出来，额度已经退回给你",

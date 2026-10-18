@@ -37,3 +37,9 @@ class ChangePasswordRequest(BaseModel):
 
     old_password: str
     new_password: str = Field(min_length=8, max_length=128)
+
+
+class ProRedeemRequest(BaseModel):
+    """激活 Pro 请求。"""
+
+    code: str = Field(min_length=4, max_length=64)

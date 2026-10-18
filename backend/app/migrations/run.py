@@ -38,6 +38,10 @@ async def _apply_column_patches() -> None:
     await _ensure_column("chat_sessions", "is_public", "is_public BOOLEAN DEFAULT 0")
     # 消息软删（对话列表加「全选删除」需要）
     await _ensure_column("chat_messages", "deleted_at", "deleted_at DATETIME")
+    # 中转站备用模型链（ADR-3）：0–3 个有序模型名。
+    # SQLite 的 ADD COLUMN 只接受常量默认值，'[]' 是常量字符串；
+    # 既有行读出来是 '[]'，SQLAlchemy 的 JSON 类型会 json.loads 成 []，无需回填。
+    await _ensure_column("ai_providers", "fallback_models", "fallback_models JSON DEFAULT '[]'")
 
 
 async def main() -> None:

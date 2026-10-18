@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Check, ChevronDown, Loader2 } from 'lucide-react'
+import { Check, Loader2, Quote, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { ComposeOption } from '@/lib/api/chat'
+import { VERBATIM_OPTION_ID, type ComposeOption } from '@/lib/api/chat'
 
 export type ClarifyState = 'pending' | 'choosing' | 'done' | 'voided'
 
@@ -20,8 +20,14 @@ interface ClarifyCardProps {
 /**
  * 歧义澄清卡：需求不明确时**停在这里**，由用户选一个方向或自己补充描述。
  *
- * 与「要 1 张还是 2 张」的确认卡不同，这里每个选项都带着**完整提示词**——
+ * 与「要 1 张还是 2 张」的确认卡不同，这里每个选项代表一个**画面方向**——
  * 用户选中即代表「就按这个方向画」，服务端直接拿去生图，不再二次改写。
+ * 选项背后的提示词属中间处理信息，不在这里展示。
+ *
+ * 选项控件（2026-10-18 重建）：
+ * - 弃用「圆点 radio」——在本产品的克制纸面语言里它像浏览器默认控件；
+ * - 改为「可整块点选的方案卡」：序号徽标 + 选中态青柠描边/底色 + 末尾对勾；
+ * - 第一个选项由服务端排序为最推荐，这里只负责标出「最推荐」，不改顺序。
  */
 export function ClarifyCard({
   runId,
@@ -34,7 +40,6 @@ export function ClarifyCard({
 }: ClarifyCardProps) {
   const [selected, setSelected] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [openPrompt, setOpenPrompt] = useState<string | null>(null)
 
   const settled = state === 'done'
   const voided = state === 'voided'
@@ -58,33 +63,48 @@ export function ClarifyCard({
   return (
     <div
       className={cn(
-        'rounded-[14px] border border-warning/40 bg-surface px-3 py-2.5',
+        'rounded-md bg-surface p-3 shadow-sheet',
         voided && 'opacity-60',
         className
       )}
       data-run-id={runId}
       aria-busy={busy}
     >
-      <div className="flex items-start gap-1.5">
-        <span className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
+      <div className="flex items-start gap-2">
+        <span className="relative mt-[7px] flex h-1.5 w-1.5 shrink-0 items-center justify-center">
+          {/* 暂停态脉冲：明确告诉用户"流程停在这里了"，而不是一个静态提示 */}
+          <span className="absolute h-1.5 w-1.5 animate-ping rounded-full bg-warning opacity-70" />
+          <span className="relative h-1.5 w-1.5 rounded-full bg-warning" />
+        </span>
         <div className="min-w-0 flex-1">
-          <p className="text-caption font-medium leading-snug text-text [overflow-wrap:anywhere]">
+          <p className="text-micro font-medium text-warning">已暂停，等你选择</p>
+          <p className="mt-0.5 text-caption font-medium leading-snug text-text [overflow-wrap:anywhere]">
             {reply}
           </p>
-          <p className="mt-0.5 text-micro text-text-tertiary">选定方向后开始生成</p>
+          <p className="mt-0.5 text-micro text-text-tertiary">
+            {settled || voided
+              ? '这次分析已经结束了'
+              : busy
+                ? '正在按你选的方案开始…'
+                : '选一个方向才会继续生图，我不会替你决定'}
+          </p>
         </div>
       </div>
 
-      <div className="mt-2 flex flex-col gap-1.5">
-        {options.map((option) => {
+      <div className="mt-2.5 flex flex-col gap-1.5">
+        {options.map((option, index) => {
           const isChosen = active === option.id
-          const promptOpen = openPrompt === option.id
+          // 最后一条固定是「直接用我的原话」：它不是一个"方案"，而是用户的退出权
+          const isVerbatim = option.id === VERBATIM_OPTION_ID
           return (
             <div
               key={option.id}
               className={cn(
-                'rounded-[12px] border bg-surface px-2.5 py-2 transition-colors',
-                isChosen ? 'border-brand' : 'border-border'
+                'rounded-sm px-2.5 py-2 transition-all',
+                isVerbatim && 'border-t border-border-faint pt-2',
+                isChosen
+                  ? 'bg-accent-soft ring-1 ring-accent-strong'
+                  : 'bg-surface ring-1 ring-inset ring-border-faint hover:bg-surface-hover'
               )}
             >
               <button
@@ -96,15 +116,33 @@ export function ClarifyCard({
               >
                 <span
                   className={cn(
-                    'mt-[3px] flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border',
-                    isChosen ? 'border-brand bg-brand text-white' : 'border-border-strong'
+                    'mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-micro font-semibold tabular-nums transition-colors',
+                    isChosen ? 'bg-accent text-accent-ink' : 'bg-bg-subtle text-text-tertiary'
                   )}
                 >
-                  {isChosen && <Check size={9} strokeWidth={3} />}
+                  {isChosen ? (
+                    <Check size={11} strokeWidth={3} />
+                  ) : isVerbatim ? (
+                    <Quote size={10} />
+                  ) : (
+                    index + 1
+                  )}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-caption font-medium text-text [overflow-wrap:anywhere]">
-                    {option.label}
+                  <span className="flex items-center gap-1.5">
+                    <span className="min-w-0 text-caption font-medium text-text [overflow-wrap:anywhere]">
+                      {option.label}
+                    </span>
+                    {index === 0 && !isVerbatim && (
+                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-accent/25 px-1.5 py-px text-micro font-medium text-accent-ink">
+                        <Sparkles size={9} /> 最推荐
+                      </span>
+                    )}
+                    {isVerbatim && (
+                      <span className="inline-flex shrink-0 items-center rounded-full bg-bg-subtle px-1.5 py-px text-micro font-medium text-text-tertiary">
+                        一字不改
+                      </span>
+                    )}
                   </span>
                   {option.description && (
                     <span className="mt-0.5 block text-micro leading-snug text-text-tertiary [overflow-wrap:anywhere]">
@@ -113,33 +151,12 @@ export function ClarifyCard({
                   )}
                 </span>
               </button>
-
-              {option.prompt && (
-                <div className="mt-1.5 pl-[22px]">
-                  <button
-                    type="button"
-                    onClick={() => setOpenPrompt(promptOpen ? null : option.id)}
-                    className="inline-flex items-center gap-1 text-[10px] text-text-tertiary hover:text-brand-text"
-                  >
-                    看看会用的提示词
-                    <ChevronDown
-                      size={10}
-                      className={cn('transition-transform', promptOpen && 'rotate-180')}
-                    />
-                  </button>
-                  {promptOpen && (
-                    <p className="mt-1 rounded-[8px] bg-bg-subtle px-2 py-1.5 text-[11px] leading-relaxed text-text-secondary [overflow-wrap:anywhere]">
-                      {option.prompt}
-                    </p>
-                  )}
-                </div>
-              )}
             </div>
           )
         })}
       </div>
 
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2.5 flex items-center gap-2">
         <Button
           size="sm"
           variant="primary"
@@ -157,8 +174,8 @@ export function ClarifyCard({
             '就按这个方向'
           )}
         </Button>
-        <span className="min-w-0 flex-1 text-micro leading-snug text-text-tertiary">
-          {voided ? '已作废' : settled ? '已开始生成' : ''}
+        <span className="min-w-0 flex-1 text-micro leading-snug text-text-tertiary [overflow-wrap:anywhere]">
+          {voided ? '已作废' : settled ? '已开始生成' : active ? '点主按钮才会开始生成' : '先选一个方向'}
         </span>
       </div>
     </div>

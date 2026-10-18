@@ -78,19 +78,19 @@ export function SkillLibraryPanel({ open, onOpenChange, onPick }: SkillLibraryPa
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg" className="p-0">
         <div className="flex max-h-[min(720px,calc(100dvh-96px))] flex-col">
-          <DialogHeader className="border-b border-border/60 px-6 py-4">
+          <DialogHeader className="border-b border-border-faint px-6 py-4">
             <DialogTitle className="flex items-center gap-2 text-base">
               <LibraryBig size={16} className="text-brand" />
               设计技能库
-              <span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[10px] font-normal text-text-tertiary">
+              <span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-micro font-normal text-text-tertiary">
                 {total} 项
               </span>
             </DialogTitle>
             <DialogDescription className="text-caption">选中后按这套参数出图</DialogDescription>
           </DialogHeader>
 
-          <div className="flex flex-col gap-2 border-b border-border/60 px-4 py-3">
-            <div className="flex items-center gap-2 rounded-[10px] border border-border bg-surface px-2.5 py-1.5">
+          <div className="flex flex-col gap-2 border-b border-border-faint px-4 py-3">
+            <div className="flex items-center gap-2 rounded-sm bg-surface px-2.5 py-1.5 shadow-sheet ring-1 ring-inset ring-border-faint">
               <Search size={14} className="shrink-0 text-text-tertiary" />
               <input
                 value={query}
@@ -111,7 +111,7 @@ export function SkillLibraryPanel({ open, onOpenChange, onPick }: SkillLibraryPa
                   onClick={() => setCategory(item.id)}
                 >
                   {item.name}
-                  <span className="ml-1 text-[10px] text-text-faint">{item.count}</span>
+                  <span className="ml-1 text-micro text-text-faint">{item.count}</span>
                 </CategoryChip>
               ))}
             </div>
@@ -121,7 +121,7 @@ export function SkillLibraryPanel({ open, onOpenChange, onPick }: SkillLibraryPa
             {loading && items.length === 0 && (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {[0, 1, 2, 3].map((index) => (
-                  <div key={index} className="h-[104px] animate-pulse rounded-[12px] bg-bg-subtle" />
+                  <div key={index} className="h-[104px] animate-pulse rounded-sm bg-bg-subtle" />
                 ))}
               </div>
             )}
@@ -143,13 +143,13 @@ export function SkillLibraryPanel({ open, onOpenChange, onPick }: SkillLibraryPa
                     onPick(skill)
                     onOpenChange(false)
                   }}
-                  className="group flex flex-col gap-1 rounded-[12px] border border-border bg-surface px-3 py-2.5 text-left transition-colors hover:border-brand hover:bg-brand-subtle/40"
+                  className="group flex flex-col gap-1 rounded-sm bg-surface px-3 py-2.5 text-left transition-colors shadow-sheet ring-1 ring-inset ring-border-faint hover:ring-brand hover:bg-brand-subtle/40"
                 >
                   <span className="flex items-center gap-1.5">
                     <span className="min-w-0 flex-1 truncate text-caption font-medium text-text">
                       {skill.name}
                     </span>
-                    <span className="shrink-0 rounded-full bg-bg-subtle px-1.5 py-0.5 text-[10px] text-text-tertiary">
+                    <span className="shrink-0 rounded-full bg-bg-subtle px-1.5 py-0.5 text-micro text-text-tertiary">
                       {categoryName[skill.category] ?? skill.category}
                     </span>
                   </span>
@@ -160,18 +160,18 @@ export function SkillLibraryPanel({ open, onOpenChange, onPick }: SkillLibraryPa
                     {skill.style_tags.slice(0, 3).map((tag) => (
                       <span
                         key={tag}
-                        className="rounded-full border border-border px-1.5 py-0.5 text-[10px] text-text-tertiary"
+                        className="rounded-full ring-1 ring-inset ring-border-faint px-1.5 py-0.5 text-micro text-text-tertiary"
                       >
                         {tag}
                       </span>
                     ))}
                     {skill.aspect && (
-                      <span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[10px] text-text-tertiary">
+                      <span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-micro text-text-tertiary">
                         {skill.aspect}
                       </span>
                     )}
                     {Object.keys(skill.slots ?? {}).length > 0 && (
-                      <span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[10px] text-text-tertiary">
+                      <span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-micro text-text-tertiary">
                         {Object.keys(skill.slots ?? {}).length} 项参数
                       </span>
                     )}
@@ -200,9 +200,9 @@ function CategoryChip({
       type="button"
       onClick={onClick}
       className={cn(
-        'inline-flex items-center rounded-full px-2.5 py-1 text-[11px] transition-colors',
+        'inline-flex items-center rounded-full px-2.5 py-1 text-micro transition-colors',
         active
-          ? 'bg-brand text-white'
+          ? 'bg-brand text-text-inverse'
           : 'bg-bg-subtle text-text-secondary hover:bg-surface-hover'
       )}
     >

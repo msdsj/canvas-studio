@@ -31,7 +31,7 @@ export function CanvasToolbar({
   const { t } = useTranslation('canvas')
 
   return (
-    <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-border/70 bg-surface-raised/95 p-1 shadow-lift backdrop-blur">
+    <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-surface-raised/95 p-1 shadow-lift ring-1 ring-border-faint backdrop-blur">
       <Tooltip>
         <TooltipTrigger asChild>
           <Button variant="ghost" size="icon-sm" aria-label={t('toolbar.add_image')} onClick={onAddImage}>

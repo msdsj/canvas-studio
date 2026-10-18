@@ -8,6 +8,7 @@ from app.routers.admin import (
     logs,
     overview,
     pool,
+    pro_codes,
     users,
 )
 
@@ -17,6 +18,7 @@ router.include_router(users.router)
 router.include_router(pool.router)
 router.include_router(config.router)
 router.include_router(invites.router)
+router.include_router(pro_codes.router)
 router.include_router(announcements.router)
 router.include_router(logs.router)
 

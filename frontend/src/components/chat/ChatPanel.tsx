@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Avatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -38,7 +39,7 @@ import {
   type SkillOption,
   type SkillStepState,
 } from '@/lib/api/chat'
-import { ApiError } from '@/lib/api/client'
+import { ApiError, apiUrl } from '@/lib/api/client'
 import { generateApi } from '@/lib/api/generate'
 import { events } from '@/lib/events'
 import { errorMessage } from '@/lib/errors'
@@ -46,15 +47,13 @@ import { parseServerTime } from '@/lib/utils'
 import { loadPlacedUrls, readNotifiedResults, writeNotifiedResults } from '@/lib/task-persistence'
 import { useUIStore } from '@/stores/ui'
 import { useComposerHandoff } from '@/stores/composer'
+import { useComposerRefs, MAX_COMPOSER_REFS, type ComposerRef } from '@/stores/composer-refs'
 import type { CanvasSelectionContext } from '@/types/selection'
 import { ChatMessage } from './ChatMessage'
 import { ChatTextarea, type ComposerAttachment } from './ChatTextarea'
 import { GenerationResultCard } from './GenerationResultCard'
-import { LatestResultDock } from './LatestResultDock'
-import { AnalysisSteps } from './AnalysisSteps'
 import { ConfirmCountCard, type ConfirmCardState } from './ConfirmCountCard'
 import { ClarifyCard, type ClarifyState } from './ClarifyCard'
-import { ThinkingTrace } from './ThinkingTrace'
 import { SkillLibraryPanel } from './SkillLibraryPanel'
 import { PolishPopover } from './PolishPopover'
 import { AIConfigDialog } from '@/components/ai/AIConfigDialog'
@@ -145,6 +144,24 @@ function upsertStep<T extends { id: string }>(steps: T[], next: T): T[] {
 }
 
 /**
+ * 生成过程中的轻量提示：只留一行「正在思考…」。
+ *
+ * 全链路思考的中间步骤（读懂需求 / 歧义检查 / 推导方案 …）属中间处理信息，
+ * 不展示；完成后这条提示也随之消失，结果直接以气泡形式落到对话里。
+ */
+function ThinkingBubble() {
+  return (
+    <div className="cs-bubble-in-left flex gap-2.5">
+      <Avatar name="AI" size={24} className="mt-1 shrink-0" />
+      <div className="inline-flex items-center gap-1.5 rounded-lg rounded-bl-xs bg-surface px-3.5 py-3 shadow-sheet ring-1 ring-inset ring-border-faint">
+        <Loader2 size={13} className="animate-spin text-text-tertiary" />
+        <span className="text-caption text-text-secondary">正在思考…</span>
+      </div>
+    </div>
+  )
+}
+
+/**
  * 侧边栏（生图工作区）：会话头 + 瀑布流消息 + 生成任务卡 + 输入区。
  *
  * 只有一条链路：**用户说需求 → 中转站分析 → 不明确就澄清 → 生成最终提示词 → 生图**。
@@ -191,8 +208,6 @@ export function ChatPanel({
   const [pending, setPending] = useState<PendingConfirm | null>(null)
   /** 「缺少底图」内联提示 */
   const [needsImage, setNeedsImage] = useState(false)
-  /** 底部「最近生成」展示位被用户手动关掉（只对本次会话生效，切会话/新结果会重新打开） */
-  const [latestDismissed, setLatestDismissed] = useState(false)
 
   /** 生图全链路：实时思考步骤 */
   const [composeSteps, setComposeSteps] = useState<ComposeStep[]>([])
@@ -202,6 +217,12 @@ export function ChatPanel({
   /** 参考图（粘贴 / 选择 / 上传） */
   const [refs, setRefs] = useState<ComposerAttachment[]>([])
   const [uploading, setUploading] = useState(false)
+  /** @ 引用图：画布点选 / 结果图带进来的底图（走全局 store，画布那一侧要能直接推） */
+  const composerRefs = useComposerRefs((s) => s.refs)
+  const removeComposerRef = useComposerRefs((s) => s.removeRef)
+  const clearComposerRefs = useComposerRefs((s) => s.clearRefs)
+  const refFocusSignal = useComposerRefs((s) => s.focusSignal)
+
   const [configOpen, setConfigOpen] = useState(false)
   /** 生图模型：只列 GPT（上游 2.5 有两个变体，不要混成同一个） */
   const [imageModel, setImageModel] = useState(
@@ -299,7 +320,6 @@ export function ChatPanel({
     setAnalysis(null)
     setPending(null)
     setNeedsImage(false)
-    setLatestDismissed(false)
     setComposeSteps([])
     setRefs([])
     // 切会话时上一个请求的收尾回调可能已经落在旧会话上：必须把提交态清掉，
@@ -496,12 +516,6 @@ export function ChatPanel({
     }
     return picked
   }, [orderedTasks])
-
-  /** 换了一条新结果就重新弹出展示位（用户此前关掉的只对旧结果生效）。 */
-  useEffect(() => {
-    if (!latestTask) return
-    setLatestDismissed(false)
-  }, [latestTask?.id])
 
   /**
    * 新结果 → 通知父级自动落画布。
@@ -769,7 +783,7 @@ export function ChatPanel({
         // 幂等命中：不能报「已开始生成」，否则用户会等一张永远不会新出现的图
         toast.info('同一需求刚提交过', '没有重复扣额度，结果在下方')
       } else {
-        toast.success('已开始生成', '提示词在思考过程里，可以复制或重新生成')
+        toast.success('已开始生成', '结果会出现在下面的对话里')
       }
       void refreshTasks()
       events.emit('tasks:changed')
@@ -782,7 +796,8 @@ export function ChatPanel({
   const submitCompose = async (
     content: string,
     allowDegraded = false,
-    refsOverride?: ComposerAttachment[]
+    refsOverride?: ComposerAttachment[],
+    mentionIds?: string[]
   ): Promise<boolean> => {
     if (!sessionId || composing) return false
     if (!content.trim()) {
@@ -815,7 +830,10 @@ export function ChatPanel({
         session_id: sessionId,
         content,
         canvas_id: canvasId,
-        image_refs: (refsOverride ?? refs).map((item) => item.id),
+        image_refs: [
+          ...(refsOverride ?? refs).map((item) => item.id),
+          ...(mentionIds ?? []),
+        ],
         allow_degraded: allowDegraded,
         model: imageModel,
       },
@@ -864,7 +882,47 @@ export function ChatPanel({
     }
   }
 
-  // 参考图：粘贴 / 拖拽 / 选择，统一先上传成资产再随请求带走
+  /**
+   * 把 @ 引用图解析成后端资产 id。
+   *
+   * 画布 / 结果图不一定有资产 id（结果图只有上游 URL、分享进来的图也没登记），
+   * 这时回传一次资产库，让图生图链路真的拿得到底图；单张失败不影响其余引用。
+   * 解析结果写回 store，下次同一张图再引用就不必重复上传。
+   */
+  const resolveMentionIds = async (list: ComposerRef[]): Promise<string[]> => {
+    const ids: string[] = []
+    for (const item of list) {
+      if (item.assetId) {
+        ids.push(item.assetId)
+        continue
+      }
+      try {
+        const response = await fetch(apiUrl(item.url))
+        const blob = await response.blob()
+        const file = new File([blob], `${item.label}.png`, { type: blob.type || 'image/png' })
+        const asset = await assetsApi.upload(file)
+        useComposerRefs.setState((state) => ({
+          refs: state.refs.map((refItem) =>
+            refItem.key === item.key ? { ...refItem, assetId: asset.id, url: asset.url } : refItem
+          ),
+        }))
+        ids.push(asset.id)
+      } catch {
+        // 拿不到资产就跳过这一张：宁可少一张底图，也不要让整次提交失败
+      }
+    }
+    return ids
+  }
+
+  /** 点结果图上的 @ → 作为引用插进输入框（可多选；重复点同一张只聚焦，不堆叠）。 */
+  const referenceImage = (url: string) => {
+    const added = useComposerRefs.getState().addRef({ key: url, url: apiUrl(url) })
+    if (!added) {
+      toast.warning(t('input.ref_limit', { max: MAX_COMPOSER_REFS }), t('input.ref_limit_hint'))
+    }
+  }
+
+  /** 参考图：粘贴 / 拖拽 / 选择，统一先上传成资产再随请求带走。 */
   const handleImageFiles = async (files: File[]) => {
     if (files.length === 0) return
     setUploading(true)
@@ -904,11 +962,14 @@ export function ChatPanel({
     }
 
     // 只有请求真的发出去才清空输入：被额度/并发拦下时不能吞掉用户写的内容
-    const started = await submitCompose(content)
+    // @ 引用图先落地成资产 id，再随原话一起提交（图生图链路靠它拿到底图）
+    const mentionIds = await resolveMentionIds(composerRefs)
+    const started = await submitCompose(content, false, undefined, mentionIds)
     if (!started) return
     setInput('')
     clearDraft()
     setRefs([])
+    clearComposerRefs()
   }
 
   // --------------------------------------------------------------------- //
@@ -1048,8 +1109,15 @@ export function ChatPanel({
     composeSteps.length === 0
 
   const analysisActive = Boolean(analysis?.active)
-  /** 画布上有选区：这句话应当被当成「编辑需求」而不是从零生成。 */
-  const hasSelection = (selection?.regions?.length ?? 0) > 0
+  /**
+   * 画布上有**真实的区域选区**：这句话应当被当成「编辑需求」而不是从零生成。
+   *
+   * 必须同时满足「有区域」与「每个区域都写了改法」——
+   * 只框了没写字时不算编辑需求，否则用户打的普通描述会被当成区域指令送进 analyze。
+   */
+  const hasSelection =
+    (selection?.regions?.length ?? 0) > 0 &&
+    (selection?.regions ?? []).every((region) => (region.prompt ?? '').trim().length > 0)
   const configured = relay?.configured ?? false
 
   /**
@@ -1109,7 +1177,7 @@ export function ChatPanel({
           title="新建对话"
           aria-label="新建对话"
           // 桌面端「新建」只在左栏出现一次；移动端左栏隐藏，这里才需要它
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text md:hidden"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text md:hidden"
         >
           <Plus size={15} />
         </button>
@@ -1119,7 +1187,7 @@ export function ChatPanel({
           onClick={() => setConfigOpen(true)}
           title={configured ? `中转站：${relay?.provider_name || ''} ${relay?.model || ''}` : '配置 AI 中转站'}
           aria-label="配置 AI 中转站"
-          className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text"
+          className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text"
         >
           <Settings2 size={15} />
           <span
@@ -1143,7 +1211,7 @@ export function ChatPanel({
         <button
           type="button"
           onClick={() => setConfigOpen(true)}
-          className="mx-2 mb-1 flex shrink-0 items-center gap-1.5 rounded-[10px] bg-warning-subtle px-2.5 py-1.5 text-left text-micro text-warning transition-opacity hover:opacity-90"
+          className="mx-2 mb-1 flex shrink-0 items-center gap-1.5 rounded-sm bg-warning-subtle px-2.5 py-1.5 text-left text-micro text-warning transition-opacity hover:opacity-90"
         >
           <Settings2 size={12} className="shrink-0" />
           <span className="min-w-0 truncate">未连接中转站 · 点此配置</span>
@@ -1157,9 +1225,9 @@ export function ChatPanel({
             {/* 会话加载：给骨架而不是空白，让"正在加载"可被感知 */}
             {messagesLoading && timeline.length === 0 && (
               <div className="flex flex-col gap-3 pt-2">
-                <div className="ml-auto h-12 w-3/5 animate-pulse rounded-[14px] bg-bg-subtle" />
-                <div className="h-24 w-4/5 animate-pulse rounded-[14px] bg-bg-subtle" />
-                <div className="ml-auto h-10 w-2/5 animate-pulse rounded-[14px] bg-bg-subtle" />
+                <div className="ml-auto h-12 w-3/5 animate-pulse rounded-md bg-bg-subtle" />
+                <div className="h-24 w-4/5 animate-pulse rounded-md bg-bg-subtle" />
+                <div className="ml-auto h-10 w-2/5 animate-pulse rounded-md bg-bg-subtle" />
                 <div className="mt-1 flex items-center gap-2 text-caption text-text-tertiary">
                   <Loader2 size={13} className="animate-spin" />
                   正在加载对话…
@@ -1169,7 +1237,7 @@ export function ChatPanel({
 
             {isEmpty && (
               <div className="flex flex-col items-center gap-3 px-2 py-12 text-center">
-                <span className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-accent-soft text-accent-ink">
+                <span className="flex h-12 w-12 items-center justify-center rounded-md bg-accent-soft text-accent-ink">
                   <Sparkles size={22} />
                 </span>
                 <p className="text-h3 font-semibold tracking-[-0.01em] text-text">
@@ -1184,7 +1252,7 @@ export function ChatPanel({
                       key={example}
                       type="button"
                       onClick={() => updateInput(example)}
-                      className="rounded-full border border-border px-2.5 py-1 text-caption text-text-secondary transition-all hover:-translate-y-0.5 hover:border-accent-strong/60 hover:bg-accent-soft hover:text-text"
+                      className="rounded-full bg-bg-subtle px-2.5 py-1 text-caption text-text-secondary transition-all hover:-translate-y-0.5 hover:bg-accent-soft hover:text-text"
                     >
                       {example}
                     </button>
@@ -1224,23 +1292,8 @@ export function ChatPanel({
                         />
                       </div>
                     )}
-                    {compose && compose.status !== 'clarify' && (
-                      <div className="ml-9">
-                        <ThinkingTrace
-                          steps={compose.steps}
-                          finalPrompt={compose.final_prompt}
-                          promptSource={compose.prompt_source}
-                          defaultExpanded={false}
-                        />
-                      </div>
-                    )}
                     {compose && compose.status === 'clarify' && (
                       <div className="ml-9 flex flex-col gap-2">
-                        <ThinkingTrace
-                          steps={compose.steps}
-                          promptSource={compose.prompt_source}
-                          defaultExpanded={false}
-                        />
                         <ClarifyCard
                           runId={compose.run_id}
                           reply={compose.reply}
@@ -1258,7 +1311,7 @@ export function ChatPanel({
                       </div>
                     )}
                     {compose && compose.status === 'unconfigured' && (
-                      <div className="ml-9 rounded-[14px] border border-warning/40 bg-surface px-3 py-2.5">
+                      <div className="ml-9 rounded-md bg-warning-subtle/60 px-3 py-2.5 shadow-sheet ring-1 ring-inset ring-warning/25">
                         <p className="text-caption font-medium text-text">先接上中转站</p>
                         <p className="mt-0.5 text-micro text-text-tertiary">填好地址与 Key 后重试这句话</p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -1286,55 +1339,29 @@ export function ChatPanel({
                   </div>
                 )
               }
+              // 生成结果直接以 AI 气泡落在对话里：左侧头像 + 结果卡，
+              // 不再另设侧栏大图位，也不再回显生图提示词。
               return (
-                <div key={entry.task.id} className="flex flex-col gap-2">
-                  {/* 生图提示词进时间线：用户原话必须可见，不能被卡片标题截断 */}
-                  <ChatMessage
-                    message={{
-                      id: `prompt-${entry.task.id}`,
-                      session_id: entry.task.session_id ?? '',
-                      user_id: entry.task.user_id,
-                      role: 'user',
-                      content: entry.task.prompt,
-                      attachments: [],
-                      created_at: entry.task.created_at,
-                    }}
-                  />
-                  {/* 这条任务已经提升到对话底部展示位 → 时间线里只留状态与操作，
-                      缩略图淡化（数据属性 + CSS），避免同一张图两处抢戏。
-                      这里不改 GenerationResultCard 本身，避免和其他并行改动冲突。 */}
-                  <div
-                    className="ml-9"
-                    data-docked={latestTask?.id === entry.task.id ? 'true' : undefined}
-                  >
+                <div key={entry.task.id} className="cs-bubble-in-left flex gap-2.5">
+                  <Avatar name="AI" size={24} className="mt-1 shrink-0" />
+                  <div className="min-w-0 flex-1">
                     <GenerationResultCard
                       task={entry.task}
-                      hidePrompt
                       placedUrls={placedUrls}
                       busy={busyTaskId === entry.task.id || composing}
                       onAddToCanvas={handleAddToCanvas}
                       onCancel={handleCancel}
                       onRegenerate={handleRegenerate}
                       onPreview={(task, url) => setPreview({ url, prompt: task.prompt })}
+                      onReference={referenceImage}
                     />
                   </div>
                 </div>
               )
             })}
 
-            {/* 画布选区编辑：实时分析块 */}
-            {analysis && (
-              <div className="ml-9">
-                <AnalysisSteps steps={analysis.steps} active={analysis.active} />
-              </div>
-            )}
-
-            {/* 纯生图：实时全链路思考（结果落库后由消息卡接管） */}
-            {(composing || composeSteps.length > 0) && (
-              <div className="ml-9">
-                <ThinkingTrace steps={composeSteps} active={composing} defaultExpanded />
-              </div>
-            )}
+            {/* 生成过程：只留一行轻量「正在思考…」，完成后随结果一起消失 */}
+            {(composing || analysisActive || composeSteps.length > 0) && <ThinkingBubble />}
 
             {/* 待确认方案：只允许一个，且绝不到点自动执行 */}
             {pending && (
@@ -1370,7 +1397,7 @@ export function ChatPanel({
 
             {/* 缺少底图：给一条明确的下一步，不要只留一句错误文字 */}
             {needsImage && (
-              <div className="ml-9 rounded-[14px] border border-border bg-surface px-3 py-2.5">
+              <div className="ml-9 rounded-md bg-surface px-3 py-2.5 shadow-sheet ring-1 ring-inset ring-border-faint">
                 <div className="flex items-start gap-1.5">
                   <span className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
                   <div className="min-w-0 flex-1">
@@ -1423,31 +1450,17 @@ export function ChatPanel({
           <button
             type="button"
             onClick={scrollToBottom}
-            className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-surface-raised px-3 py-1.5 text-caption text-text-secondary shadow-sheet hover:bg-surface-hover"
+            className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full bg-surface-raised px-3 py-1.5 text-caption text-text-secondary shadow-lift ring-1 ring-inset ring-border-faint hover:bg-surface-hover"
           >
             <ArrowDown size={13} /> {t('scroll.back_to_latest')}
             {newCount > 0 && (
-              <span className="ml-0.5 rounded-full bg-brand px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+              <span className="ml-0.5 rounded-full bg-accent px-1.5 py-0.5 text-micro font-semibold leading-none text-accent-ink">
                 {newCount}
               </span>
             )}
           </button>
         )}
       </div>
-
-      {/* 最近生成展示位：钉在消息区与输入框之间，是本次结果的「主展示」 */}
-      {latestTask && !latestDismissed && (
-        <LatestResultDock
-          task={latestTask}
-          placedUrls={placedUrls}
-          modelLabel={
-            IMAGE_MODELS.find((item) => item.id === imageModel)?.label ?? IMAGE_MODELS[0].label
-          }
-          onPreview={(task, url) => setPreview({ url, prompt: task.prompt })}
-          onAddToCanvas={handleAddToCanvas}
-          onClose={() => setLatestDismissed(true)}
-        />
-      )}
 
       <ChatTextarea
         value={input}
@@ -1466,7 +1479,10 @@ export function ChatPanel({
         attachments={refs}
         uploading={uploading}
         onRemoveAttachment={(id) => setRefs((prev) => prev.filter((item) => item.id !== id))}
+        mentions={composerRefs.map((item) => ({ key: item.key, url: item.url, label: item.label }))}
+        onRemoveMention={removeComposerRef}
         onImageFiles={(files) => void handleImageFiles(files)}
+        focusSignal={refFocusSignal}
         topRightSlot={
           <PolishPopover
             text={input}
@@ -1481,7 +1497,7 @@ export function ChatPanel({
             onClick={() => setSkillOpen(true)}
             title="设计技能库"
             aria-label="设计技能库"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] text-text-tertiary transition-colors hover:bg-brand-subtle hover:text-brand-text"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-brand-subtle hover:text-brand-text"
           >
             <LibraryBig size={15} />
           </button>
@@ -1517,7 +1533,7 @@ export function ChatPanel({
               <button
                 type="button"
                 title="选择生图模型"
-                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-micro font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
               >
                 <Sparkles size={11} />
                 {IMAGE_MODELS.find((item) => item.id === imageModel)?.short ?? 'GPT 2.0'}
@@ -1534,7 +1550,7 @@ export function ChatPanel({
                     <span className="text-caption text-text">{item.label}</span>
                     {imageModel === item.id && <Check size={12} className="ml-auto text-brand-text" />}
                   </span>
-                  <span className="font-mono text-[10px] text-text-faint">{item.id}</span>
+                  <span className="font-mono text-micro text-text-faint">{item.id}</span>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -1553,7 +1569,7 @@ export function ChatPanel({
 
       {preview && (
         <div
-          className="fixed inset-0 z-[1200] flex items-center justify-center bg-[rgba(8,10,18,0.78)] p-6"
+          className="fixed inset-0 z-[1200] flex items-center justify-center bg-scrim p-6"
           role="dialog"
           aria-modal="true"
           onClick={() => setPreview(null)}
@@ -1562,19 +1578,24 @@ export function ChatPanel({
             type="button"
             aria-label="关闭"
             onClick={() => setPreview(null)}
-            className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-[rgba(255,255,255,0.15)] text-white"
+            className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-scrim-text/15 text-scrim-text backdrop-blur-sm transition-colors hover:bg-scrim-text/25"
           >
             <X size={18} />
           </button>
-          <figure className="max-h-full max-w-full" onClick={(event) => event.stopPropagation()}>
+          {/*
+            预览只放图片本身（提示词是生成时的中间信息，不进预览）。
+            figure 用 flex 居中 + 图片 max-w/max-h 双约束：只写 max-h 时宽图会
+            横向溢出被裁掉两侧，看上去就是「图片没居中」。
+          */}
+          <figure
+            className="flex max-h-full max-w-full items-center justify-center"
+            onClick={(event) => event.stopPropagation()}
+          >
             <img
               src={preview.url}
               alt={preview.prompt.slice(0, 40)}
-              className="max-h-[78vh] max-w-[86vw] rounded-[3px] bg-mat object-contain shadow-lg"
+              className="max-h-[78vh] max-w-[86vw] rounded-xs bg-mat object-contain shadow-lg"
             />
-            <figcaption className="mt-2 max-w-[86vw] truncate text-center text-caption text-white/80">
-              {preview.prompt}
-            </figcaption>
           </figure>
         </div>
       )}

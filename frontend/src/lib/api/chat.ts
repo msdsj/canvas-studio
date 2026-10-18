@@ -153,6 +153,12 @@ export interface ComposeStep {
   items?: string[]
 }
 
+/**
+ * 「不做任何改写、直接用原话」的选项 id（与后端 compose_service.VERBATIM_OPTION_ID 对齐）。
+ * 后端会把它固定追加在选项列表末尾，前端据此渲染成兜底项，而不是普通方案。
+ */
+export const VERBATIM_OPTION_ID = 'verbatim'
+
 /** 澄清时给出的一个方向（带完整提示词，选中即用）。 */
 export interface ComposeOption {
   id: string
@@ -185,7 +191,7 @@ export interface ComposeResult {
   negative?: string
   size?: string
   skill_id?: string
-  prompt_source: 'relay' | 'template' | 'none'
+  prompt_source: 'relay' | 'template' | 'verbatim' | 'none'
   degraded: boolean
   image_refs?: string[]
   error_code?: string
@@ -214,13 +220,27 @@ export interface ComposeRunAttachment {
   chosen_option_id?: string
 }
 
+/**
+ * 取消息里的 compose_run 快照。
+ *
+ * 快照来自数据库，属**外部输入**：老版本落库的记录可能缺 `steps` / `options`，
+ * 直接 cast 出去会让下游（ThinkingTrace 的 `steps.reduce`）抛错，
+ * 进而把整个工作台打成错误页。所以在这里把数组字段补成安全默认值。
+ */
 export function pickComposeRun(attachments: unknown): ComposeRunAttachment | null {
   if (!Array.isArray(attachments)) return null
   for (const item of attachments) {
     if (!item || typeof item !== 'object') continue
     const candidate = item as { type?: unknown }
     if (candidate.type !== 'compose_run') continue
-    return item as ComposeRunAttachment
+    const run = item as ComposeRunAttachment
+    return {
+      ...run,
+      steps: Array.isArray(run.steps) ? run.steps : [],
+      options: Array.isArray(run.options) ? run.options : [],
+      tasks: Array.isArray(run.tasks) ? run.tasks : [],
+      task_ids: Array.isArray(run.task_ids) ? run.task_ids : [],
+    }
   }
   return null
 }

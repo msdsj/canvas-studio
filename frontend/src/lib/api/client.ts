@@ -102,6 +102,8 @@ async function doFetch(method: string, url: string, options: RequestOptions): Pr
     return undefined
   }
   if (envelope.code !== 'OK') {
+    // Pro 专属能力被拦下：交给全局监听方弹「激活 Pro」引导，而不是各处自己处理
+    if (envelope.code === 'PRO_REQUIRED') events.emit('pro:required')
     throw new ApiError(envelope.code, envelope.message || '请求失败', res.status)
   }
   return envelope.data

@@ -19,8 +19,9 @@ import { PoolRefreshProgress } from '@/components/admin/PoolRefreshProgress'
 import { adminApi } from '@/lib/api/admin'
 import { useToast } from '@/hooks/use-toast'
 import { errorMessage } from '@/lib/errors'
-import type { PoolAccount, PoolImportMethod, PoolStats } from '@/lib/api/admin'
+import type { PoolImportMethod } from '@/lib/api/admin'
 import type { PoolImportResult } from '@/lib/api/admin'
+import type { PoolAccount, PoolStats } from '@/types/models'
 
 export const Route = createFileRoute('/admin/pool')({
   component: AdminPoolPage,

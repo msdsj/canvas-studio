@@ -8,17 +8,22 @@ import {
   useState,
 } from 'react'
 import {
+  ArrowUpRight,
   Brush,
   Check,
+  Circle,
   Eraser,
   Frame,
+  Hash,
   Lasso,
   Loader2,
   PenLine,
   Redo2,
   RotateCcw,
   Sparkles,
+  Square,
   Trash2,
+  Type,
   Undo2,
   X,
 } from 'lucide-react'
@@ -36,6 +41,27 @@ import {
   type NormRegion,
 } from './canvas-helpers'
 import {
+  ANNOTATION_LABEL_MAX,
+  annotationStats,
+  annotationsBBox,
+  createBorderAnnotation,
+  createMarkerAnnotation,
+  nextAnnotationIndex,
+  translateAnnotation,
+  type AnnotationObject,
+  type Box,
+  type Pt,
+} from './annotations'
+import {
+  AnnotationHistory,
+  applyPayloadTo,
+  findPayload,
+  type HistoryDirection,
+  type HistoryOp,
+  type OpPayload,
+} from './annotation-history'
+import { AnnotationLayer } from './AnnotationLayer'
+import {
   editDraftKey,
   markRestoreNotified,
   readEditDraft,
@@ -45,15 +71,33 @@ import {
 } from './edit-draft'
 
 /**
- * 工具集合。
+ * 工具集合（R15：7 个工具分 3 组）。
  *
- * - `region` / `lasso`：矩形框选 / 自由套索，产出「选区 + 指令」；
- * - `brush`：**画笔自由选区**——像涂鸦一样画，松手即成为一个可填指令的选区，
- *   同一区域可以反复续画细节（笔迹合并、区域不增加）；
- * - `pen`：标注涂鸦，只是给上游的视觉提示，不构成选区；
+ * **选区组**（产出「选区 + 指令」，会进掩码）
+ * - `region` / `lasso`：矩形框选 / 自由套索；
+ * - `brush`：画笔自由选区——像涂鸦一样画，松手即成为一个可填指令的选区，
+ *   同一区域可以反复续画细节（笔迹合并、区域不增加）。
+ *
+ * **标注组**（只做视觉提示，**不产生选区、不进掩码、不弹指令气泡**）
+ * - `pen`：标注涂鸦；
+ * - `border`：矩形 / 椭圆描边（R07）；
+ * - `marker`：箭头 / 序号 / 文字标签（R08）。
+ *
+ * **擦除组**
  * - `eraser`：只擦标注笔迹，**不影响画笔选区**。
  */
-type Tool = 'region' | 'lasso' | 'brush' | 'pen' | 'eraser'
+type Tool = 'region' | 'lasso' | 'brush' | 'pen' | 'border' | 'marker' | 'eraser'
+
+/** 工具快捷键（R15：每个工具的 tooltip 都要带它） */
+const TOOL_SHORTCUTS: Record<Tool, string> = {
+  region: 'R',
+  lasso: 'L',
+  brush: 'B',
+  pen: 'P',
+  border: 'F',
+  marker: 'M',
+  eraser: 'E',
+}
 
 
 /**
@@ -176,6 +220,11 @@ interface ImageEditLayerProps {
     regions: NormRegion[]
     ops: EditOpPayload[]
     prompt: string
+    /**
+     * 标注计数（R09）：`{"border":2,"marker":3,"doodle":1}` 的 JSON 字符串。
+     * 后端只写日志、不入库——标注在提交时已合成进 guideFile，原对象没有复用价值。
+     */
+    annotation_stats?: string
   }) => void
   onDelete?: () => void
   onError?: (message: string) => void
@@ -302,11 +351,26 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
     const [color, setColor] = useState(COLORS[0])
     const [size, setSize] = useState(SIZES[1].value)
     const [regions, setRegions] = useState<EditRegion[]>([])
+    /** 标注对象（边框 / 标记）：**不进 regions**，不产出选区（PRD D3） */
+    const [annotations, setAnnotations] = useState<AnnotationObject[]>([])
+    /** 统一编号器（R08）：序号标注的下一可用号，删除不回收 */
+    const [annotationSeq, setAnnotationSeq] = useState(1)
+    /** R19 显隐开关：隐藏时数据保留，恢复后原位重现 */
+    const [annotationVisible, setAnnotationVisible] = useState(true)
+    const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
+    /** 边框子选项（矩形 / 椭圆 + 实线 / 虚线） */
+    const [borderShape, setBorderShape] = useState<'rect' | 'ellipse'>('rect')
+    const [borderDash, setBorderDash] = useState<'solid' | 'dashed'>('solid')
+    /** 标记子选项（箭头 / 序号 / 文字） */
+    const [markerShape, setMarkerShape] = useState<'arrow' | 'index' | 'label'>('arrow')
+    /** 文字标签的就地输入（未确认前不落对象：否则会出现空标签） */
+    const [labelDraft, setLabelDraft] = useState<{ x: number; y: number; text: string } | null>(null)
     const [draftRect, setDraftRect] = useState<NormRegion | null>(null)
     /** 套索正在绘制的顶点（归一化） */
     const [lassoPoints, setLassoPoints] = useState<Array<{ x: number; y: number }>>([])
     const [strokeCount, setStrokeCount] = useState(0)
-    const [canRedo, setCanRedo] = useState(false)
+    /** 撤销栈变化计数器：栈本身在 ref 里（避免每次 commit 都重建对象），靠它触发按钮重算 */
+    const [historyTick, setHistoryTick] = useState(0)
     const [safeSrc, setSafeSrc] = useState('')
     const [boxSize, setBoxSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
     const [analyzing, setAnalyzing] = useState(false)
@@ -362,15 +426,28 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
     const brushCanvasRef = useRef<HTMLCanvasElement>(null)
     const imgRef = useRef<HTMLImageElement>(null)
     const strokesRef = useRef<DoodleStroke[]>([])
-    const redoRef = useRef<DoodleStroke[]>([])
     const currentRef = useRef<DoodleStroke | null>(null)
     const drawingRef = useRef(false)
     /** 画笔当前正在画的一笔 */
     const brushStrokeRef = useRef<DoodleStroke | null>(null)
-    /** 画笔笔迹的加入顺序（撤销画笔按此 LIFO 回退） */
-    const brushHistoryRef = useRef<Array<{ regionId: string }>>([])
     /** 选区状态镜像：指针事件回调里需要读到最新值，避免闭包拿到旧数组 */
     const regionsRef = useRef<EditRegion[]>([])
+    /** 标注状态镜像（同上：拖拽回调里必须读到最新值） */
+    const annotationsRef = useRef<AnnotationObject[]>([])
+    /** 编号器镜像：序号标注在同一帧内连点两次也要拿到不同的号 */
+    const annotationSeqRef = useRef(1)
+    /** 显隐开关镜像：`redraw` 是稳定回调（依赖为空），只能通过 ref 读到最新开关 */
+    const annotationVisibleRef = useRef(true)
+    /** 边框绘制起点（归一化） */
+    const borderStartRef = useRef<Pt | null>(null)
+    /** 标记绘制起点（归一化） */
+    const markerStartRef = useRef<Pt | null>(null)
+    /** 正在拖动某个标注：`before` 是拖动开始前的对象快照（撤销栈的 move 载荷） */
+    const annotationDragRef = useRef<{ id: string; before: OpPayload<AnnotationObject> } | null>(null)
+    /** 统一撤销栈（R17）：标注 / 选区 / 笔迹共用一条 */
+    const historyRef = useRef<AnnotationHistory | null>(null)
+    /** 栈的应用回调走 ref：栈在首次渲染时创建，那时还没有闭包依赖问题 */
+    const applyHistoryOpRef = useRef<(op: HistoryOp, direction: HistoryDirection) => void>(() => {})
     /** 掩码用的底图位图缓存：只在 getMaskFile 时按需加载一次 */
     const maskBitmapRef = useRef<ImageBitmap | null>(null)
     /** 气泡内 textarea 的引用（提交校验失败时要聚焦到具体区域） */
@@ -386,9 +463,120 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
     const brushRafRef = useRef(0)
     const shakeTimersRef = useRef<number[]>([])
 
+    /**
+     * 三个集合的统一写入器。
+     * 先同步 ref 再 setState：指针回调里读的是 ref（闭包里的 state 是旧的），
+     * 两步必须在同一个函数里做，否则「刚加的对象马上拖动」会读到空数组。
+     */
+    const writeAnnotations = useCallback((next: AnnotationObject[]) => {
+      annotationsRef.current = next
+      setAnnotations(next)
+    }, [])
+    const writeRegions = useCallback((next: EditRegion[]) => {
+      regionsRef.current = next
+      setRegions(next)
+    }, [])
+    const writeStrokes = useCallback((next: DoodleStroke[]) => {
+      strokesRef.current = next
+      setStrokeCount(next.length)
+    }, [])
+
+    /**
+     * 撤销栈的**唯一落地处**：`undo` 用 `before` 还原，`redo`（含新变更）用 `after` 落地。
+     *
+     * - `annotation` / `region` 有 id → 按 id upsert（`applyPayloadTo`）；
+     * - `stroke` 没有 id → 按**对象引用**定位。笔迹对象从头到尾是同一个引用，
+     *   引用相等比下标更抗「跨目标撤销导致的顺序漂移」。
+     */
+    const applyHistoryOp = useCallback(
+      (op: HistoryOp, direction: HistoryDirection) => {
+        const target = direction === 'undo' ? op.before : op.after
+        if (op.target === 'annotation') {
+          writeAnnotations(
+            applyPayloadTo(
+              annotationsRef.current,
+              op.id,
+              target as OpPayload<AnnotationObject> | undefined,
+              (value) => value.id
+            )
+          )
+          // 被撤销掉的标注不能继续处于「选中」状态（否则删除按钮指向空对象）
+          setSelectedAnnotationId((prev) =>
+            prev && prev === op.id && !target ? null : prev
+          )
+          return
+        }
+        if (op.target === 'region') {
+          const next = applyPayloadTo(
+            regionsRef.current,
+            op.id,
+            target as OpPayload<EditRegion> | undefined,
+            (value) => value.id
+          )
+          writeRegions(next)
+          // 当前输入气泡指向的区域被撤销掉时必须收起来，否则气泡指向不存在的区域
+          setActiveRegionId((prev) => (prev && !next.some((item) => item.id === prev) ? null : prev))
+          return
+        }
+        const current = strokesRef.current
+        const from = direction === 'undo' ? op.after : op.before
+        if (!target) {
+          const at = from ? current.indexOf(from.value as DoodleStroke) : -1
+          writeStrokes(at >= 0 ? [...current.slice(0, at), ...current.slice(at + 1)] : current)
+          return
+        }
+        const index = Math.max(0, Math.min(target.index, current.length))
+        writeStrokes([
+          ...current.slice(0, index),
+          target.value as DoodleStroke,
+          ...current.slice(index),
+        ])
+      },
+      [writeAnnotations, writeRegions, writeStrokes]
+    )
+    applyHistoryOpRef.current = applyHistoryOp
+
+    if (!historyRef.current) {
+      historyRef.current = new AnnotationHistory({
+        onApply: (op, direction) => {
+          applyHistoryOpRef.current(op, direction)
+          // 栈内容变了：触发按钮的可用状态重算
+          setHistoryTick((tick) => tick + 1)
+        },
+      })
+    }
+    const history = historyRef.current
+
+    /** 记录一次变更并**立即应用**——所有增删改的唯一入口（禁止绕过它直接 setState） */
+    const commit = useCallback(
+      (op: HistoryOp, options?: { merge?: boolean }) => {
+        history.commit(op, options)
+      },
+      [history]
+    )
+    const undo = useCallback(() => {
+      history.undo()
+    }, [history])
+    const redo = useCallback(() => {
+      history.redo()
+    }, [history])
+    // historyTick 是「栈内容」的版本号：栈本身不可变引用，靠它触发重算
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const canUndo = useMemo(() => history.canUndo(), [history, historyTick])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const canRedo = useMemo(() => history.canRedo(), [history, historyTick])
+
     useEffect(() => {
       regionsRef.current = regions
     }, [regions])
+
+    useEffect(() => {
+      annotationsRef.current = annotations
+    }, [annotations])
+
+    useEffect(() => {
+      annotationSeqRef.current = annotationSeq
+    }, [annotationSeq])
 
     // 跨域图片转 objectURL：避免 canvas 被污染导致导出（toBlob）失败
     useEffect(() => {
@@ -440,19 +628,32 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
       const draft = readEditDraft(key)
       const nextRegions = draft?.regions ?? []
       const nextStrokes = draft?.strokes ?? []
+      const nextAnnotations = draft?.annotations ?? []
       setRegions(nextRegions)
       regionsRef.current = nextRegions
       strokesRef.current = nextStrokes
-      // 画笔撤销历史按区域顺序重建：恢复后「撤销画笔」仍然可用（跨区域交错会退化为区域顺序）
-      const history: Array<{ regionId: string }> = []
-      for (const item of nextRegions) {
-        if (item.kind !== 'brush') continue
-        for (let i = 0; i < (item.strokes?.length ?? 0); i += 1) history.push({ regionId: item.id })
-      }
-      brushHistoryRef.current = history
-      redoRef.current = []
+      annotationsRef.current = nextAnnotations
+      setAnnotations(nextAnnotations)
+      /**
+       * 编号器初值 = `regions.length + 1`（R08 统一编号器：区域永远 1..n，标注永远 n+1..）。
+       * 草稿里存了更靠后的号时取更大的那个——删除不回收号码，回退会让「第 3 处」变回「第 2 处」。
+       */
+      const nextSeq = Math.max(draft?.annotationSeq ?? 1, nextRegions.length + 1)
+      annotationSeqRef.current = nextSeq
+      setAnnotationSeq(nextSeq)
+      setAnnotationVisible(true)
+      setSelectedAnnotationId(null)
+      setLabelDraft(null)
+      setBorderShape('rect')
+      setBorderDash('solid')
+      setMarkerShape('arrow')
+      /**
+       * 切图必须清空撤销栈：A 图的 op 拿到 B 图上执行（同 id 恰好撞上或插到 B 的位置）
+       * 是最难排查的一类数据错乱，宁可从零开始。
+       */
+      historyRef.current?.clear()
+      setHistoryTick((tick) => tick + 1)
       setStrokeCount(nextStrokes.length)
-      setCanRedo(false)
       setDraftRect(null)
       setLassoPoints([])
       lassoRef.current = []
@@ -461,6 +662,9 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
       brushStrokeRef.current = null
       drawingRef.current = false
       regionStartRef.current = null
+      borderStartRef.current = null
+      markerStartRef.current = null
+      annotationDragRef.current = null
       setComposerOpen(true)
       setThinking([])
       setActiveRegionId(null)
@@ -468,18 +672,24 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
       setDrafting(false)
       hydratedKeyRef.current = key
       // 同一张图每次会话只提示一次「已恢复」，反复进出不刷屏
-      if (nextRegions.length > 0 && markRestoreNotified(key)) {
-        noticeRef.current?.(`已恢复上次的 ${nextRegions.length} 个选区`)
+      const restoredTotal = nextRegions.length + nextAnnotations.length + nextStrokes.length
+      if (restoredTotal > 0 && markRestoreNotified(key)) {
+        noticeRef.current?.(
+          nextRegions.length > 0
+            ? `已恢复上次的 ${nextRegions.length} 个选区`
+            : `已恢复上次的 ${nextAnnotations.length + nextStrokes.length} 处标注`
+        )
       }
       // 依赖里只放 open / draftKey：onNotice 是内联函数，放进依赖会导致每次渲染都重置
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, draftKey])
 
     /**
-     * 草稿落盘：选区 / 每区提示词 / 标注一变就写回。
+     * 草稿落盘：选区 / 每区提示词 / 涂鸦 / 标注 / 编号器一变就写回。
      *
      * 守卫 `regionsRef.current !== regions` 很关键：切图那一帧，`regions` 还是上一张图的
      * 旧数组，而水合刚把 regionsRef 换成新图的——此时写回会把 A 图的选区灌进 B 图的草稿。
+     * `annotations` 同理（它比选区更容易漏，因为它是后加的）。
      */
     useEffect(() => {
       if (!open) return
@@ -487,8 +697,14 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
       if (!key) return
       if (hydratedKeyRef.current !== key) return
       if (regionsRef.current !== regions) return
-      writeEditDraft(key, { regions, strokes: strokesRef.current })
-    }, [regions, strokeCount, open, draftKey])
+      if (annotationsRef.current !== annotations) return
+      writeEditDraft(key, {
+        regions,
+        strokes: strokesRef.current,
+        annotations,
+        annotationSeq,
+      })
+    }, [regions, strokeCount, annotations, annotationSeq, open, draftKey])
 
     // 笔迹恢复 / 撤销重做后重绘标注层（regions 变化只重绘画笔层，不覆盖标注层）
     useEffect(() => {
@@ -569,6 +785,8 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, w, h)
       if (w <= 0 || h <= 0) return
+      // R19：显隐开关关掉时涂鸦也不画（数据仍保留在 strokesRef 里，打开即原位重现）
+      if (!annotationVisibleRef.current) return
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
       // 与导出标注图共用同一套笔迹算法（perfect-freehand），保证所见即所得
@@ -622,11 +840,18 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
       brushStrokeRef.current = null
       currentRef.current = null
       drawingRef.current = false
+      // 边框 / 标记 / 文字标签 / 标注拖动：全部在同一个入口复位
+      // （Esc 与 pointercancel 必须完全等价，否则「按 Esc 没事、来电却多出个框」这类
+      //   只在特定设备复现的差异会一直存在）
+      borderStartRef.current = null
+      markerStartRef.current = null
+      annotationDragRef.current = null
+      setLabelDraft(null)
       setDraftRect(null)
       setLassoPoints([])
       setDrafting(false)
-      // 重绘两层：把「正在画的那一笔」从画面上抹掉。套索由 SVG 层按 state 渲染，
-      // 这两次重绘对它是空操作——统一调用比按工具分支更不容易漏。
+      // 重绘两层：把「正在画的那一笔」从画面上抹掉。套索/边框/标记由 SVG 层按 state 渲染，
+      // 这两次重绘对它们是空操作——统一调用比按工具分支更不容易漏。
       redraw()
       redrawBrush()
     }, [redraw, redrawBrush])
@@ -635,6 +860,12 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
     useEffect(() => {
       redrawBrush()
     }, [regions, redrawBrush])
+
+    // R19 显隐开关：涂鸦画在 canvas 上，必须显式重绘；SVG 标注层由 props 驱动，天然响应
+    useEffect(() => {
+      annotationVisibleRef.current = annotationVisible
+      redraw()
+    }, [annotationVisible, redraw])
 
     // 尺寸同步（含 imgRect 变化、窗口缩放、画布缩放）
     useEffect(() => {
@@ -722,18 +953,22 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
         return null
       }
       const newId = crypto.randomUUID()
-      setRegions((prev) => [
-        ...prev,
-        {
-          id: newId,
-          kind: params.kind,
-          handler: defaultHandlerId,
-          prompt: '',
-          region: params.region,
-          path: params.path,
-          strokes: params.strokes,
-        },
-      ])
+      const created: EditRegion = {
+        id: newId,
+        kind: params.kind,
+        handler: defaultHandlerId,
+        prompt: '',
+        region: params.region,
+        path: params.path,
+        strokes: params.strokes,
+      }
+      // 走撤销栈（R17）：框选 / 套索 / 画笔的新增同样要能 Ctrl+Z 退回
+      commit({
+        type: 'add',
+        target: 'region',
+        id: newId,
+        after: { index: regionsRef.current.length, value: created },
+      })
       // 画完就地把输入气泡弹在这个区域旁边，用户不用再跑去底部输入
       setActiveRegionId(newId)
       setComposerOpen(true)
@@ -938,50 +1173,25 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
       )
       if (target) {
         // 续画：笔迹合并进同一区域，区域数量不变（用户不必为了补细节新建选区）
-        setRegions((prev) =>
-          prev.map((item) =>
-            item.id === target.id
-              ? {
-                  ...item,
-                  strokes: [...(item.strokes ?? []), stroke],
-                  region: unionRegion(item.region, bbox),
-                }
-              : item
-          )
-        )
-        brushHistoryRef.current.push({ regionId: target.id })
+        const index = regionsRef.current.findIndex((item) => item.id === target.id)
+        const nextRegion: EditRegion = {
+          ...target,
+          strokes: [...(target.strokes ?? []), stroke],
+          region: unionRegion(target.region, bbox),
+        }
+        // 「续画」= 区域对象的前后态变化，用 move op 记录（撤销一次退回一笔，而不是整个区域消失）
+        commit({
+          type: 'move',
+          target: 'region',
+          id: target.id,
+          before: { index: Math.max(0, index), value: target },
+          after: { index: Math.max(0, index), value: nextRegion },
+        })
         redrawBrush()
         return
       }
-      const created = createRegion({ kind: 'brush', region: bbox, strokes: [stroke] })
-      if (created) brushHistoryRef.current.push({ regionId: created })
+      createRegion({ kind: 'brush', region: bbox, strokes: [stroke] })
       redrawBrush()
-    }
-
-    /** 撤销画笔：删掉最后画进去的一笔；该区域只有这一笔时整区删除。 */
-    const handleUndoBrush = () => {
-      const history = brushHistoryRef.current
-      let target: EditRegion | null = null
-      // 从后往前找「区域仍然存在」的那一笔（用户可能已经手动删掉了那个区域）
-      while (history.length > 0 && !target) {
-        const entry = history[history.length - 1]
-        const found = regionsRef.current.find((item) => item.id === entry.regionId)
-        if (found) target = found
-        else history.pop()
-      }
-      if (!target) return
-      history.pop()
-      // 用 const 收窄：下面要在 setRegions 的回调里读它，let 在闭包里会丢失类型收窄
-      const current: EditRegion = target
-      const strokes = [...(current.strokes ?? [])]
-      strokes.pop()
-      if (strokes.length === 0) {
-        handleDeleteRegion(current.id)
-        return
-      }
-      setRegions((prev) =>
-        prev.map((item) => (item.id === current.id ? { ...item, strokes } : item))
-      )
     }
 
     const handlePenDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -1022,48 +1232,311 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
       const stroke = currentRef.current
       currentRef.current = null
       if (stroke && stroke.points.length > 1) {
-        strokesRef.current.push(stroke)
-        redoRef.current = []
-        setStrokeCount(strokesRef.current.length)
-        setCanRedo(false)
+        // 涂鸦（含橡皮笔迹）进统一撤销栈：R17 要求 7 个工具都能撤销
+        commit({
+          type: 'add',
+          target: 'stroke',
+          id: crypto.randomUUID(),
+          after: { index: strokesRef.current.length, value: stroke },
+        })
       }
       redraw()
     }
 
+    /** 撤销：走统一栈（标注 / 选区 / 笔迹共用），不再只回退笔迹 */
     const handleUndo = () => {
-      const stroke = strokesRef.current.pop()
-      if (!stroke) return
-      redoRef.current.push(stroke)
-      setStrokeCount(strokesRef.current.length)
-      setCanRedo(true)
+      undo()
       redraw()
+      redrawBrush()
     }
 
+    /** 重做：`after` 重放，天然不会产生重复对象（R17） */
     const handleRedo = () => {
-      const stroke = redoRef.current.pop()
-      if (!stroke) return
-      strokesRef.current.push(stroke)
-      setStrokeCount(strokesRef.current.length)
-      setCanRedo(redoRef.current.length > 0)
+      redo()
+      redraw()
+      redrawBrush()
+    }
+
+    /** 清空全部涂鸦笔迹：逐笔进栈，用户后悔时能一步步退回来 */
+    const handleClearStrokes = () => {
+      const strokes = [...strokesRef.current]
+      if (strokes.length === 0) return
+      strokes.forEach((stroke, index) => {
+        commit({
+          type: 'remove',
+          target: 'stroke',
+          id: crypto.randomUUID(),
+          before: { index, value: stroke },
+        })
+      })
+      currentRef.current = null
       redraw()
     }
 
-    const handleClearStrokes = () => {
-      strokesRef.current = []
-      redoRef.current = []
-      currentRef.current = null
-      setStrokeCount(0)
-      setCanRedo(false)
-      redraw()
+    /**
+     * 撤销画笔：只回退「最后一笔画笔笔迹」。
+     *
+     * 与 `handleUndo`（统一撤销栈，一次退掉任意一个对象）是两种粒度：
+     * 涂鸦可能在一个区域里续画几十笔，用户想退掉刚画错的那一笔时，
+     * 走统一栈会把整个对象退掉，太粗暴。
+     *
+     * 笔迹存在 brush 区域的 `strokes` 里（见 handleBrushUp 的续画分支），
+     * 所以这里对**最后一个非空 brush 区域**做前后态变更，同样进栈，Ctrl+Z 仍能找回。
+     */
+    const handleUndoBrush = () => {
+      const items = regionsRef.current
+      for (let index = items.length - 1; index >= 0; index -= 1) {
+        const region = items[index]
+        const strokes = region.strokes ?? []
+        if (region.kind !== 'brush' || strokes.length === 0) continue
+        if (strokes.length === 1) {
+          // 删掉这一笔区域就空了 → 整个区域一起撤掉，避免留下空选区
+          commit({
+            type: 'remove',
+            target: 'region',
+            id: region.id,
+            before: { index, value: region },
+          })
+        } else {
+          commit({
+            type: 'move',
+            target: 'region',
+            id: region.id,
+            before: { index, value: region },
+            after: { index, value: { ...region, strokes: strokes.slice(0, -1) } },
+          })
+        }
+        redrawBrush()
+        return
+      }
     }
 
     const handleDeleteRegion = (id: string) => {
-      setRegions((prev) => prev.filter((item) => item.id !== id))
+      const payload = findPayload(regionsRef.current, id, (item) => item.id)
+      if (payload) {
+        // 删除也进栈：删错了能 Ctrl+Z 找回来（含画笔区域的全部笔迹）
+        commit({ type: 'remove', target: 'region', id, before: payload })
+      }
       // 删掉的正是当前输入目标 → 清空，避免气泡指向一个已不存在的区域
       setActiveRegionId((prev) => (prev === id ? null : prev))
       if (shake?.id === id) setShake(null)
     }
 
+    // ==========================================================================
+    // 标注（边框 / 标记）：只做视觉提示，**不产生选区、不弹指令气泡**（PRD D3）
+    // ==========================================================================
+
+    /** 边框 / 标记的归一化线宽：与涂鸦共用「细 / 中 / 粗」，但设下限保证 1K 图上可见 */
+    const annotationWidth = () => Math.max(size, 0.006)
+
+    /** 新增一个标注对象：唯一入口，保证进撤销栈 + 自动选中 */
+    const addAnnotation = (annotation: AnnotationObject) => {
+      commit({
+        type: 'add',
+        target: 'annotation',
+        id: annotation.id,
+        after: { index: annotationsRef.current.length, value: annotation },
+      })
+      setSelectedAnnotationId(annotation.id)
+    }
+
+    /** 边框：拖拽绘制矩形/椭圆，松手落成标注对象（不落选区） */
+    const handleBorderDown = (e: React.PointerEvent<HTMLDivElement>) => {
+      if (submitting) return
+      // 与框选一致：开始画就把气泡/chip 隐掉（不卸载，松手原样回来）
+      setDrafting(true)
+      e.currentTarget.setPointerCapture(e.pointerId)
+      const p = toNorm(e.clientX, e.clientY)
+      borderStartRef.current = p
+      setDraftRect({ x: p.x, y: p.y, w: 0, h: 0 })
+    }
+
+    const handleBorderMove = (e: React.PointerEvent<HTMLDivElement>) => {
+      const start = borderStartRef.current
+      if (!start) return
+      const p = toNorm(e.clientX, e.clientY)
+      setDraftRect({
+        x: Math.min(start.x, p.x),
+        y: Math.min(start.y, p.y),
+        w: Math.abs(p.x - start.x),
+        h: Math.abs(p.y - start.y),
+      })
+    }
+
+    const handleBorderUp = (e: React.PointerEvent<HTMLDivElement>) => {
+      const start = borderStartRef.current
+      borderStartRef.current = null
+      setDraftRect(null)
+      setDrafting(false)
+      if (!start) return
+      const p = toNorm(e.clientX, e.clientY)
+      const el = wrapperRef.current
+      const pxW = Math.abs(p.x - start.x) * (el?.clientWidth ?? 1)
+      const pxH = Math.abs(p.y - start.y) * (el?.clientHeight ?? 1)
+      // 误触（点一下 / 手抖）静默丢弃：弹错误条会把误触放大成「出错了」
+      if (pxW < MIN_BOX_PX || pxH < MIN_BOX_PX) return
+      const box: Box = {
+        x: Math.min(start.x, p.x),
+        y: Math.min(start.y, p.y),
+        w: Math.abs(p.x - start.x),
+        h: Math.abs(p.y - start.y),
+      }
+      addAnnotation(
+        createBorderAnnotation({
+          box,
+          color,
+          width: annotationWidth(),
+          shape: borderShape,
+          dash: borderDash,
+        })
+      )
+    }
+
+    /** 标记：箭头拖拽绘制；序号/文字点一下就地创建 */
+    const handleMarkerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+      if (submitting) return
+      setDrafting(true)
+      e.currentTarget.setPointerCapture(e.pointerId)
+      pointerStartScreenRef.current = { x: e.clientX, y: e.clientY }
+      const p = toNorm(e.clientX, e.clientY)
+      markerStartRef.current = p
+      if (markerShape === 'arrow') setDraftRect({ x: p.x, y: p.y, w: 0, h: 0 })
+    }
+
+    const handleMarkerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+      const start = markerStartRef.current
+      if (!start || markerShape !== 'arrow') return
+      const p = toNorm(e.clientX, e.clientY)
+      setDraftRect({
+        x: Math.min(start.x, p.x),
+        y: Math.min(start.y, p.y),
+        w: Math.abs(p.x - start.x),
+        h: Math.abs(p.y - start.y),
+      })
+    }
+
+    const handleMarkerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+      const start = markerStartRef.current
+      const screenStart = pointerStartScreenRef.current
+      markerStartRef.current = null
+      pointerStartScreenRef.current = null
+      setDraftRect(null)
+      setDrafting(false)
+      if (!start) return
+      const p = toNorm(e.clientX, e.clientY)
+      const el = wrapperRef.current
+      const moved = screenStart
+        ? Math.hypot(e.clientX - screenStart.x, e.clientY - screenStart.y)
+        : 0
+      const slop = e.pointerType === 'touch' ? CLICK_SLOP_COARSE : CLICK_SLOP_FINE
+
+      if (markerShape === 'arrow') {
+        const pxLength = Math.hypot(
+          (p.x - start.x) * (el?.clientWidth ?? 1),
+          (p.y - start.y) * (el?.clientHeight ?? 1)
+        )
+        // 太短的箭头没有指向意义，当作误触丢弃
+        if (pxLength < MIN_BOX_PX) return
+        addAnnotation(
+          createMarkerAnnotation({
+            shape: 'arrow',
+            from: start,
+            to: p,
+            color,
+            width: annotationWidth(),
+          })
+        )
+        return
+      }
+
+      // 序号 / 文字：只认「点一下」，拖动超过容差视为误触（与框选/套索同一套判据）
+      if (moved > slop) return
+
+      if (markerShape === 'index') {
+        const index = nextAnnotationIndex(annotationSeqRef.current, annotationsRef.current)
+        addAnnotation(
+          createMarkerAnnotation({
+            shape: 'index',
+            from: start,
+            color,
+            width: annotationWidth(),
+            index,
+          })
+        )
+        // 编号器只前进不回收（R08：删除不回收号码）
+        annotationSeqRef.current = index + 1
+        setAnnotationSeq(index + 1)
+        return
+      }
+
+      // 文字标签：先开就地输入，确认后再落对象——否则会出现一堆空标签
+      setLabelDraft({ x: start.x, y: start.y, text: '' })
+    }
+
+    /** 确认文字标签输入（Enter / 失焦）。空内容 = 取消，不落对象。 */
+    const confirmLabelDraft = () => {
+      const draft = labelDraft
+      setLabelDraft(null)
+      if (!draft) return
+      const text = draft.text.trim().slice(0, ANNOTATION_LABEL_MAX)
+      if (!text) return
+      addAnnotation(
+        createMarkerAnnotation({
+          shape: 'label',
+          from: { x: draft.x, y: draft.y },
+          color,
+          width: annotationWidth(),
+          text,
+        })
+      )
+    }
+
+    /** 标注拖动开始：快照当前对象，作为撤销栈里 move op 的 `before` */
+    const handleAnnotationDragStart = (id: string) => {
+      const payload = findPayload(annotationsRef.current, id, (item) => item.id)
+      if (!payload) return
+      annotationDragRef.current = { id, before: payload }
+    }
+
+    /**
+     * 标注拖动：每帧提交一次 `move`，靠 `merge` 合并成「一次拖拽 = 一步撤销」。
+     * 位移始终相对**拖动起点**计算（`before` 是不动的快照），所以不会累积误差。
+     */
+    const handleAnnotationDragMove = (id: string, dx: number, dy: number) => {
+      const drag = annotationDragRef.current
+      if (!drag || drag.id !== id) return
+      // 拖动期间同样隐掉气泡（复用绘制期的 drafting 开关，不另开一套）
+      setDrafting(true)
+      const moved = translateAnnotation(drag.before.value, dx, dy)
+      commit(
+        {
+          type: 'move',
+          target: 'annotation',
+          id,
+          before: drag.before,
+          after: { index: drag.before.index, value: moved },
+        },
+        { merge: true }
+      )
+    }
+
+    const handleAnnotationDragEnd = () => {
+      annotationDragRef.current = null
+      setDrafting(false)
+    }
+
+    const handleAnnotationDelete = (id: string) => {
+      const payload = findPayload(annotationsRef.current, id, (item) => item.id)
+      if (!payload) return
+      commit({ type: 'remove', target: 'annotation', id, before: payload })
+      setSelectedAnnotationId((prev) => (prev === id ? null : prev))
+    }
+
+    /**
+     * 区域提示词 / 能力的手动修改**不进撤销栈**：
+     * 它们是文本输入，用户期望 Ctrl+Z 撤销的是「刚打的字」而不是「上一步框选」，
+     * 混进同一条栈会让「撤销框选」变得极其难命中。
+     */
     const handleRegionPromptChange = (id: string, value: string) => {
       setRegions((prev) =>
         prev.map((item) => {
@@ -1172,10 +1645,12 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
       ref,
       () => ({
         getMaskFile,
-        hasOpenSurface: () => drafting || activeRegionId !== null,
+        // 「打开的表面」新增了文字标签输入框：Esc 必须先收它，而不是直接退出编辑
+        hasOpenSurface: () => drafting || activeRegionId !== null || labelDraft !== null,
         collapseActiveSurface: () => {
-          // 拖拽中：与 pointercancel 走同一条「中止」路径，气泡与已写内容原样回来
-          if (drafting) {
+          // 拖拽中 / 文字标签输入中：与 pointercancel 走同一条「中止」路径，
+          // 气泡与已写内容原样回来（R19 的显隐开关不在这里，它是持久状态）
+          if (drafting || labelDraft !== null) {
             abortDrafting()
             return
           }
@@ -1184,8 +1659,56 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
           if (id) requestAnimationFrame(() => chipRefs.current[id]?.focus({ preventScroll: true }))
         },
       }),
-      [getMaskFile, activeRegionId, drafting, abortDrafting]
+      [getMaskFile, activeRegionId, drafting, labelDraft, abortDrafting]
     )
+
+    /**
+     * 工具快捷键（R15 / R17）：`R/L/B/P/F/M/E` 切工具，`Ctrl+Z` / `Ctrl+Shift+Z` 撤销重做。
+     *
+     * 三条守卫：
+     * 1. 输入法组词中（`isComposing`）一律不拦——否则中文输入会被工具切换打断；
+     * 2. 焦点在输入框内不拦（`Ctrl+Z` 交给浏览器做文本撤销）；
+     * 3. 带修饰键（除 Ctrl/Cmd+Z）不拦，避免和宿主/浏览器快捷键打架。
+     */
+    useEffect(() => {
+      if (!open) return
+      const onKey = (event: KeyboardEvent) => {
+        if (event.isComposing) return
+        const active = document.activeElement as HTMLElement | null
+        const typing =
+          !!active &&
+          (active.tagName === 'INPUT' ||
+            active.tagName === 'TEXTAREA' ||
+            active.isContentEditable === true)
+        const mod = event.metaKey || event.ctrlKey
+        if (mod && (event.key === 'z' || event.key === 'Z')) {
+          if (typing) return
+          event.preventDefault()
+          if (event.shiftKey) handleRedo()
+          else handleUndo()
+          return
+        }
+        if (typing || mod || event.altKey) return
+        const map: Record<string, Tool> = {
+          r: 'region',
+          l: 'lasso',
+          b: 'brush',
+          p: 'pen',
+          f: 'border',
+          m: 'marker',
+          e: 'eraser',
+        }
+        const next = map[event.key.toLowerCase()]
+        if (!next) return
+        event.preventDefault()
+        setTool(next)
+        // 切工具时中止任何进行中的绘制，避免「按了快捷键但旧工具的框还挂在画面上」
+        if (drafting) abortDrafting()
+      }
+      window.addEventListener('keydown', onKey)
+      return () => window.removeEventListener('keydown', onKey)
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, drafting, abortDrafting, undo, redo])
 
     /** 把这一块的修改需求交给右侧对话面板，由它做 AI 分析并生成 */
   const handleGoCreate = (regionId: string) => {
@@ -1204,7 +1727,8 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
 
   const handleSubmit = async () => {
       const strokes = strokesRef.current
-      if (regions.length === 0 && strokes.length === 0) {
+      const annotationItems = annotationsRef.current
+      if (regions.length === 0 && strokes.length === 0 && annotationItems.length === 0) {
         onError?.('请先在图片上框选区域或涂鸦标注')
         return
       }
@@ -1241,8 +1765,22 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
         finalPrompt = lines.join('\n')
       }
       if (!finalPrompt && regions.length === 0) {
-        onError?.('请先输入修改提示词')
-        return
+        /**
+         * 纯标注（边框 / 标记）无选区、也没写文字指令时的兜底指令。
+         *
+         * 为什么不是直接拒绝：用户画了箭头和序号，本身就是在表达「这几处要改」；
+         * 一句「请先输入修改提示词」会让人以为标注白画了。这里用标注计数拼一句
+         * 可执行的指令，具体改什么由上游按标注位置理解（与 pen 走同一条合成路径）。
+         */
+        const stats = annotationStats(annotationItems)
+        if (stats.border + stats.marker === 0) {
+          onError?.('请先输入修改提示词')
+          return
+        }
+        const parts: string[] = []
+        if (stats.border > 0) parts.push(`${stats.border} 处边框`)
+        if (stats.marker > 0) parts.push(`${stats.marker} 处标记`)
+        finalPrompt = `按图上标注修改：${parts.join('、')}。其余部分保持原样。`
       }
 
       try {
@@ -1250,6 +1788,8 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
           dataUrl,
           regions: regions.map((r) => r.region),
           strokes,
+          // 标注对象（边框 / 标记）只画进 guideFile，绝不进掩码、绝不进 baseCanvas
+          annotations: annotationItems,
           // 每个区域都画红框：上游需要知道「改哪里」，抠图区域同样要标出来
           markIndexes: regions.map((_, index) => index),
           // 画笔区域额外带笔迹：掩码按真实笔画走，而不是整块包围盒
@@ -1257,7 +1797,7 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
             .filter((item) => item.kind === 'brush' && (item.strokes?.length ?? 0) > 0)
             .map((item) => ({ region: item.region, strokes: item.strokes ?? [] })),
         })
-        // 纯涂鸦没有矩形框时，使用涂鸦包围盒作为唯一的局部修改区域，
+        // 纯涂鸦/纯标注没有矩形框时，使用它们的包围盒作为唯一的局部修改区域，
         // 这样上游仍然只能改变标注附近，框外像素由后端从原图恢复。
         const finalOps =
           ops.length > 0
@@ -1268,7 +1808,17 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
                 prompt: finalPrompt,
                 intensity: 'fine' as const,
               }))
-        onSubmit({ ...payload, ops: finalOps, prompt: finalPrompt })
+        /**
+         * 标注计数（R09）：后端只写日志、不入库。
+         * `doodle` 要把涂鸦笔迹数一起加上——涂鸦仍在 `strokes` 里，不在标注数组里。
+         */
+        const stats = annotationStats(annotationItems, strokes.length)
+        onSubmit({
+          ...payload,
+          ops: finalOps,
+          prompt: finalPrompt,
+          annotation_stats: JSON.stringify(stats),
+        })
       } catch {
         // 最常见：跨域图片污染 canvas 导致导出被拒
         onError?.('该图片受跨域限制无法导出，请先「加入画布」后再编辑')
@@ -1367,11 +1917,16 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
      * 这里**故意不把「每个区域都填了指令」作为禁用条件**：禁用按钮只会让用户
      * 面对一个点不动的灰按钮，却不知道是哪个区域没写。改成允许点击 → 提交时
      * 定位到第一个缺失的区域（展开 + 聚焦 + 抖动），反馈更直接。
+     *
+     * 纯标注（边框 / 标记）也算「有内容」：R09 要求它们能独立提交，
+     * 以全部标注的包围盒作为修改区域。
      */
     const canSubmit =
       !submitting &&
       !analyzing &&
-      (regions.length > 0 || (prompt.trim().length > 0 && strokeCount > 0))
+      (regions.length > 0 ||
+        annotations.length > 0 ||
+        (prompt.trim().length > 0 && strokeCount > 0))
 
     /** 已填写指令的区域数：生成按钮上的计数与提示文案都用它 */
     const filledRegionCount = useMemo(
@@ -1523,6 +2078,20 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
     const regionTool = tool === 'region'
     const lassoTool = tool === 'lasso'
     const brushTool = tool === 'brush'
+    const borderTool = tool === 'border'
+    const markerTool = tool === 'marker'
+    /** 颜色作用于哪些工具（框选/套索是选区，不用色；画笔固定红色） */
+    const colorActive = tool === 'pen' || tool === 'border' || tool === 'marker'
+    /** 线宽作用于哪些工具（矩形框选/套索不用） */
+    const sizeActive = !regionTool && !lassoTool
+
+    /**
+     * 纯标注无选区时的兜底包围盒（PRD §3.1-R07/R09 / D3）。
+     * 必须在**提交前**一直可见：只在 `regions.length === 0` 时出现，
+     * 有选区时修改区域就是选区本身，不需要再叠一层框。
+     */
+    const fallbackBox =
+      regions.length === 0 ? annotationsBBox(annotations) : null
 
     return (
       // 根节点不拦截指针：点击图片以外区域仍可落到画布（点空白处即退出编辑）。
@@ -1666,6 +2235,7 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
             >
               <button
                 type="button"
+                data-edit-layer-ui
                 title="编辑该区域的说明"
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => setActiveRegionId(item.id)}
@@ -1684,6 +2254,28 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
               </button>
             </div>
           ))}
+
+          {/* 标注层（R07 边框 / R08 标记 / R19 显隐 / D3 兜底包围盒）。
+              z-20 但 `pointer-events-none`：只有标注几何附近才接管指针，
+              其余区域透给下面的绘制层——否则「在已有边框里再画一个更小的框」点不进去。 */}
+          <AnnotationLayer
+            items={annotations}
+            width={boxSize.w}
+            height={boxSize.h}
+            visible={annotationVisible}
+            onToggleVisible={() => setAnnotationVisible((prev) => !prev)}
+            selectedId={selectedAnnotationId}
+            onSelect={setSelectedAnnotationId}
+            onDragStart={handleAnnotationDragStart}
+            onDragMove={handleAnnotationDragMove}
+            onDragEnd={handleAnnotationDragEnd}
+            onCancel={abortDrafting}
+            onDelete={handleAnnotationDelete}
+            fallbackBox={fallbackBox}
+            naturalWidth={naturalWidth}
+            naturalHeight={naturalHeight}
+            disabled={submitting}
+          />
 
           {/* 框选交互层（仅框选工具激活时接管指针；层级低于标记框，保证删除按钮可点） */}
           {regionTool && (
@@ -1722,10 +2314,64 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
               onPointerCancel={abortDrafting}
             />
           )}
+
+          {/* 边框交互层（R07）：拖拽画矩形/椭圆，松手落成标注对象（不产生选区） */}
+          {borderTool && (
+            <div
+              className="absolute inset-0 z-10 touch-none"
+              style={{ cursor: 'crosshair' }}
+              onPointerDown={handleBorderDown}
+              onPointerMove={handleBorderMove}
+              onPointerUp={handleBorderUp}
+              // cancel 与 Esc 走同一条中止路径：不落标注、不留半截预览
+              onPointerCancel={abortDrafting}
+            />
+          )}
+
+          {/* 标记交互层（R08）：箭头拖拽；序号/文字点一下 */}
+          {markerTool && (
+            <div
+              className="absolute inset-0 z-10 touch-none"
+              style={{ cursor: markerShape === 'arrow' ? 'crosshair' : 'copy' }}
+              onPointerDown={handleMarkerDown}
+              onPointerMove={handleMarkerMove}
+              onPointerUp={handleMarkerUp}
+              onPointerCancel={abortDrafting}
+            />
+          )}
+
+          {/* 文字标签就地输入：贴在点击位置，Enter 确认 / Esc 取消（Esc 由宿主统一裁决） */}
+          {labelDraft && (
+            <input
+              data-annotation-label-input
+              autoFocus
+              maxLength={ANNOTATION_LABEL_MAX}
+              value={labelDraft.text}
+              placeholder="输入标签（≤20 字）"
+              onChange={(event) =>
+                setLabelDraft((prev) => (prev ? { ...prev, text: event.target.value } : prev))
+              }
+              onBlur={confirmLabelDraft}
+              onKeyDown={(event) => {
+                // 输入法组词中的回车是选词，不是确认
+                if (event.nativeEvent.isComposing) return
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  confirmLabelDraft()
+                }
+              }}
+              onPointerDown={(event) => event.stopPropagation()}
+              className="absolute z-40 w-[160px] -translate-y-1/2 rounded-[8px] bg-surface-raised px-2 py-1 text-[12px] text-text shadow-sheet placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-brand/40"
+              style={{
+                left: `${Math.min(88, labelDraft.x * 100)}%`,
+                top: `${labelDraft.y * 100}%`,
+              }}
+            />
+          )}
         </div>
 
         {/* 顶部工具条：下移避开 Excalidraw 原生工具条（避免两条工具栏重叠） */}
-        <div className="pointer-events-auto absolute left-1/2 top-14 z-20 mt-2 flex max-w-[calc(100%-24px)] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded-full border border-border bg-surface/95 px-2.5 py-1.5 shadow-md backdrop-blur">
+        <div className="pointer-events-auto absolute left-1/2 top-14 z-20 mt-2 flex max-w-[calc(100%-24px)] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded-full bg-surface/95 px-2.5 py-1.5 shadow-lift ring-1 ring-border-faint backdrop-blur">
           <div className="flex items-center gap-0.5">
             <ToolButton
               active={regionTool}
@@ -2034,9 +2680,10 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
                 )}
                 <button
                   type="button"
+                  data-edit-layer-ui
                   disabled={!item.prompt.trim() || submitting || analyzing}
                   onClick={() => handleGoCreate(item.id)}
-                  className="ml-auto inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-[11px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                  className="ml-auto inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-[11px] font-semibold text-text-inverse transition-opacity hover:opacity-90 disabled:opacity-40"
                 >
                   <Sparkles size={11} /> 去创作
                 </button>

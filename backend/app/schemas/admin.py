@@ -175,6 +175,40 @@ class InviteOut(ORMModel):
     created_at: datetime | None = None
 
 
+class ProCodeCreateRequest(BaseModel):
+    """批量创建 Pro 激活码。"""
+
+    count: int = Field(default=1, ge=1, le=200)
+    max_uses: int = Field(default=1, ge=1, le=1000)
+    note: str = Field(default="", max_length=128)
+    expires_at: datetime | None = None
+
+
+class ProCodeUpdateRequest(BaseModel):
+    """启用 / 禁用 Pro 激活码。"""
+
+    status: str
+
+
+class ProCodeOut(ORMModel):
+    """Pro 激活码输出。"""
+
+    id: str
+    code: str
+    max_uses: int
+    used_count: int
+    status: str
+    note: str = ""
+    expires_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+class ProCodeBatchOut(BaseModel):
+    """批量创建回执。"""
+
+    items: list[ProCodeOut] = Field(default_factory=list)
+
+
 class AnnouncementCreateRequest(BaseModel):
     """创建公告。"""
 

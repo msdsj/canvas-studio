@@ -29,6 +29,9 @@ interface ConfirmCountCardProps {
  * 两条硬约束：
  * 1. **绝不倒计时自动执行**——未经用户点「就按这个来」，一分额度都不花出去；
  * 2. **点卡片只是选中，点主按钮才执行**——避免误触直接产生费用。
+ *
+ * 选项控件与澄清卡同构（序号徽标 + 青柠选中态 + 对勾），保证两处「让用户选」的动作
+ * 看起来是同一种东西，而不是两套控件。
  */
 export function ConfirmCountCard({
   reply,
@@ -68,16 +71,23 @@ export function ConfirmCountCard({
   return (
     <div
       className={cn(
-        'rounded-[14px] border border-border bg-surface px-3 py-2.5',
+        'rounded-md bg-surface p-3 shadow-sheet',
         voided && 'opacity-60'
       )}
       data-run-id={runId}
       aria-busy={busy || state === 'choosing'}
     >
-      <div className="flex items-start gap-1.5">
-        <span className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
+      <div className="flex items-start gap-2">
+        <span className="relative mt-[7px] flex h-1.5 w-1.5 shrink-0 items-center justify-center">
+          {/* 暂停态脉冲：与澄清卡同一套语言，让"停下来等用户"这件事在所有决策点长得一样 */}
+          <span className="absolute h-1.5 w-1.5 animate-ping rounded-full bg-brand opacity-60" />
+          <span className="relative h-1.5 w-1.5 rounded-full bg-brand" />
+        </span>
         <div className="min-w-0 flex-1">
-          <p className="text-caption font-medium leading-snug text-text [overflow-wrap:anywhere]">
+          <p className="text-micro font-medium text-text-secondary">
+            {settled ? '已按你的选择开始生成' : voided ? '这次分析已作废' : '已暂停，等你选择'}
+          </p>
+          <p className="mt-0.5 text-caption font-medium leading-snug text-text [overflow-wrap:anywhere]">
             {reply}
           </p>
           {reason && (
@@ -88,8 +98,8 @@ export function ConfirmCountCard({
         </div>
       </div>
 
-      <div className="mt-2 flex flex-col gap-1.5">
-        {options.map((option) => {
+      <div className="mt-2.5 flex flex-col gap-1.5">
+        {options.map((option, index) => {
           const isChosen = activeChosen === option.id
           return (
             <button
@@ -99,25 +109,31 @@ export function ConfirmCountCard({
               aria-pressed={isChosen}
               onClick={() => setLocalChosen(option.id)}
               className={cn(
-                'w-full rounded-[14px] border bg-surface px-2.5 py-2 text-left transition-colors',
-                isChosen ? 'border-brand' : 'border-border',
-                'disabled:cursor-not-allowed disabled:opacity-60',
-                !locked && !busy && 'hover:border-brand hover:bg-surface-hover'
+                'w-full rounded-sm px-2.5 py-2 text-left transition-all',
+                isChosen
+                  ? 'bg-accent-soft ring-1 ring-accent-strong'
+                  : 'bg-surface ring-1 ring-inset ring-border-faint hover:bg-surface-hover',
+                'disabled:cursor-not-allowed disabled:opacity-60'
               )}
             >
-              <span className="flex items-center gap-1.5">
+              <span className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-micro font-semibold tabular-nums transition-colors',
+                    isChosen ? 'bg-accent text-accent-ink' : 'bg-bg-subtle text-text-tertiary'
+                  )}
+                >
+                  {isChosen ? <Check size={11} strokeWidth={3} /> : index + 1}
+                </span>
                 <span className="min-w-0 flex-1 text-caption font-medium text-text [overflow-wrap:anywhere]">
                   {option.label}
                 </span>
                 <span className="shrink-0 rounded-full bg-bg-subtle px-1.5 py-0.5 text-micro font-medium tabular-nums text-text-secondary">
                   产出 {option.image_count} 张
                 </span>
-                {settled && isChosen && (
-                  <Check size={12} className="shrink-0 text-success" strokeWidth={2.5} />
-                )}
               </span>
               {option.description && (
-                <span className="mt-1 block text-micro leading-snug text-text-tertiary [overflow-wrap:anywhere]">
+                <span className="mt-1 block pl-7 text-micro leading-snug text-text-tertiary [overflow-wrap:anywhere]">
                   {option.description}
                 </span>
               )}
@@ -126,7 +142,7 @@ export function ConfirmCountCard({
         })}
       </div>
 
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2.5 flex items-center gap-2">
         <Button
           size="sm"
           variant="primary"

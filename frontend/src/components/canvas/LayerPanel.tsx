@@ -136,7 +136,7 @@ export function LayerPanel({ api, elements, selectedIds, onElementSelected, coll
     return (
       <div className="flex flex-col items-center gap-1 py-2" title="图层面板">
         <ImageIcon size={16} className="text-text-tertiary" />
-        <span className="text-[10px] text-text-tertiary">{ordered.length}</span>
+        <span className="text-micro text-text-tertiary">{ordered.length}</span>
       </div>
     )
   }
@@ -145,10 +145,10 @@ export function LayerPanel({ api, elements, selectedIds, onElementSelected, coll
     <div className="flex min-h-0 flex-col">
       <div className="mb-1 flex items-center justify-between px-2">
         <span className="text-xs font-medium uppercase tracking-wide text-text-tertiary">图层</span>
-        <span className="text-[10px] text-text-tertiary">{ordered.length} 个元素</span>
+        <span className="text-micro text-text-tertiary">{ordered.length} 个元素</span>
       </div>
       {ordered.length === 0 ? (
-        <p className="mx-2 rounded-md border border-dashed border-border px-3 py-4 text-center text-[11px] leading-relaxed text-text-tertiary">
+        <p className="mx-2 rounded-md border border-dashed border-border px-3 py-4 text-center text-micro leading-relaxed text-text-tertiary">
           画布还是空的
           <br />
           上传图片或让 AI 生成后会出现在这里

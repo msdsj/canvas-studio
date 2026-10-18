@@ -1,6 +1,7 @@
 {
   "ok": "Done",
   "quota_insufficient": "Not enough credits — check your usage or ask your admin",
+  "pro_required": "That's a Pro feature — activate Pro to use it",
   "unauthorized": "Your session expired — sign in again to continue",
   "forbidden": "You don't have access to this",
   "upstream_error": "The image didn't come out — your credits were refunded",

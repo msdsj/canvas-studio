@@ -14,19 +14,21 @@ interface ImagePreviewPanelProps {
   /** 已知的原图尺寸（可选，未传时自动读取） */
   width?: number
   height?: number
-  /** 该图内置提示词（上传时配置，进入编辑自动回填） */
-  prompt?: string
   onEdit?: () => void
   onDelete?: () => void
   onDownload?: (format: 'png' | 'jpg') => void
 }
 
-/** 右栏图片面板：预览当前选中图片 + 尺寸 + 编辑/下载/删除入口。 */
+/**
+ * 右栏图片面板：预览当前选中图片 + 尺寸 + 编辑/下载/删除入口。
+ *
+ * 预览只放图片本身：提示词属于生成时的中间信息，展示在预览里会把「看这张图」
+ * 变成「读一段文字」；提示词仍然会在进入编辑时自动回填到输入框。
+ */
 export function ImagePreviewPanel({
   imageUrl,
   width,
   height,
-  prompt,
   onEdit,
   onDelete,
   onDownload,
@@ -95,12 +97,16 @@ export function ImagePreviewPanel({
       </div>
       {imageUrl ? (
         <div>
-          {/* 预览缩略图 = 相纸：3px 近直角 + 白色衬边 */}
-          <div className="flex max-h-32 items-center justify-center overflow-hidden rounded-[3px] bg-mat p-[3px] shadow-sheet">
+          {/*
+            预览缩略图 = 相纸：3px 近直角 + 白色衬边。
+            画框给固定高度、图片用 max-w-full 收宽——只写 max-h 时宽图会横向溢出，
+            被 overflow-hidden 裁掉两侧，看上去就是「图片偏移、没居中」。
+          */}
+          <div className="flex h-32 w-full items-center justify-center overflow-hidden rounded-[3px] bg-mat p-[3px] shadow-sheet">
             <img
               src={imageUrl}
               alt="当前选中图片预览"
-              className="max-h-32 w-auto rounded-[3px] object-contain"
+              className="max-h-full max-w-full rounded-[3px] object-contain"
             />
           </div>
           <div className="mt-1.5 flex items-center justify-between text-caption text-text-tertiary">
@@ -109,11 +115,6 @@ export function ImagePreviewPanel({
               {measured ? `${measured.w} × ${measured.h} px` : '读取中…'}
             </span>
           </div>
-          {prompt && (
-            <p className="mt-1.5 line-clamp-2 rounded-[10px] bg-bg-subtle px-2 py-1.5 text-caption leading-relaxed text-text-secondary">
-              内置提示词：{prompt}
-            </p>
-          )}
         </div>
       ) : (
         <p className="rounded-[10px] bg-bg-subtle px-3 py-4 text-center text-caption leading-relaxed text-text-tertiary">

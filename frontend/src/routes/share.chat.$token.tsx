@@ -6,14 +6,17 @@ import {
   Copy,
   Image as ImageIcon,
   Loader2,
+  Maximize2,
   Sparkles,
   User,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { canvasesApi, type SharedChat, type SharedChatMessage } from '@/lib/api/canvases'
-import { pickComposeRun, pickImages } from '@/lib/api/chat'
+import { pickImages } from '@/lib/api/chat'
 import { getToken } from '@/lib/api/client'
+import { cn } from '@/lib/utils'
 import { parseServerTime } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 
@@ -37,6 +40,8 @@ function SharedChatPage() {
   const [loading, setLoading] = useState(true)
   const [forking, setForking] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
+  /** 看原图：分享页里的图片默认是缩略展示，点开才看全尺寸 */
+  const [preview, setPreview] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -118,7 +123,7 @@ function SharedChatPage() {
 
       <div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
         {/* 左：对话与提示词 */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] bg-surface">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-md bg-surface">
           <ScrollArea className="h-full">
             <div className="flex flex-col gap-3 p-4">
               {data.messages.map((message) => (
@@ -127,6 +132,7 @@ function SharedChatPage() {
                   message={message}
                   copied={copied === message.id}
                   onCopy={() => void copy(message.content, message.id)}
+                  onPreview={setPreview}
                 />
               ))}
               {data.messages.length === 0 && (
@@ -138,16 +144,41 @@ function SharedChatPage() {
 
         {/* 右：画布快照 */}
         {data.canvas?.thumbnail_url && (
-          <aside className="hidden w-[300px] shrink-0 flex-col overflow-hidden rounded-[14px] bg-surface p-2.5 lg:flex">
+          <aside className="hidden w-[300px] shrink-0 flex-col overflow-hidden rounded-md bg-surface p-2.5 lg:flex">
             <p className="mb-2 text-micro text-text-tertiary">画布</p>
             <img
               src={data.canvas.thumbnail_url}
               alt={data.canvas.name}
-              className="w-full rounded-[10px] border border-border object-cover"
+              className="w-full rounded-sm object-cover ring-1 ring-inset ring-border-faint"
             />
           </aside>
         )}
       </div>
+
+      {/* 看原图：与主工作台的图片灯箱同一套语言（重遮罩 + 图上白字），
+          保证"点开图片"这个动作在两个页面里是同一个体验 */}
+      {preview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6"
+          onClick={() => setPreview(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <button
+            type="button"
+            aria-label="关闭"
+            onClick={() => setPreview(null)}
+            className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-scrim text-scrim-text transition-opacity hover:opacity-80"
+          >
+            <X size={16} />
+          </button>
+          <img
+            src={preview}
+            alt="原图"
+            className="max-h-full max-w-full rounded-sm object-contain shadow-float"
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -156,13 +187,15 @@ function SharedMessage({
   message,
   copied,
   onCopy,
+  onPreview,
 }: {
   message: SharedChatMessage
   copied: boolean
   onCopy: () => void
+  onPreview: (url: string) => void
 }) {
   const images = pickImages(message.attachments)
-  const compose = pickComposeRun(message.attachments)
+  const results = message.images ?? []
   const isUser = message.role === 'user'
   const time = parseServerTime(message.created_at)
 
@@ -181,7 +214,7 @@ function SharedMessage({
               key={image.asset_id}
               src={image.url}
               alt={image.name || '参考图'}
-              className="h-16 w-16 rounded-[8px] border border-border object-cover"
+              className="h-16 w-16 rounded-xs object-cover ring-1 ring-inset ring-border-faint"
             />
           ))}
         </div>
@@ -190,8 +223,8 @@ function SharedMessage({
       <div
         className={
           isUser
-            ? 'group relative max-w-[86%] rounded-[14px] rounded-br-[4px] bg-surface-hover px-3 py-2'
-            : 'max-w-[86%] rounded-[14px] bg-accent-soft/50 px-3 py-2'
+            ? 'group relative max-w-[86%] rounded-md rounded-br-xs bg-surface-hover px-3 py-2'
+            : 'max-w-[86%] rounded-md bg-accent-soft/50 px-3 py-2'
         }
       >
         <p className="whitespace-pre-wrap text-caption leading-relaxed text-text [overflow-wrap:anywhere]">
@@ -201,7 +234,7 @@ function SharedMessage({
           <button
             type="button"
             onClick={onCopy}
-            className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-[5px] bg-surface/80 text-text-tertiary opacity-0 transition-opacity hover:text-text group-hover:opacity-100"
+            className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-xs bg-surface/80 text-text-tertiary opacity-0 transition-opacity hover:text-text group-hover:opacity-100"
             aria-label="复制"
           >
             {copied ? <Check size={10} /> : <Copy size={10} />}
@@ -209,22 +242,57 @@ function SharedMessage({
         )}
       </div>
 
+      {/* 「画出了什么」：分享页的主角。图要大、看一眼就知道效果，点开能看原图 */}
+      {results.length > 0 && (
+        <div
+          className={
+            results.length === 1
+              ? 'w-[86%] max-w-[420px]'
+              : 'grid w-[86%] max-w-[560px] grid-cols-2 gap-1.5'
+          }
+        >
+          {results.map((url, index) => (
+            <button
+              key={`${message.id}-${index}`}
+              type="button"
+              onClick={() => onPreview(url)}
+              className="group relative block overflow-hidden rounded-sm bg-surface shadow-sheet ring-1 ring-inset ring-border-faint"
+            >
+              <img
+                src={url}
+                alt="生成结果"
+                loading="lazy"
+                className={cn(
+                  'w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]',
+                  results.length === 1 ? 'max-h-[420px]' : 'aspect-square'
+                )}
+              />
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-end bg-gradient-to-t from-scrim/80 to-transparent px-2 py-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+                <span className="inline-flex items-center gap-1 text-micro text-scrim-text">
+                  <Maximize2 size={10} /> 看原图
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* 提示词：别人最想看的就是这个，单独一块、可一键拿走 */}
-      {compose?.final_prompt && (
-        <div className="max-w-[86%] rounded-[10px] border border-border bg-surface px-2.5 py-2">
+      {message.prompt && (
+        <div className="max-w-[86%] rounded-sm bg-surface px-2.5 py-2 shadow-sheet ring-1 ring-inset ring-border-faint">
           <div className="flex items-center gap-1.5">
             <ImageIcon size={11} className="text-text-tertiary" />
-            <span className="text-[10px] text-text-tertiary">提示词</span>
+            <span className="text-micro text-text-tertiary">提示词</span>
             <button
               type="button"
-              onClick={() => void navigator.clipboard.writeText(compose.final_prompt)}
-              className="ml-auto text-[10px] text-brand-text hover:underline"
+              onClick={() => void navigator.clipboard.writeText(message.prompt ?? '')}
+              className="ml-auto text-micro text-brand-text hover:underline"
             >
               复制
             </button>
           </div>
           <p className="mt-1 text-micro leading-relaxed text-text-secondary [overflow-wrap:anywhere]">
-            {compose.final_prompt}
+            {message.prompt}
           </p>
         </div>
       )}

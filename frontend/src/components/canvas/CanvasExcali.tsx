@@ -185,7 +185,21 @@ const data = useMemo(() => {
   }, [])
 
   return (
-    <div ref={shellRef} className="cs-canvas-shell h-full min-h-0 w-full">
+    /**
+     * 兜底底色：Excalidraw 出厂 appState 带 `viewBackgroundColor: '#ffffff'`，
+     * 场景为空（initialData.appState 缺这个键）或用户之前存过出厂白时，
+     * 不加这一层就会在容器上盖出一块不透明的白，纸感底色全丢。
+     *
+     * 变量挂在**外层容器**上而不是 `<Excalidraw style>`：ExcalidrawProps 没有
+     * 声明 style 属性（运行时接受，类型不接受），而自定义属性本来就会向下继承。
+     * 注意 `.cs-canvas-shell .excalidraw` 里还有一条同名声明（`--color-canvas`），
+     * 它更靠内、优先级更高，实际生效的是它——两者取值本就一致，观感不变。
+     */
+    <div
+      ref={shellRef}
+      className="cs-canvas-shell h-full min-h-0 w-full"
+      style={{ ['--default-bg-color' as string]: EXCALIDRAW_BG_VAR }}
+    >
       <Excalidraw
         initialData={data}
         theme={theme}
@@ -193,12 +207,6 @@ const data = useMemo(() => {
         viewModeEnabled={viewMode}
         excalidrawAPI={handleApi}
         onChange={handleChange}
-        /**
-         * 兜底底色：Excalidraw 出厂 appState 带 `viewBackgroundColor: '#ffffff'`，
-         * 场景为空（initialData.appState 缺这个键）或用户之前存过出厂白时，
-         * 不加这一层就会在容器上盖出一块不透明的白，纸感底色全丢。
-         */
-        style={{ ['--default-bg-color' as string]: EXCALIDRAW_BG_VAR }}
         /**
          * 只保留画布内该有的动作。
          *

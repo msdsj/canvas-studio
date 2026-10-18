@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -12,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, require_pro
 from app.models.generation import GenerationTask
 from app.models.user import User
 from app.schemas.generate import GenerateImageRequest, PlanRequest
@@ -31,6 +32,8 @@ from app.utils.errors import AppError, ErrorCode, envelope
 from app.utils.pagination import normalize_page, paginated
 
 router = APIRouter(prefix="/api/generate", tags=["generate"])
+
+logger = logging.getLogger(__name__)
 
 _TERMINAL = ("succeeded", "failed", "cancelled", "timeout")
 
@@ -71,7 +74,7 @@ async def generate_image(
 @router.post("/edit")
 async def generate_edit(
     background_tasks: BackgroundTasks,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
     prompt: str = Form(...),
     model: str = Form(default="gpt-image-2"),
@@ -86,6 +89,7 @@ async def generate_edit(
     edit_intensity: str | None = Form(default=None),
     region: str | None = Form(default=None),
     ops: str | None = Form(default=None),
+    annotation_stats: str | None = Form(default=None),
     n: int = Form(default=1),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict:
@@ -96,9 +100,20 @@ async def generate_edit(
       能力由注册表驱动，可按需扩展（见 `edit_handlers`）。产出数量随之自动规划：
       整图类能力合并为 1 张，素材类能力每区域各 1 张。
     - `region`：旧版纯几何选区（JSON），等价于全部按兜底能力处理，保留向后兼容；
+    - `annotation_stats`：标注计数（JSON 字符串，如 `{"border":2,"marker":3,"doodle":1}`）。
+      **只写日志、不入库**（R09 的验收就是日志里有这行）——标注是「未提交的临时意图」，
+      提交时已被合成进 guideFile，原对象没有复用价值，落库只会带来迁移与清理成本。
     - `edit_mode=transparent`：对全部选区做就地透明化（免费，不消耗上游算力）；
     - `edit_intensity`：fine=精细修改（保结构，默认）；rebuild=重新生成（换主体）。
     """
+    # 标注计数：容错解析，绝不因为一个统计字段让整次编辑失败
+    if annotation_stats:
+        try:
+            stats = json.loads(annotation_stats)
+        except ValueError:
+            stats = annotation_stats
+        logger.info("edit annotations: %s", stats)
+
     if base_asset_id:
         asset = await asset_service.get_asset(db, user, base_asset_id)
         base_url = asset.url
@@ -183,7 +198,7 @@ async def generate_edit(
 @router.post("/plan")
 async def plan_edit(
     payload: PlanRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """把自然语言需求解析为结构化编辑计划（只分析，不创建任务、不计费）。

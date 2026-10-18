@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, is_unlocked, require_pro
 from app.models.user import User
 from app.schemas.canvas import CanvasOut, CanvasCreateRequest
 from app.schemas.project import ProjectCreateRequest, ProjectUpdateRequest
@@ -36,8 +36,14 @@ async def create_project(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """新建项目（自动创建默认画布）。"""
-    project = await project_service.create_project(db, user.id, payload.name, payload.description or "")
+    """新建项目（Pro 用户顺带建默认画布）。"""
+    project = await project_service.create_project(
+        db,
+        user.id,
+        payload.name,
+        payload.description or "",
+        with_default_canvas=is_unlocked(user),
+    )
     await db.commit()
     return envelope(
         {
@@ -123,10 +129,10 @@ async def list_canvases(
 async def create_canvas(
     project_id: str,
     payload: CanvasCreateRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """在项目下新建画布。"""
+    """在项目下新建画布（画布属 Pro 能力）。"""
     canvas = await canvas_service.create_canvas(db, user.id, project_id, payload.name)
     await db.commit()
     return envelope(CanvasOut.model_validate(canvas).model_dump())

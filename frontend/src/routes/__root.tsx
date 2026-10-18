@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { createRootRoute, Link, Outlet, useRouterState } from '@tanstack/react-router'
+import type { ErrorComponentProps } from '@tanstack/react-router'
 import { gsap } from '@/lib/gsap'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -7,7 +8,7 @@ import { AuthDialog } from '@/components/auth/AuthDialog'
 import { RouteProgress } from '@/components/layout/RouteProgress'
 import { DURATION, EASE, shouldReduceMotion, useRouteTransition } from '@/lib/motion'
 
-function RootError({ error }: { error: Error }) {
+function RootError({ error }: ErrorComponentProps) {
   // 界面不渲染 error.message：里面可能是后端原文、上游报文或异常堆栈。
   // 但开发期必须把原始错误打到控制台，否则排查时只剩一句"出了点小状况"。
   if (import.meta.env.DEV) console.error('[route-error]', error)

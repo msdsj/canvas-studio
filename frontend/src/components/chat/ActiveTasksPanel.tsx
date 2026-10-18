@@ -39,14 +39,14 @@ export function ActiveTasksPanel() {
 
   return (
     <div className="flex flex-col gap-3 p-4">
-      <p className="text-sm text-text-secondary">
+      <p className="text-ui text-text-secondary">
         {t('active_panel.count', { count: activeTasks.length })}
       </p>
       {activeTasks.map((task) => (
-        <div key={task.id} className="rounded-lg border border-border bg-surface p-3">
+        <div key={task.id} className="rounded-md bg-surface p-3 shadow-sheet">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="truncate text-sm text-text">{task.prompt.slice(0, 40) || task.type}</span>
-            <span className="shrink-0 text-xs text-text-tertiary">
+            <span className="truncate text-ui text-text">{task.prompt.slice(0, 40) || task.type}</span>
+            <span className="shrink-0 text-micro text-text-tertiary">
               {t(`task.${task.status === 'paused' ? 'cancelled' : task.status}`)}
             </span>
           </div>

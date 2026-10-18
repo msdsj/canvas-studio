@@ -14,6 +14,10 @@
     "stop": "Stop",
     "submitting": "Sending…",
     "too_long": "Max {{max}} characters, currently {{count}}",
+    "ref_limit": "Up to {{max}} referenced images",
+    "ref_limit_hint": "Remove one to add another",
+    "reference": "Reference this image",
+    "remove_reference": "Remove reference",
     "shortcut_hint": "Enter to send · Shift+Enter for a new line",
     "placeholder_chat": "Ask anything, or describe the change you want…"
   },
@@ -77,6 +81,7 @@
     "generating": "Generating…",
     "generated": "Done! Result placed on the canvas",
     "gen_failed": "Generation failed, credits refunded",
+    "gen_place_failed": "Couldn't load the result image — place it again from the chat later",
     "tag_incomplete": "Region was not modified",
     "retry_region": "Retry this region",
     "regen_region": "Regenerate this region",

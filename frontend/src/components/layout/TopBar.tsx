@@ -12,6 +12,7 @@ import {
 import { QuotaBadge } from './QuotaBadge'
 import { NotificationBell } from './NotificationBell'
 import { UserMenu } from './UserMenu'
+import { useAuth } from '@/hooks/use-auth'
 
 const NAV = [
   { to: '/workspace', key: 'workspace', icon: LayoutGrid },
@@ -39,12 +40,16 @@ export function TopBar() {
   const { t } = useTranslation('common')
   const navigate = useNavigate()
   const canvasName = useCanvasStore((s) => s.canvas?.name)
+  const { isPro } = useAuth()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+
+  // 画布/项目属 Pro 能力：普通用户的切换菜单里不出现该入口
+  const nav = isPro ? NAV : NAV.filter((item) => item.to !== '/projects')
 
   if (pathname.startsWith('/workspace')) return null
 
   return (
-    <header className="mx-2.5 mt-2.5 flex h-11 shrink-0 items-center justify-between gap-3 rounded-[14px] border border-border/60 bg-surface/70 px-2 shadow-sheet backdrop-blur-md">
+    <header className="mx-2.5 mt-2.5 flex h-11 shrink-0 items-center justify-between gap-3 rounded-[14px] bg-surface/70 px-2 shadow-sheet ring-1 ring-inset ring-border-faint backdrop-blur-md">
       <div className="flex min-w-0 items-center gap-1.5">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -57,7 +62,7 @@ export function TopBar() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-48">
-            {NAV.map((item) => {
+            {nav.map((item) => {
               const Icon = item.icon
               return (
                 <DropdownMenuItem key={item.to} onClick={() => navigate({ to: item.to })}>

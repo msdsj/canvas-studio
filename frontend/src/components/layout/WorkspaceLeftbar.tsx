@@ -30,11 +30,12 @@ interface NavItem {
  */
 function useNavGroups(): { creation: NavItem[]; management: NavItem[] } {
   const { t } = useTranslation('common')
-  const { isAdmin } = useAuth()
+  const { isAdmin, isPro } = useAuth()
   const creation: NavItem[] = [
     { to: '/workspace', label: t('nav.workspace'), icon: PenSquare },
     { to: '/assets', label: t('nav.assets'), icon: Images },
-    { to: '/projects', label: t('nav.projects'), icon: LayoutGrid },
+    // 画布/项目属 Pro 能力：普通用户不展示入口，避免点进去撞 402 弹窗
+    ...(isPro ? [{ to: '/projects', label: t('nav.projects'), icon: LayoutGrid }] : []),
     { to: '/tasks', label: t('nav.tasks'), icon: ListChecks },
   ]
   const management: NavItem[] = [

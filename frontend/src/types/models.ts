@@ -1,6 +1,6 @@
 // 后端实体类型（与 backend schemas 对齐）
 
-export type UserRole = 'admin' | 'user'
+export type UserRole = 'admin' | 'pro' | 'user'
 export type UserStatus = 'pending_verification' | 'active' | 'banned'
 
 export interface User {
@@ -187,6 +187,18 @@ export interface InviteCode {
   max_uses: number
   used_count: number
   status: 'active' | 'disabled'
+  expires_at?: string | null
+  created_at?: string | null
+}
+
+/** Pro 激活码（激活后解锁画布 / 抠图 / AI 对话 / 润色 / 图生图）。 */
+export interface ProCode {
+  id: string
+  code: string
+  max_uses: number
+  used_count: number
+  status: 'active' | 'disabled'
+  note?: string
   expires_at?: string | null
   created_at?: string | null
 }

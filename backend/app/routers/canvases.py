@@ -7,9 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.deps import get_current_user
+from app.deps import require_pro
 from app.models.canvas import Canvas
 from app.models.chat import ChatMessage, ChatSession
+from app.models.generation import GenerationTask
 from app.models.user import User
 from app.schemas.canvas import CanvasOut, CanvasUpdateRequest
 from app.services import canvas_service
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/api", tags=["canvases"])
 @router.get("/canvases/{canvas_id}")
 async def get_canvas(
     canvas_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """获取画布（含 state）。"""
@@ -34,7 +35,7 @@ async def get_canvas(
 async def update_canvas(
     canvas_id: str,
     payload: CanvasUpdateRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """自动保存画布。"""
@@ -48,7 +49,7 @@ async def update_canvas(
 @router.delete("/canvases/{canvas_id}")
 async def delete_canvas(
     canvas_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """删除画布。"""
@@ -60,7 +61,7 @@ async def delete_canvas(
 @router.post("/canvases/{canvas_id}/share")
 async def share_canvas(
     canvas_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """开启只读分享。"""
@@ -72,7 +73,7 @@ async def share_canvas(
 @router.delete("/canvases/{canvas_id}/share")
 async def unshare_canvas(
     canvas_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """关闭分享。"""
@@ -84,7 +85,7 @@ async def unshare_canvas(
 @router.get("/canvases/{canvas_id}/export")
 async def export_canvas(
     canvas_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
     format: str = Query(default="json"),
 ) -> Response:
@@ -119,7 +120,7 @@ async def get_shared_canvas(token: str, db: AsyncSession = Depends(get_db)) -> d
 @router.post("/chat/sessions/{session_id}/share")
 async def share_chat_session(
     session_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """开启对话分享，返回 {share_token, url}。"""
@@ -131,7 +132,7 @@ async def share_chat_session(
 @router.get("/chat/sessions/{session_id}/share")
 async def get_chat_session_share(
     session_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """当前会话的分享状态（刷新后仍能显示链接 / 关闭按钮）。"""
@@ -152,7 +153,7 @@ async def get_chat_session_share(
 @router.delete("/chat/sessions/{session_id}/share")
 async def unshare_chat_session(
     session_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """关闭对话分享。"""
@@ -161,14 +162,23 @@ async def unshare_chat_session(
     return envelope({})
 
 
-def _public_message(message: ChatMessage) -> dict:
-    """分享出去的消息只保留可展示内容，丢掉执行态与内部 id。"""
+def _public_message(
+    message: ChatMessage, results: dict[str, list[str]] | None = None
+) -> dict:
+    """分享出去的消息只保留可展示内容，丢掉执行态与内部 id。
+
+    生成图必须留：这段对话"画出了什么"就靠它。图片存在任务表里，所以这里只把
+    `prompt` 与结果图带到前台，思考链路、模型 id、额度消耗一律不进公开载荷。
+    """
     attachments = []
+    prompt = ""
     for item in message.attachments or []:
         if not isinstance(item, dict):
             continue
         kind = str(item.get("type") or "")
         if kind in {"compose_run", "skill_run"}:
+            if kind == "compose_run" and not prompt:
+                prompt = str(item.get("final_prompt") or "")
             continue
         attachments.append(item)
     return {
@@ -177,6 +187,44 @@ def _public_message(message: ChatMessage) -> dict:
         "content": message.content,
         "attachments": attachments,
         "created_at": message.created_at,
+        "prompt": prompt,
+        "images": (results or {}).get(message.id, []),
+    }
+
+
+async def _collect_result_images(
+    db: AsyncSession, messages: list[ChatMessage]
+) -> dict[str, list[str]]:
+    """按消息汇总「这一轮画出来的图」。
+
+    消息 → compose_run 附件 → task_ids → 任务表 result_urls。
+    只取成功任务的结果，失败/取消的任务不往公开页面上带。
+    """
+    wanted: dict[str, list[str]] = {}
+    for message in messages:
+        for item in message.attachments or []:
+            if not isinstance(item, dict) or str(item.get("type")) != "compose_run":
+                continue
+            ids = [str(value) for value in (item.get("task_ids") or []) if value]
+            if ids:
+                wanted[message.id] = ids
+    task_ids = sorted({task_id for ids in wanted.values() for task_id in ids})
+    if not task_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(GenerationTask.id, GenerationTask.result_urls).where(
+                GenerationTask.id.in_(task_ids),
+                GenerationTask.status == "succeeded",
+            )
+        )
+    ).all()
+    urls_by_task = {
+        str(row.id): [str(url) for url in (row.result_urls or []) if url] for row in rows
+    }
+    return {
+        message_id: [url for task_id in ids for url in urls_by_task.get(task_id, [])]
+        for message_id, ids in wanted.items()
     }
 
 
@@ -184,6 +232,7 @@ def _public_message(message: ChatMessage) -> dict:
 async def get_shared_chat(token: str, db: AsyncSession = Depends(get_db)) -> dict:
     """公开只读：对话详情（含消息、提示词与画布快照）。"""
     session, messages = await canvas_service.get_shared_session(db, token)
+    results = await _collect_result_images(db, messages)
     canvas = None
     if session.canvas_id:
         row = (
@@ -202,7 +251,7 @@ async def get_shared_chat(token: str, db: AsyncSession = Depends(get_db)) -> dic
             "session_id": session.id,
             "title": session.title,
             "updated_at": session.updated_at,
-            "messages": [_public_message(item) for item in messages],
+            "messages": [_public_message(item, results) for item in messages],
             "canvas": canvas,
         }
     )
@@ -211,7 +260,7 @@ async def get_shared_chat(token: str, db: AsyncSession = Depends(get_db)) -> dic
 @router.post("/share/chat/{token}/fork")
 async def fork_shared_chat(
     token: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_pro),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """「基于这段对话继续创作」：复制一份到自己的账号下。"""

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from '@tanstack/react-router'
 import { Images, Link2, Loader2, Upload } from 'lucide-react'
 import type { ExcalidrawInitialDataState } from '@excalidraw/excalidraw/types'
+import { CanvasMinimap } from './CanvasMinimap'
 import { CanvasExcali } from './CanvasExcali'
 import { CanvasHeader } from './CanvasHeader'
 import { CanvasToolbar } from './CanvasToolbar'
@@ -27,7 +28,9 @@ import {
   focusSceneBox,
   imageSize,
   normalizeScene,
+  sceneSourceUrls,
   unplacedResultUrls,
+  urlToDataUrl,
   type ExcalidrawApiLike,
   type NormRegion,
 } from './canvas-helpers'
@@ -41,9 +44,11 @@ import { canvasesApi } from '@/lib/api/canvases'
 import { chatApi } from '@/lib/api/chat'
 import { assetsApi, type PromptPreset } from '@/lib/api/assets'
 import { generateApi, type EditCapability, type EditOpPayload } from '@/lib/api/generate'
+import { apiUrl } from '@/lib/api/client'
 import { useCanvasStore } from '@/stores/canvas'
 import { useUIStore } from '@/stores/ui'
 import { useComposerHandoff } from '@/stores/composer'
+import { useComposerRefs, MAX_COMPOSER_REFS } from '@/stores/composer-refs'
 import { useQuota } from '@/hooks/use-quota'
 import { useToast } from '@/hooks/use-toast'
 import { errorMessage } from '@/lib/errors'
@@ -52,7 +57,6 @@ import {
   loadPlacedUrls,
   markTaskPlaced,
   markUrlPlaced,
-  isUrlPlaced,
   newIdempotencyKey,
 } from '@/lib/task-persistence'
 import { useTheme } from '@/hooks/use-theme'
@@ -98,24 +102,32 @@ const RESULT_GAP = 40
 async function placeTaskResults(
   api: ExcalidrawApiLike,
   task: { prompt: string; result_urls: string[] },
-  origin: { x: number; y: number }
-) {
+  origin: { x: number; y: number },
+  canvasId?: string | null
+): Promise<number> {
+  // 逐张去重：一次任务可能产出「1 张整图 + N 张素材」。若中途某张拉取失败，
+  // 下一轮轮询会重来——不按 url 去重就会把已经落过的图重复叠到画布上。
+  const todo = unplacedResultUrls(api, task.result_urls, loadPlacedUrls(canvasId))
   let cursorX = origin.x
-  for (const url of task.result_urls) {
+  for (const url of todo) {
     const size = await imageSize(url)
     const scale = Math.min(1, RESULT_MAX_SIDE / Math.max(size.width, size.height, 1))
     const width = Math.max(RESULT_MIN_SIDE, Math.round(size.width * scale))
     const height = Math.max(RESULT_MIN_SIDE, Math.round(size.height * scale))
     await addImageToCanvas(api, {
       url,
+      assetId: await materializeResultAsset(url),
       name: task.prompt.slice(0, 20),
       width,
       height,
       x: cursorX,
       y: origin.y,
     })
+    // 落一张登记一张：这样中途失败后的重试只补没落的，不会重复
+    markUrlPlaced(url, canvasId)
     cursorX += width + RESULT_GAP
   }
+  return todo.length
 }
 
 /**
@@ -127,7 +139,8 @@ async function placeTaskResults(
 async function placeResultSet(
   api: ExcalidrawApiLike,
   urls: string[],
-  name: string
+  name: string,
+  canvasId?: string | null
 ): Promise<CanvasElement[]> {
   const created: CanvasElement[] = []
   for (const url of urls) {
@@ -136,8 +149,11 @@ async function placeResultSet(
     const width = Math.max(RESULT_MIN_SIDE, Math.round(size.width * scale))
     const height = Math.max(RESULT_MIN_SIDE, Math.round(size.height * scale))
     const spot = findEmptySpot(api, width, height)
+    // 先登记资产（失败也照常落图）：带着 assetId 落进画布，后续 @ 引用 / 编辑免去回传
+    const assetId = await materializeResultAsset(url)
     const element = await addImageToCanvas(api, {
       url,
+      assetId,
       name,
       width,
       height,
@@ -145,9 +161,36 @@ async function placeResultSet(
       y: spot.y,
     })
     created.push(element)
-    markUrlPlaced(url)
+    markUrlPlaced(url, canvasId)
   }
   return created
+}
+
+/** 生成结果图已登记的资产 id（按 url 缓存）：同一张图只回传一次。 */
+const resultAssetCache: Record<string, string> = {}
+
+/**
+ * 把生成结果回传进资产库，拿到资产 id。
+ *
+ * 为什么要这一步：上游只回一个临时 URL，图片本身并没有进我们的资产库。
+ * 结果图一旦落进画布，它就该是**一等公民**——能被 @ 引用、能进编辑/抠图、
+ * 能作为下一次图生图的底图。带着 assetId 落图，后续所有链路都免去重复回传。
+ * 失败返回 undefined：落图本身照常完成（画布上仍然看得到、也能编辑），
+ * 只是这条捷径没走上，后续引用时再补登记。
+ */
+async function materializeResultAsset(url: string): Promise<string | undefined> {
+  const cached = resultAssetCache[url]
+  if (cached) return cached
+  try {
+    const dataUrl = await urlToDataUrl(url)
+    const blob = await (await fetch(dataUrl)).blob()
+    const file = new File([blob], 'ai-result.png', { type: blob.type || 'image/png' })
+    const asset = await assetsApi.upload(file)
+    resultAssetCache[url] = asset.id
+    return asset.id
+  } catch {
+    return undefined
+  }
 }
 
 /** 一组元素的包围盒（scene 坐标），用于落图后聚焦。 */
@@ -273,6 +316,8 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   const switchSeqRef = useRef(0)
   /** 编辑层句柄：向侧栏提供并集掩码 PNG */
   const editLayerRef = useRef<ImageEditLayerHandle | null>(null)
+  /** 结果落画布失败的次数（按任务）：连续失败到阈值就收掉骨架，避免假「生成中…」 */
+  const placeFailuresRef = useRef<Record<string, number>>({})
 
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const latestSceneRef = useRef<CanvasState | null>(null)
@@ -330,7 +375,6 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     dataUrl: string
     width: number
     height: number
-    prompt: string
   } | null>(null)
 
   /** 把服务端场景灌入画布（同时刷新签名，避免 onChange 立刻回灌）。 */
@@ -372,6 +416,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
       setElements([])
       setSelectedIds([])
       setPlaceholders([])
+      placeFailuresRef.current = {}
       setSelectionCtx(null)
       exitEdit()
       sceneSigRef.current = ''
@@ -654,7 +699,12 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
 
   /**
    * 选区变化 → 组装上抛给侧栏的上下文。
-   * 只有存在编辑目标时才有上下文；退出编辑 / 切画布 / 删图一律清空。
+   *
+   * ⚠️ 这里的关键是 `regions.length > 0` 的判断：
+   * 只要编辑层开着、哪怕一个区域都没框，也绝不能上抛上下文。
+   * 否则侧栏会认为「这是一次区域编辑」，把用户那句本该走 compose 的话
+   * 拐进 `/chat/analyze`——这正是「框选功能跑到对话里去了」的直接原因。
+   * 空数组 = 没有选区 = 对话里那句话就是普通的生图需求。
    */
   const handleSelectionChange = useCallback(
     (info: {
@@ -664,11 +714,12 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
       regions: SelectionRegionContext[]
     }) => {
       const target = editTargetRef.current
-      if (!target) {
+      const regions = Array.isArray(info.regions) ? info.regions : []
+      // 编辑层关闭、或没有任何区域 → 清空上下文，让侧栏走纯文本链路
+      if (!target || regions.length === 0) {
         setSelectionCtx(null)
         return
       }
-      const regions = Array.isArray(info.regions) ? info.regions : []
       setSelectionCtx({
         asset_id: target.assetId ?? null,
         target_id: target.elementId,
@@ -691,7 +742,18 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     []
   )
 
-  /** 单击（无拖拽位移）选中图片 → 进入编辑模式。 */
+  /**
+   * 单击（无拖拽位移）选中图片 → 进入编辑模式，并把这张图作为 @ 引用送进输入框。
+   *
+   * 为什么点击就引用：本产品里「点中一张图」的意图几乎总是「我要在这张图上做事」，
+   * 而输入框正是下指令的地方。把它带进输入框 = 省掉「先选中、再说明是哪张」这一句，
+   * 也让后续指令天然带上底图。引用是可移除的 chip，不会静默改写提示词。
+   *
+   * ⚠️ 这里的判定**只看这一笔是不是拖拽**，不看当时是否已经存在选区：
+   * 拖拽（框选）在 pointerup 时位移必然超过容差，本来就会被下面那条 early return 拦掉。
+   * 旧实现另加了一道「有选区就整笔跳过」的判断，属于重复条件，而且会顺手吞掉
+   * 「编辑层已开、用户又点了另一张图」这类本该走引用路径的点击。
+   */
   const handlePointerDownCapture = (e: React.PointerEvent<HTMLDivElement>) => {
     clickStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() }
   }
@@ -700,16 +762,49 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     const start = clickStartRef.current
     clickStartRef.current = null
     if (!start) return
+    // 移动超过容差 / 按住过久 = 画布操作（拖拽、框选、平移），绝不是「点中」
     if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > CLICK_MOVE_TOLERANCE) return
     if (Date.now() - start.time > CLICK_MAX_MS) return
+    // 点在编辑层自己的 UI 上（选区手柄、气泡、涂鸦工具）不算点图
+    if (e.target instanceof Element && e.target.closest('[data-edit-layer-ui]')) return
     // 等 Excalidraw 完成选中态更新后再判断
     window.setTimeout(() => {
       const element = selectedImageRef.current
       if (!element) return
+      void referenceCanvasImage(element)
       if (editTargetRef.current?.elementId === element.id) return
       void enterEdit(element)
     }, 0)
   }
+
+  /**
+   * 把画布上的一张图作为 @ 引用插进输入框。
+   * 先补齐资产 id（没有的话回传一次资产库），这样引用在提交时能直接当底图用。
+   */
+  const referenceCanvasImage = useCallback(
+    async (element: CanvasElement) => {
+      const instance = apiRef.current
+      const custom = (element.customData ?? {}) as Record<string, unknown>
+      const inline = typeof custom.assetId === 'string' && custom.assetId ? custom.assetId : ''
+      const dataUrl = elementImageDataUrl(instance, element) ?? ''
+      const key = inline || element.id
+      const preview = inline ? apiUrl(`/assets/${inline}`) : dataUrl
+      // 引用装不下时（超过 4 张）给出明确反馈，而不是默默丢掉这一次点击
+      const accepted = useComposerRefs
+        .getState()
+        .addRef({ key, url: preview, assetId: inline || undefined })
+      if (!accepted) {
+        toast.warning(t('input.ref_limit', { max: MAX_COMPOSER_REFS }), t('input.ref_limit_hint'))
+        return
+      }
+      if (!inline) {
+        // 没有资产 id：后台补登记一次，不阻塞这次点击（resolveMentionIds 也会兜底）
+        void ensureElementAsset(instance, element)
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [toast, ensureElementAsset]
+  )
 
   // ESC：先收「打开的表面」（气泡 / 拖拽中的选区），都没有才退出编辑
   useEffect(() => {
@@ -731,7 +826,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     return () => window.removeEventListener('keydown', onKey)
   }, [editTarget, exitEdit])
 
-  // 选中图片变化时同步右栏预览（dataUrl + 原图尺寸 + 内置提示词）
+  // 选中图片变化时同步右栏预览（dataUrl + 原图尺寸）
   useEffect(() => {
     let alive = true
     if (!selectedImage) {
@@ -746,8 +841,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     void (async () => {
       try {
         const { w, h } = await probeSize(dataUrl)
-        const prompt = await resolvePresetPrompt(selectedImage)
-        if (alive) setSelectedImageInfo({ dataUrl, width: w, height: h, prompt })
+        if (alive) setSelectedImageInfo({ dataUrl, width: w, height: h })
       } catch {
         if (alive) setSelectedImageInfo(null)
       }
@@ -860,17 +954,6 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     }
   }
 
-  const handleShare = async () => {
-    if (!canvasId) return
-    try {
-      const result = await canvasesApi.share(canvasId)
-      await navigator.clipboard.writeText(result.url).catch(() => undefined)
-      toast.success(t('canvas:share.title', { defaultValue: '分享链接已复制' }), result.url)
-    } catch (error) {
-      toast.error(errorMessage(error, te))
-    }
-  }
-
   const handleSessionChange = (id: string) => {
     void navigate({ to: '/workspace', search: { session: id, task: taskId } as never, replace: true })
   }
@@ -911,25 +994,54 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     })
   }
 
+  /**
+   * 手动「放入画布」：用户点一次就必须有结果——要么放上去，要么说清为什么没放。
+   *
+   * 之前这里有两次静默 return（画布还没就绪、以及「url 已登记但场景里其实没有」时
+   * 被判成已放置），用户看到的就是「点了没反应、这张图再也放不进画布」。
+   * 现在只有「场景里确实已经有同一张图」才会拦，并且给明确反馈 + 把那张图带到眼前。
+   */
   const handleAddResultToCanvas = async (url: string, taskIdInner: string) => {
-    if (!api) return
-    // 投放按 url 去重。手动连点不再弹「已经在画布上了」：
-    // 去重登记与场景可能失步（图被删了但登记还在），那种情况要补回画布而不是拒绝
-    if (isUrlPlaced(url) && unplacedResultUrls(api, [url], [url]).length === 0) return
+    const instance = apiRef.current ?? api
+    if (!instance) {
+      toast.error('画布还在加载中，请稍后再试')
+      return
+    }
+    if (sceneSourceUrls(instance)?.has(url)) {
+      const existing = instance
+        .getSceneElements()
+        .find(
+          (el) =>
+            el.type === 'image' &&
+            (el.customData as { sourceUrl?: unknown } | undefined)?.sourceUrl === url
+        )
+      if (existing) {
+        focusSceneBox(instance, {
+          x: existing.x ?? 0,
+          y: existing.y ?? 0,
+          w: existing.width ?? RESULT_MAX_SIDE,
+          h: existing.height ?? RESULT_MAX_SIDE,
+        })
+        dropIn(existing.id)
+      }
+      toast.info('这张图片已经在画布上了')
+      return
+    }
     try {
       // 落点先找空位：直接放视口中心会盖住用户正在看的图
-      const spot = findEmptySpot(api, RESULT_MAX_SIDE, RESULT_MAX_SIDE)
-      const created = await addImageToCanvas(api, {
+      const spot = findEmptySpot(instance, RESULT_MAX_SIDE, RESULT_MAX_SIDE)
+      const created = await addImageToCanvas(instance, {
         url,
+        assetId: await materializeResultAsset(url),
         width: RESULT_MAX_SIDE,
         height: RESULT_MAX_SIDE,
         x: spot.x,
         y: spot.y,
       })
-      markUrlPlaced(url)
-      markTaskPlaced(taskIdInner)
+      markUrlPlaced(url, canvasId)
+      markTaskPlaced(taskIdInner, canvasId)
       dropIn(created.id)
-      focusSceneBox(apiRef.current, {
+      focusSceneBox(instance, {
         x: created.x ?? spot.x,
         y: created.y ?? spot.y,
         w: created.width ?? RESULT_MAX_SIDE,
@@ -958,7 +1070,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
       if (key === lastAutoPlaceKeyRef.current) return
       lastAutoPlaceKeyRef.current = key
       try {
-        const created = await placeResultSet(instance, fresh, 'AI 生成结果')
+        const created = await placeResultSet(instance, fresh, 'AI 生成结果', canvasId)
         markTaskPlaced(taskKey, canvasId)
         focusSceneBox(instance, unionBox(created))
       } catch {
@@ -1032,8 +1144,26 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
           const task = await generateApi.getTask(ph.taskId)
           if (cancelled) return
           if (task.status === 'succeeded' && task.result_urls.length > 0) {
-            // 逐张投放全部产出：多产出任务（1 张修改图 + N 张素材）只投第一张会丢结果
-            await placeTaskResults(api, task, { x: ph.sceneX, y: ph.sceneY })
+            // 逐张投放全部产出：多产出任务（1 张修改图 + N 张素材）只投第一张会丢结果。
+            // 落图失败（多为结果图临时链接已失效）单独处理：计数重试，超阈值就收掉
+            // 骨架并如实告知——否则会在画布上永远留一块「生成中…」的假象。
+            let placed = 0
+            try {
+              placed = await placeTaskResults(api, task, { x: ph.sceneX, y: ph.sceneY }, canvasId)
+            } catch {
+              const attempts = (placeFailuresRef.current[ph.taskId] ?? 0) + 1
+              placeFailuresRef.current[ph.taskId] = attempts
+              if (attempts < 6) continue
+              delete placeFailuresRef.current[ph.taskId]
+              setPlaceholders((prev) => prev.filter((item) => item.taskId !== ph.taskId))
+              toast.error(
+                t('region.gen_place_failed', {
+                  defaultValue: '结果图加载失败，请稍后在对话里重新放入画布',
+                })
+              )
+              continue
+            }
+            delete placeFailuresRef.current[ph.taskId]
             markTaskPlaced(task.id, canvasId)
             setPlaceholders((prev) => prev.filter((item) => item.taskId !== ph.taskId))
             // 编辑结果落在原图旁边：镜头推过去，小图上改的细节才看得见
@@ -1043,11 +1173,14 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
               w: ph.sceneW,
               h: ph.sceneH,
             })
-            toast.success(
-              t('region.generated', { defaultValue: '生成完成，结果已放到画布' }),
-              task.result_urls.length > 1 ? `共 ${task.result_urls.length} 张结果` : undefined
-            )
+            if (placed > 0) {
+              toast.success(
+                t('region.generated', { defaultValue: '生成完成，结果已放到画布' }),
+                task.result_urls.length > 1 ? `共 ${task.result_urls.length} 张结果` : undefined
+              )
+            }
           } else if (task.status === 'failed' || task.status === 'timeout' || task.status === 'cancelled') {
+            delete placeFailuresRef.current[ph.taskId]
             setPlaceholders((prev) => prev.filter((item) => item.taskId !== ph.taskId))
             // 只显示用户能看懂的结果，不透传后端错误详情
             toast.error(t('region.gen_failed', { defaultValue: '生成未完成，额度已退回' }))
@@ -1225,14 +1358,16 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
               </div>
             ))}
 
-            {/* 选中图片的浮动预览：贴在画布左下角，不占常驻宽度 */}
+            {/* 全局缩略图：固定在左下角，主画布拖远/缩小时用它找回内容 */}
+            {api && <CanvasMinimap api={api} />}
+
+            {/* 选中图片的浮动预览：贴在画布右下角（左下角让给全局缩略图） */}
             {selectedImageInfo?.dataUrl && (
-              <div className="absolute bottom-3 left-3 z-20 w-[214px] rounded-[14px] border border-border/60 bg-surface/95 p-2 shadow-float backdrop-blur-md">
+              <div className="absolute bottom-[60px] right-3 z-20 w-[214px] rounded-[14px] bg-surface/95 p-2 shadow-float ring-1 ring-inset ring-border-faint backdrop-blur-md">
                 <ImagePreviewPanel
                   imageUrl={selectedImageInfo.dataUrl}
                   width={selectedImageInfo.width}
                   height={selectedImageInfo.height}
-                  prompt={selectedImageInfo.prompt}
                   onEdit={() => {
                     if (selectedImage) void enterEdit(selectedImage)
                   }}

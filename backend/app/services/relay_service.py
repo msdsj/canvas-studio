@@ -25,6 +25,15 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import config_service
+from app.services.relay_types import (
+    BODY_HEAD_CHARS,
+    MODEL_NAME_ERROR_HINTS,
+    FailureKind,
+    FailurePolicy,
+    RelayCall,
+    RelayOutcome,
+    policy_for,
+)
 from app.utils.errors import AppError, ErrorCode
 from app.utils.logging import get_logger
 
@@ -108,6 +117,10 @@ class RelayTarget:
     max_tokens: int = 2048
     extra: dict[str, Any] = field(default_factory=dict)
     supports_vision: bool = False
+    # 备用模型链（0–3 个有序模型名，见 ADR-3）。空列表 = 不启用 fallback。
+    fallback_models: list[str] = field(default_factory=list)
+    # 内部 id：仅用于日志与「跨 provider 互备时排除自己」，不进响应
+    provider_id: str | None = None
 
     @property
     def protocol(self) -> str:
@@ -155,6 +168,33 @@ def mask_key(value: str) -> str:
     return f"{value[:4]}{'*' * max(len(value) - 8, 4)}{value[-4:]}"
 
 
+def safe_model_list(raw: Any) -> list[str]:
+    """把任意来源的模型列表收敛成 `list[str]`。
+
+    旧库补列后 `fallback_models` 可能是字符串 `'[]'`、`None`、或被脏数据写成了
+    逗号串，读取处一律经过这里，避免在业务代码里到处写防御分支。
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+        except (ValueError, TypeError):
+            return [text]
+        raw = parsed
+    if not isinstance(raw, (list, tuple)):
+        return []
+    items: list[str] = []
+    for item in raw:
+        value = str(item).strip()
+        if value:
+            items.append(value)
+    return items
+
+
 async def resolve(db: AsyncSession, user_id: str) -> RelayTarget | None:
     """解析当前用户可用的中转站；没有则返回 None（调用方必须处理「未配置」）。"""
     from sqlalchemy import select
@@ -181,6 +221,9 @@ async def resolve(db: AsyncSession, user_id: str) -> RelayTarget | None:
             max_tokens=int(row.max_tokens or 2048),
             extra=dict(row.extra or {}),
             supports_vision=bool(row.supports_vision),
+            # 代码侧防御：兼容 None / 空列表 / 脏数据（旧库补列后可能是字符串）
+            fallback_models=safe_model_list(row.fallback_models),
+            provider_id=row.id,
         )
 
     # 全局兜底：系统配置里的文本 provider（管理员配的公共中转）。
@@ -422,6 +465,231 @@ async def _post_capped(
         return status, b"".join(chunks)
 
 
+# --------------------------------------------------------------------------- #
+# 失败分类（ADR-2）：判定顺序固定，先到先判，不再往下走
+# --------------------------------------------------------------------------- #
+#: 「地址填错成网页」的典型开头：中转站把网关首页 200 返回时命中
+_HTML_PREFIXES: tuple[str, ...] = ("<!doctype", "<html", "<?xml", "<head", "<body")
+
+
+def _body_head(raw: bytes) -> str:
+    """响应体前缀（仅日志用，永不进响应）。"""
+    if not raw:
+        return ""
+    text = raw[: BODY_HEAD_CHARS * 2].decode("utf-8", "ignore")
+    return text.replace("\n", " ").replace("\r", " ").strip()[:BODY_HEAD_CHARS]
+
+
+def _looks_like_html(raw: bytes) -> bool:
+    """响应体是不是一张网页（最常见的「地址填成了网站首页」）。"""
+    if not raw:
+        return False
+    head = raw[:512].decode("utf-8", "ignore").lstrip().lower()
+    return any(head.startswith(prefix) for prefix in _HTML_PREFIXES)
+
+
+def _is_truncated_json(exc: Exception, raw: bytes) -> bool:
+    """区分「被截断」与「压根不是 JSON」。
+
+    双判据（ADR-2）：先看 `JSONDecodeError.msg` 的截断特征，再用「看起来像 JSON
+    的开头 + 尾部没有闭合」兜底——CPython 升级改了文案也不会误判。
+    """
+    message = str(getattr(exc, "msg", "") or exc).lower()
+    if "unterminated" in message:
+        return True
+    stripped = raw.strip()
+    if not stripped:
+        return False
+    if stripped[:1] not in {b"{", b"["}:
+        # 连 JSON 的开头都不是（纯文本 / 报错页），属于 not_json 而不是截断
+        return False
+    return stripped[-1:] not in {b"}", b"]"}
+
+
+def _is_model_name_error(reason: str) -> bool:
+    """4xx 的短原因里是否提到模型名（命中就值得换一个模型再试）。"""
+    lowered = (reason or "").lower()
+    return any(hint in lowered for hint in MODEL_NAME_ERROR_HINTS)
+
+
+def _classify_failure(
+    status: int | None, raw: bytes
+) -> tuple[FailureKind, dict[str, Any] | None, str]:
+    """按 ADR-2 的顺序分类。
+
+    Returns:
+        `(kind, payload, reason_hint)`。`payload` 仅在能解析成 dict 时非空，
+        `reason_hint` 是上游的短原因（只用于判定与日志，不进响应）。
+    """
+    # 4–7) 先判状态码：4xx/5xx 的语义比响应体形态更确定
+    if status is not None and status >= 400:
+        if status in {401, 403}:
+            # Key 错，换模型无意义
+            return FailureKind.AUTH_ERROR, None, ""
+        if status >= 500:
+            return FailureKind.HTTP_5XX, None, _short_reason(status, raw)
+        return FailureKind.HTTP_4XX, None, _short_reason(status, raw)
+
+    # 8) 空体
+    if not raw or not raw.strip():
+        return FailureKind.EMPTY_BODY, None, ""
+
+    # 9) 网页：必须在解析 JSON 之前判，否则会被误判成「模型没给正文」
+    if _looks_like_html(raw):
+        return FailureKind.HTML_BODY, None, ""
+
+    # 10–11) JSON 解析失败：区分截断与非 JSON
+    try:
+        payload = json.loads(raw.decode("utf-8", "ignore"))
+    except (ValueError, TypeError) as exc:
+        if _is_truncated_json(exc, raw):
+            return FailureKind.TRUNCATED_JSON, None, ""
+        return FailureKind.NOT_JSON, None, ""
+
+    # 12) 顶层不是对象
+    if not isinstance(payload, dict):
+        return FailureKind.NOT_OBJECT, None, ""
+
+    # 13) 上游明确拒绝：200 但顶层只有 error
+    if "error" in payload and not payload.get("choices") and not payload.get("content"):
+        return FailureKind.UPSTREAM_REFUSED, payload, ""
+
+    return FailureKind.OK, payload, ""
+
+
+async def _chat_once(
+    target: RelayTarget,
+    messages: list[dict[str, Any]],
+    *,
+    json_mode: bool = False,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+) -> RelayCall:
+    """对**一个**模型发一次请求，并把结果分类（不抛业务异常）。
+
+    这是 L1 的唯一出口：`relay_chain` 只拿 `RelayCall.kind` / `.policy` 做决策，
+    不再关心协议差异、SSRF 校验与响应体解析。
+    """
+    started = time.perf_counter()
+
+    def elapsed_ms() -> int:
+        return int((time.perf_counter() - started) * 1000)
+
+    try:
+        # 地址校验（SSRF）：只放行 http(s)，封元数据地址与平台自身端口
+        await guard_url(target.base_url)
+    except AppError as exc:
+        logger.warning("中转站地址不合法 model=%s: %s", target.model, exc.message)
+        return RelayCall(
+            kind=FailureKind.BAD_URL,
+            policy=policy_for(FailureKind.BAD_URL),
+            body_head=str(exc.message)[:BODY_HEAD_CHARS],
+            elapsed_ms=elapsed_ms(),
+            sent=False,  # 发请求前就被拦下：不计入 HTTP 调用次数预算
+        )
+    except Exception:  # noqa: BLE001 - 解析 DNS 等意外错误一律按地址不合法处理
+        logger.exception("中转站地址校验异常 model=%s", target.model)
+        return RelayCall(
+            kind=FailureKind.BAD_URL,
+            policy=policy_for(FailureKind.BAD_URL),
+            elapsed_ms=elapsed_ms(),
+            sent=False,
+        )
+
+    overrides: dict[str, Any] = {"json_mode": json_mode}
+    if temperature is not None:
+        overrides["temperature"] = temperature
+    if max_tokens is not None:
+        overrides["max_tokens"] = max_tokens
+    body = (
+        _anthropic_body(target, messages, **overrides)
+        if target.protocol == "anthropic"
+        else _openai_body(target, messages, **overrides)
+    )
+
+    timeout = httpx.Timeout(
+        connect=_CONNECT_TIMEOUT, read=_READ_TIMEOUT, write=_READ_TIMEOUT, pool=_CONNECT_TIMEOUT
+    )
+    status: int | None = None
+    raw: bytes = b""
+    try:
+        # 不跟随重定向：否则用户配一个 302 就能把请求引到内网其它地址
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+            status, raw = await _post_capped(client, target, body)
+            # 部分中转站不支持 response_format：识别到这类报错就去掉重试一次，
+            # 而不是让用户看到「HTTP 400」却不知道该改哪里
+            if status >= 400 and json_mode and "response_format" in _short_reason(status, raw).lower():
+                body.pop("response_format", None)
+                status, raw = await _post_capped(client, target, body)
+    except AppError as exc:
+        # 响应体过大（_post_capped 抛的）：按「拿不到可用数据」处理，换模型有意义
+        logger.warning("中转站响应体异常 model=%s: %s", target.model, exc.message)
+        return RelayCall(
+            kind=FailureKind.NOT_JSON,
+            policy=policy_for(FailureKind.NOT_JSON),
+            body_head=str(exc.message)[:BODY_HEAD_CHARS],
+            elapsed_ms=elapsed_ms(),
+        )
+    except httpx.ConnectError:
+        logger.warning("中转站连接失败 model=%s endpoint=%s", target.model, target.endpoint)
+        return RelayCall(
+            kind=FailureKind.CONNECT_ERROR,
+            policy=policy_for(FailureKind.CONNECT_ERROR),
+            elapsed_ms=elapsed_ms(),
+        )
+    except httpx.TimeoutException:
+        logger.warning("中转站响应超时 model=%s endpoint=%s", target.model, target.endpoint)
+        return RelayCall(
+            kind=FailureKind.TIMEOUT,
+            policy=policy_for(FailureKind.TIMEOUT),
+            elapsed_ms=elapsed_ms(),
+        )
+    except Exception:  # noqa: BLE001 - 未知传输异常：当作连不上，终止整链
+        logger.exception("中转站调用异常 model=%s", target.model)
+        return RelayCall(
+            kind=FailureKind.CONNECT_ERROR,
+            policy=policy_for(FailureKind.CONNECT_ERROR),
+            elapsed_ms=elapsed_ms(),
+        )
+
+    kind, payload, reason_hint = _classify_failure(status, raw)
+    policy = policy_for(kind)
+    if kind is FailureKind.HTTP_4XX and _is_model_name_error(reason_hint):
+        # 模型名写错 / 模型不存在：换模型有意义（ADR-2 第 6 条）
+        policy = FailurePolicy(fatal=False, retry_same_model=False, switch_model=True)
+
+    content = ""
+    if kind is FailureKind.OK and payload is not None:
+        content = _extract_text(target, payload)
+        if not content:
+            kind = (
+                FailureKind.TRUNCATED_OUTPUT
+                if _finish_reason(payload) == "length"
+                else FailureKind.NO_CONTENT
+            )
+            policy = policy_for(kind)
+
+    head = "" if kind is FailureKind.OK else _body_head(raw)
+    if kind is not FailureKind.OK:
+        logger.warning(
+            "上游失败 model=%s status=%s kind=%s reason=%s body_head=%s",
+            target.model,
+            status,
+            kind.value,
+            reason_hint,
+            head,
+        )
+    return RelayCall(
+        kind=kind,
+        policy=policy,
+        content=content,
+        payload=payload,
+        status=status,
+        body_head=head,
+        elapsed_ms=elapsed_ms(),
+    )
+
+
 async def chat(
     db: AsyncSession,
     user_id: str,
@@ -434,91 +702,61 @@ async def chat(
 ) -> dict[str, Any]:
     """调用中转站，返回 ``{content, model, provider, source, elapsed_ms}``。
 
+    **签名与返回结构完全不变**，内部委托 `chat_resilient()`——于是 `compose_service`
+    与 `polish_service` 两个既有调用点零改动即获得「同模型重试 + 备用模型链」的韧性
+    （ADR-1 方案 c：最小爆炸半径）。
+
     未配置 → 抛 ``AppError(VALIDATION_ERROR)`` 且文案直接引导去配置，
     调用方不得把这种情况当成「AI 说不知道」。
     """
-    resolved = target or await resolve(db, user_id)
-    if resolved is None:
-        raise AppError(
-            ErrorCode.VALIDATION_ERROR,
-            "还没有配置 AI 中转站，先在左侧「中转站」里填好地址、Key 和模型",
-        )
-    # 地址校验（SSRF）：只放行 http(s)，封元数据地址与平台自身端口
-    await guard_url(resolved.base_url)
+    outcome = await chat_resilient(
+        db,
+        user_id,
+        messages,
+        json_mode=json_mode,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        target=target,
+    )
+    return {
+        "content": outcome.content,
+        "model": outcome.model,
+        "provider": outcome.provider,
+        "source": outcome.source,
+        "elapsed_ms": outcome.elapsed_ms,
+    }
 
-    overrides: dict[str, Any] = {"json_mode": json_mode}
-    if temperature is not None:
-        overrides["temperature"] = temperature
-    if max_tokens is not None:
-        overrides["max_tokens"] = max_tokens
-    body = (
-        _anthropic_body(resolved, messages, **overrides)
-        if resolved.protocol == "anthropic"
-        else _openai_body(resolved, messages, **overrides)
+
+async def chat_resilient(
+    db: AsyncSession | None,
+    user_id: str,
+    messages: list[dict[str, Any]],
+    *,
+    json_mode: bool = False,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    target: RelayTarget | None = None,
+    purpose: str = "generic",
+) -> RelayOutcome:
+    """带韧性的调用入口（链构造 + 三重预算 + 失败分类）。
+
+    实现放在 `relay_chain`（职责分离），这里只做一层稳定的公共入口——`relay_chain`
+    需要 `resolve` / `_chat_once` / `guard_url`，反向在模块顶层导入会形成循环，
+    所以延迟到函数内导入。
+    """
+    from app.services import relay_chain  # 局部导入：避免 relay_chain ↔ relay_service 循环
+
+    return await relay_chain.chat_resilient(
+        db,
+        user_id,
+        messages,
+        json_mode=json_mode,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        target=target,
+        purpose=purpose,
     )
 
-    started = time.perf_counter()
-    timeout = httpx.Timeout(connect=_CONNECT_TIMEOUT, read=_READ_TIMEOUT, write=_READ_TIMEOUT, pool=_CONNECT_TIMEOUT)
-    try:
-        # 不跟随重定向：否则用户配一个 302 就能把请求引到内网其它地址
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-            status, raw = await _post_capped(client, resolved, body)
-            # 部分中转站不支持 response_format：识别到这类报错就去掉重试一次，
-            # 而不是让用户看到「HTTP 400」却不知道该改哪里
-            if status >= 400 and json_mode and "response_format" in _short_reason(status, raw).lower():
-                body.pop("response_format", None)
-                status, raw = await _post_capped(client, resolved, body)
-    except AppError:
-        raise
-    except httpx.ConnectError as exc:
-        logger.warning("中转站连接失败 %s: %s", resolved.endpoint, exc)
-        raise AppError(ErrorCode.PROXY_UNREACHABLE, "连不上这个中转站，检查一下地址和网络") from exc
-    except httpx.TimeoutException as exc:
-        raise AppError(ErrorCode.UPSTREAM_ERROR, "中转站响应超时了，稍后再试一次") from exc
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("中转站调用异常")
-        raise AppError(ErrorCode.UPSTREAM_ERROR, "这次没能连上中转站") from exc
-
-    if status >= 400:
-        reason = _short_reason(status, raw)
-        logger.warning(
-            "中转站返回错误 status=%s model=%s body=%s",
-            status,
-            resolved.model,
-            raw[:500].decode("utf-8", "ignore"),
-        )
-        raise AppError(
-            ErrorCode.UPSTREAM_ERROR,
-            f"中转站没有正常返回（HTTP {status}）：{reason}",
-        )
-
-    try:
-        payload = json.loads(raw.decode("utf-8", "ignore"))
-    except Exception as exc:  # noqa: BLE001
-        raise AppError(ErrorCode.UPSTREAM_ERROR, "中转站返回的不是标准 JSON，检查一下地址是否填成了网页") from exc
-    if not isinstance(payload, dict):
-        raise AppError(ErrorCode.UPSTREAM_ERROR, "中转站返回的格式不对，检查一下地址是否填成了网页")
-
-    content = _extract_text(resolved, payload)
-    if not content:
-        finish = _finish_reason(payload)
-        if finish == "length":
-            raise AppError(
-                ErrorCode.UPSTREAM_ERROR,
-                f"模型输出被截断（最大 tokens={resolved.max_tokens}），把它调大再试",
-            )
-        raise AppError(
-            ErrorCode.UPSTREAM_ERROR,
-            "模型这次只输出了思考过程、没有正文：把「最大输出 tokens」调到 512 以上再试",
-        )
-
-    return {
-        "content": content,
-        "model": resolved.model,
-        "provider": resolved.name,
-        "source": resolved.source,
-        "elapsed_ms": int((time.perf_counter() - started) * 1000),
-    }
 
 
 async def test_target(target: RelayTarget) -> dict[str, Any]:

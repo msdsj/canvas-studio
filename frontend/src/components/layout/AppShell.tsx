@@ -3,6 +3,7 @@ import { TopBar } from './TopBar'
 import { AnnouncementBanner } from './AnnouncementBanner'
 import { ResumeGuard } from './ResumeGuard'
 import { QuotaInsufficientModal } from './QuotaInsufficientModal'
+import { ProUpgradeDialog, useProRequiredListener } from '@/components/pro/ProUpgradeDialog'
 
 /**
  * 登录后全局壳：顶栏 + 内容区 + 全局续接/提醒。
@@ -13,6 +14,9 @@ import { QuotaInsufficientModal } from './QuotaInsufficientModal'
  * "页面莫名往上跳了一截，菜单不见了"。两道约束都得有。
  */
 export function AppShell({ children }: { children: ReactNode }) {
+  // 任意请求被判为「需要 Pro」时自动弹升级引导（画布/抠图/对话/润色/图生图都走这条）
+  useProRequiredListener()
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-transparent">
       <TopBar />
@@ -20,6 +24,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
       <ResumeGuard />
       <QuotaInsufficientModal />
+      <ProUpgradeDialog />
     </div>
   )
 }

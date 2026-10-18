@@ -34,8 +34,12 @@ export interface SharedChatMessage {
   id: string
   role: string
   content: string
-  attachments: unknown[]
-  created_at?: string | null
+  attachments?: unknown
+  created_at?: string
+  /** 这一轮的最终提示词（被分享者最想拿走的东西） */
+  prompt?: string
+  /** 这一轮画出来的图（公开只读，来自成功任务的 result_urls） */
+  images?: string[]
 }
 
 export interface SharedChat {

@@ -12,6 +12,7 @@ import type { ErrorCode } from '@/types/api'
 export const ERROR_I18N_KEY: Record<ErrorCode, string> = {
   OK: 'ok',
   QUOTA_INSUFFICIENT: 'quota_insufficient',
+  PRO_REQUIRED: 'pro_required',
   UNAUTHORIZED: 'unauthorized',
   FORBIDDEN: 'forbidden',
   UPSTREAM_ERROR: 'upstream_error',

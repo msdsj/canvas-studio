@@ -152,6 +152,63 @@ async def test_share_chat_roundtrip(client):
     assert gone.status_code == 404
 
 
+async def test_share_chat_payload_keeps_prompt_and_images(client):
+    """公开载荷必须带上「这一轮画了什么」：最终提示词 + 成功任务的结果图。
+
+    执行态附件（compose_run/skill_run）本身不外泄，但它背后的产物要露出来——
+    否则分享页上只剩一句用户原话，完全看不出生成结果。
+    """
+    headers = await _headers(client)
+    session_id = await _new_session(client, headers)
+    owner = await _admin_id()
+    async with AsyncSessionLocal() as db:
+        from app.models.generation import GenerationTask
+
+        task = GenerationTask(
+            user_id=owner,
+            session_id=session_id,
+            type="generate",
+            prompt="一张蓝色海报",
+            status="succeeded",
+            result_urls=["/static/result-a.png", "/static/result-b.png"],
+            idempotency_key="share-payload-1",
+        )
+        db.add(task)
+        await db.flush()
+        db.add(
+            ChatMessage(
+                session_id=session_id,
+                user_id=owner,
+                role="assistant",
+                content="已经画好了",
+                attachments=[
+                    {
+                        "type": "compose_run",
+                        "task_ids": [task.id],
+                        "final_prompt": "极简蓝色活动海报，居中标题",
+                    }
+                ],
+            )
+        )
+        await db.commit()
+
+    shared = await client.post(f"/api/chat/sessions/{session_id}/share", headers=headers)
+    token = shared.json()["data"]["share_token"]
+
+    public = await client.get(f"/api/share/chat/{token}")
+    assert public.status_code == 200, public.text
+    messages = public.json()["data"]["messages"]
+    assistant = next(item for item in messages if item["role"] == "assistant")
+
+    # 提示词来自 compose_run 的 final_prompt，执行态附件本身不外泄
+    assert assistant["prompt"] == "极简蓝色活动海报，居中标题"
+    assert all(
+        item.get("type") not in {"compose_run", "skill_run"} for item in assistant["attachments"]
+    )
+    # 结果图随任务带出来
+    assert assistant["images"] == ["/static/result-a.png", "/static/result-b.png"]
+
+
 async def test_fork_shared_chat_copies_into_my_account(client):
     """「继续创作」= 复制一份：新会话属于访问者，原会话消息数不变。"""
     headers = await _headers(client)
