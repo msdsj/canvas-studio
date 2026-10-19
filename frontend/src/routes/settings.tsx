@@ -36,7 +36,7 @@ function SettingsPage() {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
   const setUser = useAuthStore((s) => s.setUser)
-  const { language, setLanguage } = useLanguage()
+  const { language, setLanguage, options: languages } = useLanguage()
   const { mode, setMode } = useTheme()
   /** 主题下拉的触发器：扩散以它为圆心 */
   const themeTriggerRef = useRef<HTMLButtonElement>(null)
@@ -112,8 +112,11 @@ function SettingsPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="zh-CN">简体中文</SelectItem>
-                      <SelectItem value="en">English</SelectItem>
+                      {languages.map((item) => (
+                        <SelectItem key={item.code} value={item.code}>
+                          {item.nativeName}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </FormField>

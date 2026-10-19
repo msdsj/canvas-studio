@@ -37,5 +37,24 @@
   "maintenance": {
     "title": "系统维护中",
     "desc": "平台正在维护，请稍后再试。"
+  },
+  "drawer": {
+    "title": "我的工作室",
+    "close": "收起抽屉",
+    "chats": "历史对话",
+    "refs": "参考图",
+    "works": "作品"
+  },
+  "agent_panel": {
+    "title": "zleap Agent",
+    "collapse": "收起 Agent 面板",
+    "expand": "展开 Agent 面板",
+    "home": "返回首页",
+    "new_chat": "新对话"
+  },
+  "canvas_bar": {
+    "export": "导出",
+    "share": "分享",
+    "more": "更多"
   }
 }

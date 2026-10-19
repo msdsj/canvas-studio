@@ -93,13 +93,13 @@
     "no_result": "This task has no editable image"
   },
   "task": {
-    "queued": "Queued",
+    "queued": "In queue — you're up next",
     "running": "Generating",
     "paused": "Stopped",
     "cancelled": "Stopped",
     "succeeded": "Done",
-    "failed": "Didn't come out",
-    "timeout": "Took too long — stopped automatically",
+    "failed": "This one didn't come through",
+    "timeout": "Took too long, so I stopped it",
     "progress": "Progress {{progress}}%",
     "pause": "Pause",
     "resume": "Resume",
@@ -112,11 +112,11 @@
     "unread": "Unseen",
     "marked_seen": "Marked as seen",
     "stop": "Stop generating",
-    "placed": "Added",
+    "placed": "On canvas",
     "refunded": "Credits refunded",
-    "elapsed": "Generating · {{seconds}}s, usually 30–90s",
-    "slow_90": "Slower than usual — feel free to check the canvas meanwhile",
-    "slow_180": "Still generating — it will stop and refund automatically if it times out",
+    "elapsed": "Painting · {{seconds}}s, usually 30–90s",
+    "slow_90": "A little slower than usual — feel free to check the canvas",
+    "slow_180": "Still painting; it'll stop and refund automatically if it times out",
     "image_failed": "Image failed to load",
     "image_retry": "Retry",
     "copy_prompt": "Copy prompt",
@@ -128,7 +128,16 @@
     "limit_hint": "Up to {{max}} tasks at a time — wait or stop one",
     "thinking_title": "Reasoning",
     "thinking_steps": "{{count}} steps",
-    "optimized_prompt": "Optimized prompt"
+    "optimized_prompt": "Optimized prompt",
+    "place_one": "Place",
+    "placed_toast": "Placed on canvas",
+    "add_all_to_canvas": "Place all on canvas",
+    "all_placed": "All on canvas",
+    "done_count_one": "{{count}} image ready",
+    "done_count_other": "{{count}} images ready",
+    "generating_count_one": "Painting {{count}} image",
+    "generating_count_other": "Painting {{count}} images",
+    "failed_hint": "Credits refunded — rephrase it or just retry"
   },
   "edit": {
     "compare": "Edit compare",
@@ -157,10 +166,16 @@
     "back_to_latest": "Back to latest"
   },
   "network": {
-    "offline": "Connection lost — reconnecting…",
+    "offline": "You're offline — I'll pick up where we left off once you're back",
     "restored": "Back online"
   },
   "draft": {
     "restored": "Restored your unsent draft"
+  },
+  "header": {
+    "active_tasks_one": "{{count}} generating",
+    "active_tasks_other": "{{count}} generating",
+    "relay_connected": "Relay connected: {{name}}",
+    "relay_configure": "Configure AI relay"
   }
 }

@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from '@tanstack/react-router'
-import { Images, Link2, Loader2, Upload } from 'lucide-react'
 import type { ExcalidrawInitialDataState } from '@excalidraw/excalidraw/types'
-import { CanvasMinimap } from './CanvasMinimap'
 import { CanvasExcali } from './CanvasExcali'
 import { CanvasHeader } from './CanvasHeader'
 import { CanvasToolbar } from './CanvasToolbar'
@@ -16,12 +14,22 @@ import {
 import { LayerPanel } from './LayerPanel'
 import { UploadPromptDialog } from './UploadPromptDialog'
 import { ImagePreviewPanel } from './ImagePreviewPanel'
+import { CanvasNavigator } from './stage/CanvasNavigator'
+import { GeneratingCard } from './stage/GeneratingCard'
+import { RevealLayer, type RevealLayerHandle } from './stage/RevealLayer'
+import { CanvasDropZone } from './stage/CanvasDropZone'
+import { EmptyCanvas } from './stage/EmptyCanvas'
+import { useCanvasHistory } from './stage/use-canvas-history'
+import { focusAgentComposer } from './stage/composer-bridge'
+import './stage/stage.css'
 import { StudioSidebar } from '@/components/studio/StudioSidebar'
-import { WorkspaceIdentityBar } from '@/components/layout/WorkspaceIdentityBar'
+import { AgentPanelHeader, CanvasTopBar } from '@/components/workspace/WorkspaceChrome'
+import { usePanelMotion } from '@/components/workspace/use-panel-motion'
 import {
   addImageToCanvas,
   allSceneElements,
   downloadImageAs,
+  imageToBlob,
   elementImageDataUrl,
   elementScreenRect,
   findEmptySpot,
@@ -246,6 +254,30 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   // 选中态同步到 store：CanvasHeader 的「导出」据此高亮，避免两处各算一套
   const setStoreSelectedIds = useCanvasStore((s) => s.setSelectedElementIds)
   const mobileSegment = useUIStore((s) => s.mobileSegment)
+  const agentPanelOpen = useUIStore((s) => s.agentPanelOpen)
+  const studioDrawerOpen = useUIStore((s) => s.studioDrawerOpen)
+  const closeStudioDrawer = useUIStore((s) => s.closeStudioDrawer)
+  const agentPanelRef = useRef<HTMLDivElement>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
+  // Agent 面板：≥md 推挤收放；移动端由「画布 / 对话」分段切换接管
+  usePanelMotion(agentPanelRef, agentPanelOpen, { pushQuery: '(min-width: 768px)' })
+  // 工作室抽屉：≥lg 推挤画布；更窄时从左侧滑出、盖在内容之上
+  usePanelMotion(drawerRef, studioDrawerOpen, {
+    pushQuery: '(min-width: 1024px)',
+    overlayBelow: true,
+  })
+
+  // 浮层形态的抽屉支持 Esc 关闭（推挤形态不抢 Esc：那是画布取消选择的键）
+  useEffect(() => {
+    if (!studioDrawerOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (window.matchMedia('(min-width: 1024px)').matches) return
+      closeStudioDrawer()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [studioDrawerOpen, closeStudioDrawer])
 
   const shellRef = useRef<HTMLDivElement>(null)
   /** 首页交接下来的一句话 + 参考图：交给右侧对话面板自动提交（只消费一次） */
@@ -263,6 +295,10 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
 
   // 编辑模式（单击选中图片即进入）
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null)
+  /** 画布纸卡：拖放区监听、撤销/重做找原生按钮都以它为根 */
+  const canvasCardRef = useRef<HTMLDivElement>(null)
+  /** 结果落画布的「显影」动效层 */
+  const revealRef = useRef<RevealLayerHandle>(null)
   const [editRect, setEditRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [editPrompt, setEditPrompt] = useState('')
   const [editSubmitting, setEditSubmitting] = useState(false)
@@ -292,6 +328,8 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
       screenY: number
       screenW: number
       screenH: number
+      /** 提交时间：占位卡据此显示用时、估算阶段、判断是否超时 */
+      startedAt: number
     }>
   >([])
   const placeholdersRef = useRef<typeof placeholders>([])
@@ -342,7 +380,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   }, [])
 
   /**
-   * 入场：三块面板依次落位（左栏 → 画布 → 对话）。
+   * 入场：两块面板依次落位（Agent 对话 → 画布）。
    *
    * 不给三栏同一套参数：位移量与延迟都随层级递减（左栏抬得最高、对话最轻），
    * 视觉上像三张纸从前到后依次压下来；如果三块齐步走、位移一致，
@@ -360,6 +398,14 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     () => elements.find((el) => el.type === 'image' && selectedIds.includes(el.id)) ?? null,
     [elements, selectedIds]
   )
+
+  /** 场景里真正可见的元素数（空画布引导据此出现 / 消失） */
+  const visibleCount = useMemo(
+    () => elements.filter((el) => !(el as { isDeleted?: boolean }).isDeleted).length,
+    [elements]
+  )
+
+  const history = useCanvasHistory(canvasCardRef, Boolean(api))
 
   /** 至少选中了一张图片：只有这时「导出」才可用（导出的是选中的图，不是整块画布） */
   const hasImageSelected = useMemo(
@@ -954,6 +1000,33 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     }
   }
 
+  /** 复制当前选中图片到剪贴板（PNG：剪贴板只稳定支持 PNG）。 */
+  const handleCopySelected = async () => {
+    const dataUrl = selectedImageInfo?.dataUrl
+    if (!dataUrl) return
+    try {
+      if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) throw new Error('unsupported')
+      // 传 Promise 给 ClipboardItem：Safari 要求在用户手势的同一调用栈里创建条目
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': imageToBlob(dataUrl, 'png') })])
+      toast.success(t('stage:preview.copied'))
+    } catch {
+      toast.error(t('stage:preview.copy_failed'))
+    }
+  }
+
+  /** 取消画布上一个生成中的任务：后端会退回额度，占位卡立即收起。 */
+  const cancelPlaceholder = async (taskIdToCancel: string) => {
+    try {
+      await generateApi.cancel(taskIdToCancel)
+      setPlaceholders((prev) => prev.filter((item) => item.taskId !== taskIdToCancel))
+      events.emit('tasks:changed')
+      events.emit('quota:changed')
+      toast.info(t('stage:gen.cancelled'))
+    } catch (error) {
+      toast.error(errorMessage(error, te))
+    }
+  }
+
   const handleSessionChange = (id: string) => {
     void navigate({ to: '/workspace', search: { session: id, task: taskId } as never, replace: true })
   }
@@ -1041,6 +1114,14 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
       markUrlPlaced(url, canvasId)
       markTaskPlaced(taskIdInner, canvasId)
       dropIn(created.id)
+      revealRef.current?.reveal([
+        {
+          x: created.x ?? spot.x,
+          y: created.y ?? spot.y,
+          w: created.width ?? RESULT_MAX_SIDE,
+          h: created.height ?? RESULT_MAX_SIDE,
+        },
+      ])
       focusSceneBox(instance, {
         x: created.x ?? spot.x,
         y: created.y ?? spot.y,
@@ -1073,6 +1154,9 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
         const created = await placeResultSet(instance, fresh, 'AI 生成结果', canvasId)
         markTaskPlaced(taskKey, canvasId)
         focusSceneBox(instance, unionBox(created))
+        revealRef.current?.reveal(
+          created.map((el) => ({ x: el.x ?? 0, y: el.y ?? 0, w: el.width ?? 0, h: el.height ?? 0 }))
+        )
       } catch {
         // 自动路径失败不打扰用户，手动「放入画布」仍可用
         lastAutoPlaceKeyRef.current = ''
@@ -1129,6 +1213,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
         screenY: (sceneY + scrollY) * zoom,
         screenW: sceneW * zoom,
         screenH: sceneH * zoom,
+        startedAt: Date.now(),
       },
     ])
   }
@@ -1174,6 +1259,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
               h: ph.sceneH,
             })
             if (placed > 0) {
+              revealRef.current?.reveal([{ x: ph.sceneX, y: ph.sceneY, w: ph.sceneW, h: ph.sceneH }])
               toast.success(
                 t('region.generated', { defaultValue: '生成完成，结果已放到画布' }),
                 task.result_urls.length > 1 ? `共 ${task.result_urls.length} 张结果` : undefined
@@ -1256,23 +1342,82 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   return (
     <div ref={shellRef} className="flex h-full min-h-0 flex-col overflow-hidden">
       <MobileSegmented />
-      <div className="flex min-h-0 flex-1 gap-2.5 p-2.5">
-        {/* 左：我的工作室（历史对话 / 参考图 / 作品）。固定列，不随画布滚动 */}
-        <div data-panel className="hidden min-h-0 shrink-0 flex-col gap-1.5 md:flex">
-          <StudioSidebar
-            currentSessionId={sessionId || null}
-            onSelectSession={handleSessionChange}
-            onCreateSession={() => void handleCreateSession()}
-            onDeleteSession={handleDeleteSession}
-            onUseAsset={(asset) => void insertAsset(asset)}
-            onUseWork={(url, id) => void handleAddResultToCanvas(url, id)}
-            onUpload={() => uploadInputRef.current?.click()}
-          />
-          {/* 页面左下角：消息 + 额度 + 账号（小尺寸、上下布局），与左栏同宽贴底 */}
-          <WorkspaceIdentityBar />
+      {/*
+        Lovart 式三段：Agent 对话（左）→ 工作室抽屉（按需）→ 画布（主体）。
+        各列之间不用 gap：收起的列宽度为 0，gap 会留下一道空缝；
+        间距改由每列内容自带的右外边距承担，跟着列一起被裁掉。
+      */}
+      <div className="relative flex min-h-0 flex-1 p-2.5 pt-0 md:pt-2.5">
+        {/* 左：Agent 对话（唯一的实例：靠 CSS 控制移动端/桌面端形态，避免双份轮询） */}
+        <div
+          ref={agentPanelRef}
+          className={cn(
+            'min-h-0 overflow-hidden',
+            mobileSegment === 'chat' ? 'flex min-w-0 flex-1' : 'hidden',
+            'md:flex md:flex-none'
+          )}
+        >
+          {/* data-panel 挂在内层卡片上：外层的透明度/宽度归收放动效管，两路补间不抢同一个属性 */}
+          <div
+            data-panel
+            data-agent-composer
+            className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[16px] bg-surface shadow-sheet md:mr-2.5 md:w-[340px] xl:w-[392px]"
+          >
+            <AgentPanelHeader onCreateSession={() => void handleCreateSession()} />
+            <div className="min-h-0 flex-1">
+              <ChatPanel
+                canvasId={canvasId ?? undefined}
+                sessionId={sessionId || null}
+                selection={selectionCtx}
+                onFocusCanvas={() => useUIStore.getState().setMobileSegment('canvas')}
+                onSessionChange={handleSessionChange}
+                onAddResultToCanvas={handleAddResultToCanvas}
+                onResultsReady={autoPlaceResults}
+                onUpload={() => uploadInputRef.current?.click()}
+                onPickAsset={openAssetPicker}
+                initialPrompt={initialPrompt}
+                initialFiles={initialFiles}
+                onInitialConsumed={() => {
+                  setInitialPrompt(null)
+                  setInitialFiles([])
+                }}
+              />
+            </div>
+          </div>
         </div>
 
-        {/* 中：画布（页面主体） */}
+        {/* 工作室抽屉（历史对话 / 参考图 / 作品）：≥lg 推挤画布，更窄时浮在内容之上 */}
+        {studioDrawerOpen && (
+          <button
+            type="button"
+            aria-label={t('workspace:drawer.close')}
+            onClick={closeStudioDrawer}
+            className="absolute inset-0 z-30 bg-[var(--overlay)] backdrop-blur-[2px] lg:hidden"
+          />
+        )}
+        <div
+          ref={drawerRef}
+          className="invisible absolute inset-y-2.5 left-2.5 z-40 flex min-h-0 overflow-hidden opacity-0 md:top-2.5 lg:visible lg:static lg:z-auto lg:w-0 lg:opacity-100"
+        >
+          <div className="flex h-full min-h-0 flex-col lg:mr-2.5">
+            <StudioSidebar
+              className="shadow-float lg:shadow-sheet"
+              currentSessionId={sessionId || null}
+              onSelectSession={(id) => {
+                handleSessionChange(id)
+                if (!window.matchMedia('(min-width: 1024px)').matches) closeStudioDrawer()
+              }}
+              onCreateSession={() => void handleCreateSession()}
+              onDeleteSession={handleDeleteSession}
+              onUseAsset={(asset) => void insertAsset(asset)}
+              onUseWork={(url, id) => void handleAddResultToCanvas(url, id)}
+              onUpload={() => uploadInputRef.current?.click()}
+              onClose={closeStudioDrawer}
+            />
+          </div>
+        </div>
+
+        {/* 右：画布（页面主体） */}
         <div
           data-panel
           className={cn(
@@ -1281,20 +1426,17 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
             mobileSegment === 'canvas' ? 'flex min-h-0' : 'hidden md:flex md:min-h-0'
           )}
         >
-          <div className="relative shrink-0 px-1">
-            <CanvasHeader
-              canvasId={canvasId}
-              api={api}
-              hasImageSelected={hasImageSelected}
-              className="pr-1"
-            />
-          </div>
+          <CanvasTopBar>
+            <CanvasHeader canvasId={canvasId} api={api} hasImageSelected={hasImageSelected} />
+          </CanvasTopBar>
           <div
+            ref={canvasCardRef}
             className={cn(
               // 画布做成浮起的纸卡：留出外边距 + 软角 + 暖灰阴影，
               // 底色用 --color-canvas（比纸底深一档），让图片浮起来；
               // 不靠 1px 描边定义边界——层级靠明度差 + 阴影表达
-              'cs-canvas-card relative min-h-0 flex-1 overflow-hidden rounded-[16px] bg-canvas shadow-sheet',
+              // @container：画布内浮层（dock 文字标签、右下导航器位置）按画布宽度而不是视口宽度响应
+              'cs-canvas-card @container relative min-h-0 flex-1 overflow-hidden rounded-[16px] bg-canvas shadow-sheet',
               // 选中图片时隐藏 Excalidraw 原生「双击裁剪」提示：
               // 本平台的图片编辑统一由单击进入编辑层，避免两个冲突的图片编辑入口
               selectedImage && 'cs-has-image-selected'
@@ -1320,8 +1462,13 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
                 {t('canvas:empty.title', { defaultValue: '画布加载中…' })}
               </div>
             )}
+            {/* 空画布引导：没有任何元素、也没有在生成的东西时才出现 */}
+            {api && visibleCount === 0 && placeholders.length === 0 && !editTarget && (
+              <EmptyCanvas onUpload={() => uploadInputRef.current?.click()} onPickAsset={openAssetPicker} />
+            )}
             <CanvasToolbar
               api={api}
+              history={history}
               onAddImage={openAssetPicker}
               onUpload={() => uploadInputRef.current?.click()}
               onDeleteSelected={handleDeleteSelected}
@@ -1344,40 +1491,57 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
               }
             />
             {placeholders.map((ph) => (
-              <div
+              <GeneratingCard
                 key={ph.taskId}
-                className="pointer-events-none absolute z-10 flex items-center justify-center overflow-hidden rounded-lg border border-accent-strong/50 bg-surface/80"
-                style={{ left: ph.screenX, top: ph.screenY, width: ph.screenW, height: ph.screenH }}
-              >
-                {/* 生成中的骨架：青柠光带扫过，表示 AI 正在动作 */}
-                <span aria-hidden className="cs-shimmer absolute inset-0" />
-                <div className="relative flex flex-col items-center gap-2 text-text-secondary">
-                  <Loader2 size={20} className="animate-spin text-accent-ink" />
-                  <span className="text-xs">{t('region.generating', { defaultValue: '生成中…' })}</span>
-                </div>
-              </div>
+                rect={{ x: ph.screenX, y: ph.screenY, w: ph.screenW, h: ph.screenH }}
+                startedAt={ph.startedAt}
+                onCancel={() => cancelPlaceholder(ph.taskId)}
+              />
             ))}
 
-            {/* 全局缩略图：固定在左下角，主画布拖远/缩小时用它找回内容 */}
-            {api && <CanvasMinimap api={api} />}
+            {/* 结果落画布的「显影」动效（纯视觉层，不拦截指针） */}
+            <RevealLayer ref={revealRef} api={api} />
 
-            {/* 选中图片的浮动预览：贴在画布右下角（左下角让给全局缩略图） */}
-            {selectedImageInfo?.dataUrl && (
-              <div className="absolute bottom-[60px] right-3 z-20 w-[214px] rounded-[14px] bg-surface/95 p-2 shadow-float ring-1 ring-inset ring-border-faint backdrop-blur-md">
-                <ImagePreviewPanel
-                  imageUrl={selectedImageInfo.dataUrl}
-                  width={selectedImageInfo.width}
-                  height={selectedImageInfo.height}
-                  onEdit={() => {
-                    if (selectedImage) void enterEdit(selectedImage)
-                  }}
-                  onDownload={(format) => void handleDownloadSelected(format)}
-                  onDelete={() => {
-                    if (selectedImage) handleDeleteElement(selectedImage.id)
-                  }}
-                />
-              </div>
+            {/* 右下角导航器：选中图信息卡 / 全景 · 胶片 / 缩放条 */}
+            {api && (
+              <CanvasNavigator
+                api={api}
+                elements={elements}
+                selectionCard={
+                  selectedImageInfo?.dataUrl ? (
+                    <ImagePreviewPanel
+                      imageUrl={selectedImageInfo.dataUrl}
+                      width={selectedImageInfo.width}
+                      height={selectedImageInfo.height}
+                      // 已在编辑层里时不再给「编辑」入口（编辑层本身就是）
+                      onEdit={
+                        editTarget
+                          ? undefined
+                          : () => {
+                              if (selectedImage) void enterEdit(selectedImage)
+                            }
+                      }
+                      onDownload={(format) => void handleDownloadSelected(format)}
+                      onCopy={() => void handleCopySelected()}
+                      onSendToChat={() => {
+                        if (!selectedImage) return
+                        void referenceCanvasImage(selectedImage)
+                        focusAgentComposer()
+                      }}
+                      onDelete={() => {
+                        if (selectedImage) handleDeleteElement(selectedImage.id)
+                      }}
+                    />
+                  ) : null
+                }
+              />
             )}
+
+            <CanvasDropZone
+              targetRef={canvasCardRef}
+              onFile={(file) => setUploadFile(file)}
+              onReject={() => toast.info(t('stage:drop.reject'))}
+            />
 
             {/* 编辑层：单击图片即进入，精确贴合原图位置 */}
             <ImageEditLayer
@@ -1422,34 +1586,6 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
           </div>
         </div>
 
-        {/* 右：对话（唯一的实例：靠 CSS 控制移动端/桌面端形态，避免双份轮询） */}
-        <div
-          data-panel
-          className={cn(
-            'min-h-0 overflow-hidden rounded-[16px] bg-surface shadow-sheet',
-            mobileSegment === 'chat'
-              ? 'flex flex-1 flex-col md:w-[400px] md:flex-none'
-              : 'hidden md:flex md:w-[400px] md:shrink-0 md:flex-col'
-          )}
-        >
-          <ChatPanel
-            canvasId={canvasId ?? undefined}
-            sessionId={sessionId || null}
-            selection={selectionCtx}
-            onFocusCanvas={() => useUIStore.getState().setMobileSegment('canvas')}
-            onSessionChange={handleSessionChange}
-            onAddResultToCanvas={handleAddResultToCanvas}
-            onResultsReady={autoPlaceResults}
-            onUpload={() => uploadInputRef.current?.click()}
-            onPickAsset={openAssetPicker}
-            initialPrompt={initialPrompt}
-            initialFiles={initialFiles}
-            onInitialConsumed={() => {
-              setInitialPrompt(null)
-              setInitialFiles([])
-            }}
-          />
-        </div>
       </div>
 
       <Modal

@@ -13,7 +13,6 @@ import {
   X,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Avatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -50,6 +49,10 @@ import { useComposerHandoff } from '@/stores/composer'
 import { useComposerRefs, MAX_COMPOSER_REFS, type ComposerRef } from '@/stores/composer-refs'
 import type { CanvasSelectionContext } from '@/types/selection'
 import { ChatMessage } from './ChatMessage'
+import { AgentGlyph } from './agent/AgentGlyph'
+import { AgentTrace, type TraceStep } from './agent/AgentTrace'
+import { AgentWelcome } from './agent/AgentWelcome'
+import { PromptGuide } from './agent/PromptGuide'
 import { ChatTextarea, type ComposerAttachment } from './ChatTextarea'
 import { GenerationResultCard } from './GenerationResultCard'
 import { ConfirmCountCard, type ConfirmCardState } from './ConfirmCountCard'
@@ -144,18 +147,31 @@ function upsertStep<T extends { id: string }>(steps: T[], next: T): T[] {
 }
 
 /**
- * 生成过程中的轻量提示：只留一行「正在思考…」。
+ * 生成过程中的实时分析：Agent 头像（工作光环）+ 逐步展开的思考轨迹。
  *
- * 全链路思考的中间步骤（读懂需求 / 歧义检查 / 推导方案 …）属中间处理信息，
- * 不展示；完成后这条提示也随之消失，结果直接以气泡形式落到对话里。
+ * 展示的是「每一步在做什么、得出了哪些要点」；最终提示词仍属中间产物，不展示。
+ * 完成后这块消失，同一份轨迹以折叠摘要的形式挂到那条 AI 回复上，过程可回看。
  */
-function ThinkingBubble() {
+function ThinkingBubble({
+  steps,
+  offline,
+  onStop,
+  onRetry,
+}: {
+  steps: TraceStep[]
+  offline: boolean
+  onStop: () => void
+  onRetry?: () => void
+}) {
+  const { t } = useTranslation('agent')
   return (
-    <div className="cs-bubble-in-left flex gap-2.5">
-      <Avatar name="AI" size={24} className="mt-1 shrink-0" />
-      <div className="inline-flex items-center gap-1.5 rounded-lg rounded-bl-xs bg-surface px-3.5 py-3 shadow-sheet ring-1 ring-inset ring-border-faint">
-        <Loader2 size={13} className="animate-spin text-text-tertiary" />
-        <span className="text-caption text-text-secondary">正在思考…</span>
+    <div className="cs-bubble-in-left flex flex-col gap-1.5" aria-live="polite">
+      <div className="flex items-center gap-2">
+        <AgentGlyph size={22} active />
+        <span className="text-caption font-semibold text-text">{t('name')}</span>
+      </div>
+      <div className="min-w-0 pl-[30px]">
+        <AgentTrace steps={steps} live offline={offline} onStop={onStop} onRetry={onRetry} />
       </div>
     </div>
   )
@@ -184,6 +200,7 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const { t } = useTranslation('chat')
   const { t: te } = useTranslation()
+  const { t: ta } = useTranslation('agent')
   const toast = useToast()
   const { canAfford, prices } = useQuota()
   const setQuotaModalOpen = useUIStore((s) => s.setQuotaModalOpen)
@@ -461,7 +478,7 @@ export function ChatPanel({
     if (shouldToast.some((task) => task.demo)) {
       toast.warning(t('task.result_demo'), t('demo_hint'))
     } else {
-      toast.success(t('task.succeeded'), t('task.result_count', { count }))
+      toast.success(ta('say.done', { count }), ta('say.done_hint'))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderedTasks, sessionId])
@@ -629,20 +646,20 @@ export function ChatPanel({
       try {
         await chatApi.confirmRun(runId, optionId, fingerprintOf(runId))
         resolvedRunsRef.current.add(runId)
-        toast.success(`已按 ${imageCount} 张开始生成`)
+        toast.success(ta('say.started_count', { count: imageCount }), ta('say.started_hint'))
         events.emit('tasks:changed')
         events.emit('quota:changed')
         await refreshTasks()
       } catch (error) {
         if (error instanceof ApiError && error.code === 'TASK_STATE_CONFLICT') {
-          toast.error('选区在确认前变了，这次分析已经作废，重新说一次需求就好')
+          toast.error(ta('say.selection_changed'))
         } else {
           toast.error(errorMessage(error, te))
         }
         throw error
       }
     },
-    [fingerprintOf, refreshTasks, toast, te]
+    [fingerprintOf, refreshTasks, toast, te, ta]
   )
 
   const applyResult = useCallback(
@@ -677,17 +694,17 @@ export function ChatPanel({
       setNeedsImage(false)
       setAnalysis(null)
       if (result.status === 'failed') {
-        toast.error(result.reply || '这次没能完成分析，再说一次或直接框选后重试')
+        toast.error(result.reply || ta('say.analyze_failed'))
         return
       }
       if (result.status === 'direct' || result.status === 'completed') {
-        toast.success(`已按 ${result.image_count} 张开始生成`)
+        toast.success(ta('say.started_count', { count: result.image_count }), ta('say.started_hint'))
         void refreshTasks()
         events.emit('tasks:changed')
         events.emit('quota:changed')
       }
     },
-    [loadMessages, refreshTasks, sessionId, toast]
+    [loadMessages, refreshTasks, sessionId, toast, ta]
   )
 
   /** 画布选区提交：走 `/chat/analyze`，实时展示区域判定。 */
@@ -721,7 +738,7 @@ export function ChatPanel({
       setSubmitting(false)
       setPending((prev) => (prev && prev.state === 'voided' ? { ...prev, state: 'pending' } : prev))
       if (!cancelledRef.current) {
-        toast.error('这次没能完成分析，再说一次或直接框选后重试')
+        toast.error(ta('say.analyze_failed'))
       }
     }
     analyzeCancelRef.current = chatApi.analyzeStream(
@@ -765,7 +782,7 @@ export function ChatPanel({
       void loadRelay()
 
       if (result.status === 'clarify') {
-        toast.info('需要你确认一下方向', '选定后我才开始生成，不会自动扣额度')
+        toast.info(ta('say.need_direction'), ta('say.need_direction_hint'))
         return
       }
       if (result.status === 'unconfigured') {
@@ -775,21 +792,21 @@ export function ChatPanel({
       if (result.status === 'failed') {
         // 失败可能是「额度不足 / 并发已满 / 模型格式不对」：把原话放回输入框，别让用户重打
         setInput((prev) => prev || lastComposeRef.current)
-        toast.error(result.reply || '这次没能完成需求分析，再说一次试试')
+        toast.error(result.reply || ta('say.compose_failed'))
         return
       }
       const deduped = result.tasks.length > 0 && result.tasks.every((task) => task.deduped)
       if (deduped) {
         // 幂等命中：不能报「已开始生成」，否则用户会等一张永远不会新出现的图
-        toast.info('同一需求刚提交过', '没有重复扣额度，结果在下方')
+        toast.info(ta('say.deduped'), ta('say.deduped_hint'))
       } else {
-        toast.success('已开始生成', '结果会出现在下面的对话里')
+        toast.success(ta('say.started'), ta('say.started_hint'))
       }
       void refreshTasks()
       events.emit('tasks:changed')
       events.emit('quota:changed')
     },
-    [loadMessages, loadRelay, refreshTasks, sessionId, toast]
+    [loadMessages, loadRelay, refreshTasks, sessionId, toast, ta]
   )
 
   /** 全链路提交：语义分析 → 澄清 / 提示词 → 生图。返回是否真的发出了请求。 */
@@ -801,7 +818,7 @@ export function ChatPanel({
   ): Promise<boolean> => {
     if (!sessionId || composing) return false
     if (!content.trim()) {
-      toast.info('重新输入一次需求', '刷新后原话没有留在输入框里')
+      toast.info(ta('say.retype'), ta('say.retype_hint'))
       return false
     }
     if (!guardAfford(prices.image_standard)) {
@@ -850,14 +867,14 @@ export function ChatPanel({
           setComposing(false)
           // 失败把原话还给用户：输入框已清空时不要让用户重打一遍
           setInput((prev) => prev || content)
-          toast.error('需求分析中断了', message)
+          toast.error(ta('say.interrupted'), message)
         },
         onClose: () => {
           if (settled) return
           setComposing(false)
           if (!cancelledRef.current) {
             setInput((prev) => prev || content)
-            toast.error('需求分析中断了', '再说一次，或检查中转站是否可用')
+            toast.error(ta('say.interrupted'), ta('say.interrupted_hint'))
           }
         },
       }
@@ -871,7 +888,7 @@ export function ChatPanel({
     try {
       await chatApi.confirmRun(runId, option.id, '')
       setComposeRunUi((prev) => ({ ...prev, [runId]: { state: 'done', chosenId: option.id } }))
-      toast.success('已开始生成', option.label)
+      toast.success(ta('say.started_direction', { label: option.label }), ta('say.started_hint'))
       events.emit('tasks:changed')
       events.emit('quota:changed')
       await Promise.all([refreshTasks(), loadMessages(sessionId as string)])
@@ -936,7 +953,7 @@ export function ChatPanel({
         )
       }
     } catch (error) {
-      toast.error('参考图上传失败', errorMessage(error, te))
+      toast.error(ta('say.ref_upload_failed'), errorMessage(error, te))
     } finally {
       setUploading(false)
     }
@@ -993,7 +1010,7 @@ export function ChatPanel({
           }
           setRefs(attachments)
         } catch (error) {
-          toast.error('参考图上传失败', errorMessage(error, te))
+          toast.error(ta('say.ref_upload_failed'), errorMessage(error, te))
         } finally {
           setUploading(false)
         }
@@ -1030,6 +1047,22 @@ export function ChatPanel({
     withBusy(task.id, async () => {
       await submitCompose(task.prompt)
     })
+
+  /** 生成超时后的重试：先停掉旧任务（退回额度），再用同一需求重新出图。 */
+  const handleRetryStalled = (task: GenerationTask) =>
+    withBusy(task.id, async () => {
+      await generateApi.cancel(task.id).catch(() => undefined)
+      events.emit('quota:changed')
+      await submitCompose(task.prompt)
+    })
+
+  /** 只把其中一张放进画布（结果卡图片上的悬浮按钮）。 */
+  const handlePlaceImage = async (task: GenerationTask, url: string) => {
+    if (placedUrls.includes(url)) return
+    await onAddResultToCanvas?.(url, task.id)
+    setPlacedUrls(loadPlacedUrls())
+    toast.success(t('task.placed_toast'))
+  }
 
   const handleAddToCanvas = async (task: GenerationTask) => {
     const urls = task.result_urls.filter((url) => !placedUrls.includes(url))
@@ -1068,7 +1101,7 @@ export function ChatPanel({
     const subject = input.trim()
     const scaffold = skill.prompt_scaffold.replace(/\{主体\}/g, subject || '（主体）')
     updateInput(subject && !scaffold.startsWith(subject) ? `${subject}。${scaffold}` : scaffold)
-    toast.success(`已套用「${skill.name}」`, '可以再改主体与细节，出图会按这套参数执行')
+    toast.success(ta('say.skill_applied', { name: skill.name }), ta('say.skill_applied_hint'))
   }
 
   /**
@@ -1120,6 +1153,29 @@ export function ChatPanel({
     (selection?.regions ?? []).every((region) => (region.prompt ?? '').trim().length > 0)
   const configured = relay?.configured ?? false
 
+  /** 停止当前这次分析（输入框停止键 / 等待条「停止」共用）。 */
+  const stopRun = () => {
+    cancelledRef.current = true
+    composeCancelRef.current?.()
+    analyzeCancelRef.current?.()
+    setComposing(false)
+    setSubmitting(false)
+    setAnalysis(null)
+  }
+
+  /**
+   * 超时后的「重试」：先停掉旧流，等 composing 真正落回 false 再重发。
+   * 不能在同一个回调里直接调 submitCompose——那时闭包里的 composing 仍是 true，会被挡回。
+   */
+  const [retryText, setRetryText] = useState<string | null>(null)
+  useEffect(() => {
+    if (!retryText || composing) return
+    const text = retryText
+    setRetryText(null)
+    void submitCompose(text)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retryText, composing])
+
   /**
    * 接收画布编辑层的「去创作」交接单。
    *
@@ -1140,53 +1196,48 @@ export function ChatPanel({
             attachments = uploaded.map((asset) => ({
               id: asset.id,
               url: asset.url,
-              name: asset.source_prompt || '画布选区',
+              name: asset.source_prompt || ta('ui.canvas_selection'),
             }))
             setRefs(attachments)
           } catch (error) {
-            toast.error('参考图没上传成功', errorMessage(error, te))
+            toast.error(ta('say.ref_upload_failed'), errorMessage(error, te))
           }
         }
         await submitCompose(text, false, attachments)
       })()
     })
-  }, [submitCompose, te, toast])
+  }, [submitCompose, te, toast, ta])
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
-      {/* 顶部只留「我在跟谁说话」与状态。
-          会话切换交给左栏、模型选择交给输入框底栏——同一个动作不在两处出现。 */}
-      <div className="flex h-11 shrink-0 items-center gap-1 px-2.5">
-        <p className="min-w-0 flex-1 truncate text-ui font-semibold tracking-[-0.01em] text-text">
-          {t('panel_title')}
+      {/* 会话条：品牌 / 新建 / 收起已由外层 Agent 面板头承担，这里只回答两件事——
+          「当前是哪段对话」与「Agent 现在连没连上、手上有几张图在跑」。 */}
+      <div className="flex h-9 shrink-0 items-center gap-1.5 px-3">
+        <p className="min-w-0 flex-1 truncate text-caption text-text-tertiary">
+          {sessions.find((item) => item.id === sessionId)?.title || t('panel_title')}
         </p>
 
         {activeCount > 0 && (
           <span
-            className="inline-flex shrink-0 items-center gap-1 text-micro font-medium tabular-nums text-text-secondary"
-            title={`${activeCount} 个任务生成中`}
+            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-micro font-medium tabular-nums text-accent-ink"
+            title={t('header.active_tasks', { count: activeCount })}
           >
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-strong" />
-            {activeCount}
+            {t('header.active_tasks', { count: activeCount })}
           </span>
         )}
 
         <button
           type="button"
-          onClick={handleCreateSession}
-          title="新建对话"
-          aria-label="新建对话"
-          // 桌面端「新建」只在左栏出现一次；移动端左栏隐藏，这里才需要它
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text md:hidden"
-        >
-          <Plus size={15} />
-        </button>
-
-        <button
-          type="button"
           onClick={() => setConfigOpen(true)}
-          title={configured ? `中转站：${relay?.provider_name || ''} ${relay?.model || ''}` : '配置 AI 中转站'}
-          aria-label="配置 AI 中转站"
+          title={
+            configured
+              ? t('header.relay_connected', {
+                  name: `${relay?.provider_name || ''} ${relay?.model || ''}`.trim(),
+                })
+              : t('header.relay_configure')
+          }
+          aria-label={t('header.relay_configure')}
           className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text"
         >
           <Settings2 size={15} />
@@ -1214,7 +1265,7 @@ export function ChatPanel({
           className="mx-2 mb-1 flex shrink-0 items-center gap-1.5 rounded-sm bg-warning-subtle px-2.5 py-1.5 text-left text-micro text-warning transition-opacity hover:opacity-90"
         >
           <Settings2 size={12} className="shrink-0" />
-          <span className="min-w-0 truncate">未连接中转站 · 点此配置</span>
+          <span className="min-w-0 truncate">{ta('ui.relay_missing')}</span>
         </button>
         </>
       )}
@@ -1230,35 +1281,16 @@ export function ChatPanel({
                 <div className="ml-auto h-10 w-2/5 animate-pulse rounded-md bg-bg-subtle" />
                 <div className="mt-1 flex items-center gap-2 text-caption text-text-tertiary">
                   <Loader2 size={13} className="animate-spin" />
-                  正在加载对话…
+                  {ta('ui.loading_chat')}
                 </div>
               </div>
             )}
 
             {isEmpty && (
-              <div className="flex flex-col items-center gap-3 px-2 py-12 text-center">
-                <span className="flex h-12 w-12 items-center justify-center rounded-md bg-accent-soft text-accent-ink">
-                  <Sparkles size={22} />
-                </span>
-                <p className="text-h3 font-semibold tracking-[-0.01em] text-text">
-                  {t('empty.title')}
-                </p>
-                <p className="max-w-[250px] text-caption leading-relaxed text-text-tertiary">
-                  描述你想要的画面，我会先理清需求，再决定要不要向你确认方向。
-                </p>
-                <div className="mt-1 flex flex-wrap justify-center gap-1.5">
-                  {[t('empty.example_1'), t('empty.example_2'), t('empty.example_3')].map((example) => (
-                    <button
-                      key={example}
-                      type="button"
-                      onClick={() => updateInput(example)}
-                      className="rounded-full bg-bg-subtle px-2.5 py-1 text-caption text-text-secondary transition-all hover:-translate-y-0.5 hover:bg-accent-soft hover:text-text"
-                    >
-                      {example}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <AgentWelcome
+                examples={[t('empty.example_1'), t('empty.example_2'), t('empty.example_3')]}
+                onPick={updateInput}
+              />
             )}
 
             {timeline.map((entry) => {
@@ -1270,11 +1302,26 @@ export function ChatPanel({
                 const clarifyState: ClarifyState =
                   composeUi?.state ??
                   (compose?.chosen_option_id ? 'done' : compose?.status === 'clarify' ? 'pending' : 'pending')
+                // 分析轨迹挂在 AI 回复上（默认折叠）：用户随时能回看「Agent 是怎么想的」
+                const traceSteps =
+                  entry.message.role === 'assistant'
+                    ? compose?.steps.length
+                      ? compose.steps
+                      : run && Array.isArray(run.steps) && run.steps.length
+                        ? run.steps
+                        : undefined
+                    : undefined
                 return (
                   <div key={entry.message.id} className="flex flex-col gap-2">
-                    <ChatMessage message={entry.message} images={images} />
+                    <ChatMessage
+                      message={entry.message}
+                      images={images}
+                      traceSteps={traceSteps}
+                      skillId={compose?.skill_id || null}
+                      skillName={run?.skill?.name || null}
+                    />
                     {run && (
-                      <div className="ml-9">
+                      <div className="pl-[30px]">
                         <SkillRunCard
                           run={run}
                           onConfirm={
@@ -1293,7 +1340,7 @@ export function ChatPanel({
                       </div>
                     )}
                     {compose && compose.status === 'clarify' && (
-                      <div className="ml-9 flex flex-col gap-2">
+                      <div className="flex flex-col gap-2 pl-[30px]">
                         <ClarifyCard
                           runId={compose.run_id}
                           reply={compose.reply}
@@ -1307,13 +1354,22 @@ export function ChatPanel({
                             if (!option) return Promise.reject(new Error('option missing'))
                             return chooseClarify(compose.run_id, option)
                           }}
+                          onCustom={
+                            clarifyState === 'pending'
+                              ? (text) => {
+                                  // 用户自己给的方向 = 原话 + 补充，作为一句新需求重新分析
+                                  const base = (compose.content || lastComposeRef.current || '').trim()
+                                  void submitCompose(base ? `${base}。${text}` : text)
+                                }
+                              : undefined
+                          }
                         />
                       </div>
                     )}
                     {compose && compose.status === 'unconfigured' && (
-                      <div className="ml-9 rounded-md bg-warning-subtle/60 px-3 py-2.5 shadow-sheet ring-1 ring-inset ring-warning/25">
-                        <p className="text-caption font-medium text-text">先接上中转站</p>
-                        <p className="mt-0.5 text-micro text-text-tertiary">填好地址与 Key 后重试这句话</p>
+                      <div className="ml-[30px] rounded-md bg-warning-subtle/60 px-3 py-2.5 shadow-sheet ring-1 ring-inset ring-warning/25">
+                        <p className="text-caption font-medium text-text">{ta('ui.relay_title')}</p>
+                        <p className="mt-0.5 text-micro text-text-tertiary">{ta('ui.relay_desc')}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           <Button
                             size="sm"
@@ -1321,7 +1377,7 @@ export function ChatPanel({
                             className="h-7 px-2.5 text-caption"
                             onClick={() => setConfigOpen(true)}
                           >
-                            <Settings2 size={12} /> 去配置
+                            <Settings2 size={12} /> {ta('ui.relay_go')}
                           </Button>
                           <Button
                             size="sm"
@@ -1331,7 +1387,7 @@ export function ChatPanel({
                               void submitCompose(compose.content || lastComposeRef.current, true)
                             }
                           >
-                            用本地模板先试一次
+                            {ta('ui.relay_template')}
                           </Button>
                         </div>
                       </div>
@@ -1342,14 +1398,16 @@ export function ChatPanel({
               // 生成结果直接以 AI 气泡落在对话里：左侧头像 + 结果卡，
               // 不再另设侧栏大图位，也不再回显生图提示词。
               return (
-                <div key={entry.task.id} className="cs-bubble-in-left flex gap-2.5">
-                  <Avatar name="AI" size={24} className="mt-1 shrink-0" />
+                <div key={entry.task.id} className="cs-bubble-in-left flex pl-[30px]">
                   <div className="min-w-0 flex-1">
                     <GenerationResultCard
                       task={entry.task}
                       placedUrls={placedUrls}
                       busy={busyTaskId === entry.task.id || composing}
+                      offline={!online}
                       onAddToCanvas={handleAddToCanvas}
+                      onPlaceImage={(item, url) => void handlePlaceImage(item, url)}
+                      onRetryStalled={handleRetryStalled}
                       onCancel={handleCancel}
                       onRegenerate={handleRegenerate}
                       onPreview={(task, url) => setPreview({ url, prompt: task.prompt })}
@@ -1361,11 +1419,26 @@ export function ChatPanel({
             })}
 
             {/* 生成过程：只留一行轻量「正在思考…」，完成后随结果一起消失 */}
-            {(composing || analysisActive || composeSteps.length > 0) && <ThinkingBubble />}
+            {(composing || analysisActive || composeSteps.length > 0) && (
+              <ThinkingBubble
+                steps={composeSteps.length > 0 ? composeSteps : (analysis?.steps ?? [])}
+                offline={!online}
+                onStop={stopRun}
+                onRetry={
+                  composing && lastComposeRef.current
+                    ? () => {
+                        const text = lastComposeRef.current
+                        stopRun()
+                        setRetryText(text)
+                      }
+                    : undefined
+                }
+              />
+            )}
 
             {/* 待确认方案：只允许一个，且绝不到点自动执行 */}
             {pending && (
-              <div className="ml-9">
+              <div className="pl-[30px]">
                 <ConfirmCountCard
                   runId={pending.runId}
                   fingerprint={pending.fingerprint}
@@ -1397,13 +1470,13 @@ export function ChatPanel({
 
             {/* 缺少底图：给一条明确的下一步，不要只留一句错误文字 */}
             {needsImage && (
-              <div className="ml-9 rounded-md bg-surface px-3 py-2.5 shadow-sheet ring-1 ring-inset ring-border-faint">
+              <div className="ml-[30px] rounded-md bg-surface px-3 py-2.5 shadow-sheet ring-1 ring-inset ring-border-faint">
                 <div className="flex items-start gap-1.5">
                   <span className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-caption font-medium text-text">先在画布上选一张图片</p>
+                    <p className="text-caption font-medium text-text">{ta('ui.need_image_title')}</p>
                     <p className="mt-1 text-micro leading-snug text-text-tertiary">
-                      这句话要作用在某张图上。选中图片后再说一次需求，我就直接开始。
+                      {ta('ui.need_image_desc')}
                     </p>
                   </div>
                 </div>
@@ -1415,7 +1488,7 @@ export function ChatPanel({
                       className="h-7 px-2.5 text-caption"
                       onClick={onFocusCanvas}
                     >
-                      去画布选一张图
+                      {ta('ui.need_image_canvas')}
                     </Button>
                   )}
                   {onPickAsset && (
@@ -1425,7 +1498,7 @@ export function ChatPanel({
                       className="h-7 px-2.5 text-caption"
                       onClick={onPickAsset}
                     >
-                      <Images size={13} /> 从素材库选
+                      <Images size={13} /> {ta('ui.from_assets')}
                     </Button>
                   )}
                   {onUpload && (
@@ -1435,7 +1508,7 @@ export function ChatPanel({
                       className="h-7 px-2.5 text-caption"
                       onClick={onUpload}
                     >
-                      <Upload size={13} /> 上传本地
+                      <Upload size={13} /> {ta('ui.upload_local')}
                     </Button>
                   )}
                 </div>
@@ -1466,14 +1539,7 @@ export function ChatPanel({
         value={input}
         onChange={updateInput}
         onSend={send}
-        onStop={() => {
-          cancelledRef.current = true
-          composeCancelRef.current?.()
-          analyzeCancelRef.current?.()
-          setComposing(false)
-          setSubmitting(false)
-          setAnalysis(null)
-        }}
+        onStop={stopRun}
         sending={composing || analysisActive}
         submitting={submitting || composing || analysisActive}
         attachments={refs}
@@ -1483,6 +1549,15 @@ export function ChatPanel({
         onRemoveMention={removeComposerRef}
         onImageFiles={(files) => void handleImageFiles(files)}
         focusSignal={refFocusSignal}
+        aboveSlot={
+          composing || analysisActive ? null : (
+            <PromptGuide
+              value={input}
+              onChange={updateInput}
+              hasReferences={refs.length > 0 || composerRefs.length > 0 || hasSelection}
+            />
+          )
+        }
         topRightSlot={
           <PolishPopover
             text={input}
@@ -1495,8 +1570,8 @@ export function ChatPanel({
           <button
             type="button"
             onClick={() => setSkillOpen(true)}
-            title="设计技能库"
-            aria-label="设计技能库"
+            title={ta('ui.skill_library')}
+            aria-label={ta('ui.skill_library')}
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-brand-subtle hover:text-brand-text"
           >
             <LibraryBig size={15} />
@@ -1506,19 +1581,19 @@ export function ChatPanel({
           onUpload || onPickAsset ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label="添加参考">
+                <Button variant="ghost" size="icon-sm" aria-label={ta('ui.add_reference')}>
                   <Plus size={16} />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" side="top" className="w-44">
                 {onUpload && (
                   <DropdownMenuItem onClick={onUpload}>
-                    <Upload size={15} /> 上传本地参考
+                    <Upload size={15} /> {ta('ui.upload_reference')}
                   </DropdownMenuItem>
                 )}
                 {onPickAsset && (
                   <DropdownMenuItem onClick={onPickAsset}>
-                    <Images size={15} /> 从素材库选
+                    <Images size={15} /> {ta('ui.from_assets')}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -1532,7 +1607,7 @@ export function ChatPanel({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                title="选择生图模型"
+                title={ta('ui.pick_model')}
                 className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-micro font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
               >
                 <Sparkles size={11} />
@@ -1576,7 +1651,7 @@ export function ChatPanel({
         >
           <button
             type="button"
-            aria-label="关闭"
+            aria-label={ta('ui.close')}
             onClick={() => setPreview(null)}
             className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-scrim-text/15 text-scrim-text backdrop-blur-sm transition-colors hover:bg-scrim-text/25"
           >

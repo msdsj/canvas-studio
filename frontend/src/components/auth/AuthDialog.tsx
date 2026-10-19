@@ -145,7 +145,7 @@ export function AuthDialog() {
                 <span className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-[#cdf564] text-[#12110b]">
                   <Sparkles size={16} />
                 </span>
-                <span className="text-ui font-semibold tracking-[-0.01em]">Canvas Studio</span>
+                <span className="text-ui font-semibold tracking-[-0.01em]">zleap Canvas</span>
               </div>
 
               <div className="relative">

@@ -47,6 +47,19 @@ const inflight = new Map<string, Promise<unknown>>()
 
 /** 普通 JSON 请求的超时：弱网下 fetch 可以永久挂起，必须自己兜底。 */
 const REQUEST_TIMEOUT_MS = 30_000
+/** 超过这个时长还没回来，就告诉界面「网络慢」（不打断请求，只给安心提示）。 */
+const SLOW_REQUEST_MS = 6_000
+
+/**
+ * 慢请求广播：用 window 事件而不是 mitt，是因为它要被根组件之外的任何地方
+ * （包括未来的 Service Worker 桥接）订阅，且不需要类型化的负载。
+ * detail 为 +1（变慢）/ -1（结束）。
+ */
+export const SLOW_REQUEST_EVENT = 'cs:slow-request'
+function emitSlow(delta: 1 | -1) {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(SLOW_REQUEST_EVENT, { detail: delta }))
+}
 
 async function doFetch(method: string, url: string, options: RequestOptions): Promise<unknown> {
   const headers: Record<string, string> = { ...(options.headers || {}) }
@@ -69,6 +82,11 @@ async function doFetch(method: string, url: string, options: RequestOptions): Pr
   // 自己的超时控制器 + 外部 signal 转发：外部主动取消仍然保持 AbortError 语义
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  let markedSlow = false
+  const slowTimer = window.setTimeout(() => {
+    markedSlow = true
+    emitSlow(1)
+  }, SLOW_REQUEST_MS)
   const forwardAbort = () => controller.abort()
   options.signal?.addEventListener('abort', forwardAbort)
   try {
@@ -82,6 +100,8 @@ async function doFetch(method: string, url: string, options: RequestOptions): Pr
     throw new ApiError('PROXY_UNREACHABLE', '网络好像断了，确认联网后重试', 0)
   } finally {
     window.clearTimeout(timer)
+    window.clearTimeout(slowTimer)
+    if (markedSlow) emitSlow(-1)
     options.signal?.removeEventListener('abort', forwardAbort)
   }
 

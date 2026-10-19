@@ -3,6 +3,10 @@
 @import './styles/motion.css';
 @import './styles/toast.css';
 
+/* `dark:` 变体跟随应用主题（<html data-theme>），而不是操作系统偏好：
+ * 用户可以在亮色系统里选择暗色主题，两者必须以应用设置为准。 */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
 /* 把设计 token 暴露给 Tailwind 语义工具类（bg-surface / text-brand / bg-accent …） */
 @theme inline {
   --font-sans: var(--font-sans);
@@ -36,6 +40,7 @@
   --color-accent-strong: var(--color-accent-strong);
   --color-accent-soft: var(--color-accent-soft);
   --color-accent-ink: var(--color-accent-ink);
+  --color-on-accent: var(--color-on-accent);
   --color-select: var(--color-select);
   --color-select-soft: var(--color-select-soft);
   --color-select-line: var(--color-select-line);

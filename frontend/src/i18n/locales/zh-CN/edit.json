@@ -1,0 +1,113 @@
+{
+  "tool": {
+    "region": {
+      "label": "框选",
+      "hint": "拖出一个矩形，标出要改的区域"
+    },
+    "lasso": {
+      "label": "套索",
+      "hint": "按住画一圈，选出不规则的区域"
+    },
+    "brush": {
+      "label": "画笔",
+      "hint": "像涂色一样涂抹，松手即成为一个区域"
+    },
+    "pen": {
+      "label": "标注",
+      "hint": "随手画给 AI 看的提示，不构成选区"
+    },
+    "border": {
+      "label": "边框",
+      "hint": "画一个矩形或椭圆框，提示重点位置"
+    },
+    "marker": {
+      "label": "标记",
+      "hint": "箭头、序号或文字标签"
+    },
+    "eraser": {
+      "label": "橡皮",
+      "hint": "擦除标注笔迹，不影响选区"
+    }
+  },
+  "toolbar": {
+    "tools": "编辑工具",
+    "undo": "撤销",
+    "redo": "重做",
+    "delete_image": "删除这张图片",
+    "exit": "退出编辑",
+    "exit_hint": "退出编辑（已框选的内容会自动保留）",
+    "submit": "提交修改",
+    "submit_count": "提交修改（{{count}} 处）",
+    "submitting": "正在提交",
+    "submit_empty": "先框选要修改的区域",
+    "submit_hint": "把 {{count}} 处修改交给 AI 生成"
+  },
+  "option": {
+    "rect": "矩形",
+    "ellipse": "椭圆",
+    "arrow": "箭头",
+    "index": "序号",
+    "label": "文字",
+    "color": "颜色",
+    "color_value": "颜色 {{value}}",
+    "size": "粗细",
+    "clear_marks": "清空标注"
+  },
+  "keys": {
+    "title": "快捷键",
+    "select_tools": "框选 / 套索 / 画笔",
+    "mark_tools": "标注 / 边框 / 标记 / 橡皮",
+    "undo": "撤销",
+    "redo": "重做",
+    "confirm": "确认当前区域说明",
+    "cancel": "取消当前区域 / 退出编辑",
+    "delete": "删除当前区域"
+  },
+  "region": {
+    "badge_hint": "拖动可移动选区，单击填写说明",
+    "badge_label": "区域 {{index}}：拖动移动，单击编辑说明",
+    "delete": "删除该选区",
+    "delete_label": "删除区域 {{index}}"
+  },
+  "chip": {
+    "title": "点击填写该区域的说明",
+    "empty": "填写说明",
+    "empty_label": "区域 {{index}}：还没有填写说明，点击填写",
+    "filled_label": "区域 {{index}}：{{prompt}}，点击继续编辑"
+  },
+  "bubble": {
+    "label": "区域 {{index}} 的修改说明",
+    "title": "区域 {{index}}",
+    "placeholder": "描述这一块要怎么改，例如：换成蓝色天空…",
+    "redraw": "重画这个区域",
+    "delete": "删除这个区域",
+    "keys": "Enter 确认 · Shift+Enter 换行 · Esc 取消",
+    "keys_touch": "点图片空白处收起",
+    "chars": "{{count}} 字",
+    "cancel": "取消",
+    "confirm": "确认",
+    "go_create": "去对话创作",
+    "go_create_hint": "把这块区域和说明交给 Agent，做更完整的创作"
+  },
+  "status": {
+    "analyzing": "正在分析需求…",
+    "submitting": "正在提交修改…"
+  },
+  "coach": {
+    "title": "三步改好一张图",
+    "dismiss": "关闭引导",
+    "got_it": "知道了，开始",
+    "frame": {
+      "title": "框出要改的地方",
+      "desc": "用框选、套索或画笔在图上圈出区域，可拖动编号移动、拖角调整大小"
+    },
+    "describe": {
+      "title": "写下怎么改",
+      "desc": "在区域旁的气泡里描述修改，Enter 确认，Esc 取消"
+    },
+    "submit": {
+      "title": "提交给 AI",
+      "desc": "点右上角「提交修改」，多处修改一次完成；随时 ⌘Z 撤销"
+    }
+  }
+}

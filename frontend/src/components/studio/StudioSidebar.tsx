@@ -40,6 +40,9 @@ interface StudioSidebarProps {
   onUseWork: (url: string, taskId: string) => void
   /** 上传本地参考图（复用工作台上传流程） */
   onUpload: () => void
+  /** 作为抽屉使用时的关闭按钮；不传则不渲染 */
+  onClose?: () => void
+  className?: string
 }
 
 const TABS: Array<{ id: StudioTab; label: string; icon: typeof MessagesSquare }> = [
@@ -75,6 +78,8 @@ export function StudioSidebar({
   onUseAsset,
   onUseWork,
   onUpload,
+  onClose,
+  className,
 }: StudioSidebarProps) {
   const toast = useToast()
   const { t: te } = useTranslation()
@@ -290,23 +295,19 @@ export function StudioSidebar({
   }
 
   return (
-    <aside className="hidden min-h-0 w-[268px] shrink-0 flex-1 flex-col overflow-hidden rounded-[16px] bg-surface shadow-sheet md:flex">
-      {/* 品牌行：工作区不渲染全局顶栏（那 48px 让给画布）。
-          账号 / 通知 / 额度统一放在页面左下角的 WorkspaceIdentityBar，此处不重复。 */}
-      <div className="flex h-12 shrink-0 items-center gap-2 px-3">
-        <span aria-hidden className="cs-logo-mark h-5 w-5 shrink-0 text-text" />
-        <span className="min-w-0 flex-1 truncate text-ui font-semibold tracking-[-0.02em] text-text">
-          Canvas Studio
-        </span>
-      </div>
-
+    <aside
+      className={cn(
+        'flex min-h-0 w-[268px] shrink-0 flex-1 flex-col overflow-hidden rounded-[16px] bg-surface shadow-sheet',
+        className
+      )}
+    >
       {/* 分区标题行 */}
       <div className="flex shrink-0 items-center gap-2 px-3 pb-1.5">
         <span className="flex h-5 w-5 items-center justify-center rounded-[6px] bg-accent-soft text-accent-ink">
           <Sparkles size={11} />
         </span>
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium tracking-[0.06em] text-text-tertiary">
-          我的工作室
+          {te('workspace:drawer.title')}
         </span>
         {loading && <Loader2 size={12} className="shrink-0 animate-spin text-text-faint" />}
         {(tab === 'chats' || tab === 'refs') && selectableIds.length > 0 && (
@@ -337,6 +338,17 @@ export function StudioSidebar({
         >
           <MessageSquarePlus size={14} />
         </button>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            title={te('workspace:drawer.close')}
+            aria-label={te('workspace:drawer.close')}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text"
+          >
+            <X size={14} />
+          </button>
+        )}
       </div>
 
       {/* 三段式标签：窄栏里不放图标，只留文字 + 计数，保证永不折行。

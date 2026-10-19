@@ -8,25 +8,14 @@ import {
   useState,
 } from 'react'
 import {
-  ArrowUpRight,
-  Brush,
   Check,
-  Circle,
-  Eraser,
-  Frame,
-  Hash,
-  Lasso,
   Loader2,
-  PenLine,
-  Redo2,
   RotateCcw,
   Sparkles,
-  Square,
   Trash2,
-  Type,
-  Undo2,
   X,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { generateApi, type EditCapability, type EditOpPayload } from '@/lib/api/generate'
 import { PolishPopover } from '@/components/chat/PolishPopover'
@@ -61,6 +50,18 @@ import {
   type OpPayload,
 } from './annotation-history'
 import { AnnotationLayer } from './AnnotationLayer'
+import { EditToolbar, type EditTool } from './edit/EditToolbar'
+import { RegionOverlay, type RegionTransformMode } from './edit/RegionOverlay'
+import { EditCoach } from './edit/EditCoach'
+import {
+  handleEdges,
+  resizeRegion,
+  snapRegion,
+  translateRegion,
+  type ResizeHandle,
+  type SnapGuide,
+} from './edit/region-geometry'
+import './edit/edit.css'
 import {
   editDraftKey,
   markRestoreNotified,
@@ -86,7 +87,7 @@ import {
  * **擦除组**
  * - `eraser`：只擦标注笔迹，**不影响画笔选区**。
  */
-type Tool = 'region' | 'lasso' | 'brush' | 'pen' | 'border' | 'marker' | 'eraser'
+type Tool = EditTool
 
 /** 工具快捷键（R15：每个工具的 tooltip 都要带它） */
 const TOOL_SHORTCUTS: Record<Tool, string> = {
@@ -347,6 +348,7 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
     },
     ref
   ) {
+    const { t } = useTranslation('edit')
     const [tool, setTool] = useState<Tool>('region')
     const [color, setColor] = useState(COLORS[0])
     const [size, setSize] = useState(SIZES[1].value)
@@ -378,6 +380,14 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
     const [thinking, setThinking] = useState<string[]>([])
     /** 当前正在就地输入的区域（框选后自动聚焦到该区域的气泡） */
     const [activeRegionId, setActiveRegionId] = useState<string | null>(null)
+    /** 指针悬停的选区（来自徽章 / 把手 / chip）：描边加粗 + 显出删除键与把手 */
+    const [hoveredRegionId, setHoveredRegionId] = useState<string | null>(null)
+    /** 正在被拖动 / 缩放的选区 */
+    const [transformingId, setTransformingId] = useState<string | null>(null)
+    /** 吸附参考线（拖动 / 缩放时命中的对齐位置） */
+    const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([])
+    /** 「重画」后让工具条上当前工具闪一下 */
+    const [toolPulse, setToolPulse] = useState(0)
     /** 正在拖拽画选区：此间隐藏所有气泡与 chip，避免挡住正在画的那一块 */
     const [drafting, setDrafting] = useState(false)
     /** 指针按下时的屏幕坐标：用来区分「点一下」和「拖了一点但没画成」 */
@@ -390,6 +400,15 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
     const rootRef = useRef<HTMLDivElement>(null)
     /** 当前展开气泡的 DOM：判断「点的是不是气泡外部」 */
     const bubbleRef = useRef<HTMLDivElement>(null)
+    /** 选区拖动/缩放的起点快照：位移始终相对它计算，merge 成「一次拖拽 = 一步撤销」 */
+    const regionDragRef = useRef<{ id: string; before: OpPayload<EditRegion> } | null>(null)
+    /**
+     * 气泡打开那一刻的说明文字：「取消」据此还原。
+     * `fresh` = 这个选区是刚画出来的——取消它就等于「不要这个框了」，直接删掉（可 ⌘Z 找回）。
+     */
+    const bubbleSnapshotRef = useRef<{ id: string; prompt: string; fresh: boolean } | null>(null)
+    /** 画笔/涂鸦/橡皮的光标预览圈：逐帧改 DOM，不走 React 状态（否则每次移动都重渲染整层） */
+    const brushCursorRef = useRef<HTMLSpanElement>(null)
     /** 已完成草稿水合的图片键：未水合前不允许把 state 写回草稿 */
     const hydratedKeyRef = useRef<string | null>(null)
     /** onNotice 走 ref：它是宿主的内联函数，放进 effect 依赖会导致每次渲染都重置编辑状态 */
@@ -941,6 +960,14 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
      */
     const collapseActiveBubble = useCallback(() => setActiveRegionId(null), [])
 
+    // 任何途径打开了别的区域（撤销、提交校验定位…）：快照跟着换，「取消」才不会还原错对象
+    useEffect(() => {
+      if (!activeRegionId) return
+      if (bubbleSnapshotRef.current?.id === activeRegionId) return
+      const item = regionsRef.current.find((region) => region.id === activeRegionId)
+      bubbleSnapshotRef.current = { id: activeRegionId, prompt: item?.prompt ?? '', fresh: false }
+    }, [activeRegionId])
+
     /** 新建一个选区（矩形 / 套索 / 画笔共用），并把它设为当前输入目标。 */
     const createRegion = (params: {
       kind: RegionKind
@@ -970,6 +997,7 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
         after: { index: regionsRef.current.length, value: created },
       })
       // 画完就地把输入气泡弹在这个区域旁边，用户不用再跑去底部输入
+      bubbleSnapshotRef.current = { id: newId, prompt: '', fresh: true }
       setActiveRegionId(newId)
       setComposerOpen(true)
       return newId
@@ -1311,6 +1339,127 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
       }
     }
 
+    /**
+     * 选区拖动 / 缩放（RegionOverlay 回调）。
+     *
+     * 每帧都相对起点快照重算 + 吸附，然后以 `merge` 提交 `move`——
+     * 拖一次只占一步撤销，⌘Z 直接回到拖动前。气泡布局读的就是 regions，
+     * 所以说明气泡会跟着框一起走。
+     */
+    const handleRegionTransform = (
+      id: string,
+      mode: RegionTransformMode,
+      handle: ResizeHandle | null,
+      dx: number,
+      dy: number
+    ) => {
+      let drag = regionDragRef.current
+      if (!drag || drag.id !== id) {
+        const payload = findPayload(regionsRef.current, id, (item) => item.id)
+        if (!payload) return
+        drag = { id, before: payload }
+        regionDragRef.current = drag
+        setTransformingId(id)
+      }
+      const base = drag.before.value
+      const w = Math.max(1, boxSize.w)
+      const h = Math.max(1, boxSize.h)
+      // 吸附阈值 8 屏幕像素：再大会「吸得拖不动」，再小手感上等于没有
+      const tol = { x: 8 / w, y: 8 / h }
+      const others = regionsRef.current.filter((item) => item.id !== id).map((item) => item.region)
+      let next: EditRegion
+      if (mode === 'move' || !handle) {
+        const moved = translateRegion(base, dx, dy)
+        const snap = snapRegion(
+          moved.region,
+          others,
+          tol,
+          { x: ['start', 'mid', 'end'], y: ['start', 'mid', 'end'] },
+          'move'
+        )
+        next = translateRegion(base, dx + snap.region.x - moved.region.x, dy + snap.region.y - moved.region.y)
+        setSnapGuides(snap.guides)
+      } else {
+        const min = { w: MIN_BOX_PX / w, h: MIN_BOX_PX / h }
+        const resized = resizeRegion(base, handle, dx, dy, min)
+        const snap = snapRegion(resized.region, others, tol, handleEdges(handle), 'resize')
+        next = {
+          ...resized,
+          region: { ...snap.region, w: Math.max(min.w, snap.region.w), h: Math.max(min.h, snap.region.h) },
+        }
+        setSnapGuides(snap.guides)
+      }
+      commit(
+        {
+          type: 'move',
+          target: 'region',
+          id,
+          before: drag.before,
+          after: { index: drag.before.index, value: next },
+        },
+        { merge: true }
+      )
+    }
+
+    const handleRegionTransformEnd = () => {
+      regionDragRef.current = null
+      setTransformingId(null)
+      setSnapGuides([])
+    }
+
+    /** 打开某个已有选区的说明气泡：记下当时的文字，供「取消」还原 */
+    const activateRegion = (id: string) => {
+      const item = regionsRef.current.find((region) => region.id === id)
+      bubbleSnapshotRef.current = { id, prompt: item?.prompt ?? '', fresh: false }
+      setActiveRegionId(id)
+    }
+
+    /**
+     * 取消当前区域的编辑：
+     * - 刚画出来的框 → 整个删掉（等于「我不要这个框」，⌘Z 可找回）；
+     * - 已有的框 → 说明文字还原到打开气泡时的样子，再收起。
+     */
+    const cancelRegionEdit = (id: string) => {
+      const snapshot = bubbleSnapshotRef.current
+      bubbleSnapshotRef.current = null
+      if (snapshot?.id === id && snapshot.fresh) {
+        handleDeleteRegion(id)
+        return
+      }
+      if (snapshot?.id === id) handleRegionPromptChange(id, snapshot.prompt)
+      setActiveRegionId(null)
+    }
+
+    /** 确认：只是收起气泡（说明已经实时写进选区），把焦点交还给 chip 方便继续键盘操作 */
+    const confirmRegionEdit = (id: string) => {
+      bubbleSnapshotRef.current = null
+      setActiveRegionId(null)
+      requestAnimationFrame(() => chipRefs.current[id]?.focus({ preventScroll: true }))
+    }
+
+    /** 重画：删掉这个框并切回画它的那种工具，用户直接在图上再画一次 */
+    const redrawRegion = (id: string) => {
+      const item = regionsRef.current.find((region) => region.id === id)
+      if (!item) return
+      handleDeleteRegion(id)
+      setTool(item.kind === 'brush' ? 'brush' : item.kind === 'lasso' ? 'lasso' : 'region')
+      setToolPulse((value) => value + 1)
+    }
+
+    /** 光标预览圈：跟随指针，直径 = 当前笔刷在屏幕上的真实粗细 */
+    const moveBrushCursor = (event: React.PointerEvent<HTMLElement>) => {
+      const cursor = brushCursorRef.current
+      const wrap = wrapperRef.current
+      if (!cursor || !wrap || event.pointerType === 'touch') return
+      const b = wrap.getBoundingClientRect()
+      cursor.style.display = 'block'
+      cursor.style.left = `${event.clientX - b.left}px`
+      cursor.style.top = `${event.clientY - b.top}px`
+    }
+    const hideBrushCursor = () => {
+      if (brushCursorRef.current) brushCursorRef.current.style.display = 'none'
+    }
+
     const handleDeleteRegion = (id: string) => {
       const payload = findPayload(regionsRef.current, id, (item) => item.id)
       if (payload) {
@@ -1321,6 +1470,9 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
       setActiveRegionId((prev) => (prev === id ? null : prev))
       if (shake?.id === id) setShake(null)
     }
+    // 命令式句柄（Esc 取消新框）要调用它；走 ref 拿最新版本，句柄本身不必每次渲染重建
+    const deleteRegionRef = useRef(handleDeleteRegion)
+    deleteRegionRef.current = handleDeleteRegion
 
     // ==========================================================================
     // 标注（边框 / 标记）：只做视觉提示，**不产生选区、不弹指令气泡**（PRD D3）
@@ -1655,6 +1807,14 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
             return
           }
           const id = activeRegionId
+          // 刚画出来、一个字都没写就按 Esc：用户的意思是「这个框不要了」
+          const snapshot = bubbleSnapshotRef.current
+          const current = regionsRef.current.find((item) => item.id === id)
+          if (id && snapshot?.id === id && snapshot.fresh && !current?.prompt.trim()) {
+            bubbleSnapshotRef.current = null
+            deleteRegionRef.current(id)
+            return
+          }
           setActiveRegionId(null)
           if (id) requestAnimationFrame(() => chipRefs.current[id]?.focus({ preventScroll: true }))
         },
@@ -1688,6 +1848,19 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
           else handleUndo()
           return
         }
+        // Windows 用户的肌肉记忆：Ctrl+Y 重做
+        if (mod && (event.key === 'y' || event.key === 'Y') && !event.shiftKey) {
+          if (typing) return
+          event.preventDefault()
+          handleRedo()
+          return
+        }
+        // 气泡展开但焦点不在输入框里时，Delete / Backspace 删除这个选区
+        if (!typing && !mod && activeRegionId && (event.key === 'Delete' || event.key === 'Backspace')) {
+          event.preventDefault()
+          handleDeleteRegion(activeRegionId)
+          return
+        }
         if (typing || mod || event.altKey) return
         const map: Record<string, Tool> = {
           r: 'region',
@@ -1708,7 +1881,7 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
       window.addEventListener('keydown', onKey)
       return () => window.removeEventListener('keydown', onKey)
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, drafting, abortDrafting, undo, redo])
+    }, [open, drafting, abortDrafting, undo, redo, activeRegionId])
 
     /** 把这一块的修改需求交给右侧对话面板，由它做 AI 分析并生成 */
   const handleGoCreate = (regionId: string) => {
@@ -2015,7 +2188,7 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
       // 与气泡实际宽度一致（w-[300px]）：宽度算错会让碰撞检测失效，chip 又叠在一起
       const W = 300
       const CHIP_H = 30
-      const BUBBLE_H = 156
+      const BUBBLE_H = 176
       // chip 触屏热区向四周扩 6px，垂直间距必须 ≥12，否则两个 chip 的热区互相咬住
       const GAP = 12
       const PAD = 8
@@ -2132,12 +2305,16 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
               cursor:
                 regionTool || lassoTool || brushTool
                   ? 'crosshair'
-                  : tool === 'eraser'
-                    ? 'cell'
+                  : tool === 'eraser' || tool === 'pen'
+                    ? 'none'
                     : 'crosshair',
             }}
             onPointerDown={handlePenDown}
-            onPointerMove={handlePenMove}
+            onPointerMove={(event) => {
+              if (tool === 'pen' || tool === 'eraser') moveBrushCursor(event)
+              handlePenMove(event)
+            }}
+            onPointerLeave={hideBrushCursor}
             onPointerUp={handlePenUp}
             onPointerCancel={abortDrafting}
           />
@@ -2166,10 +2343,17 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
                   />
                 )
               }
+              // 激活 / 悬停的选区：底色加深 + 蚂蚁线流动 + 外发光，从多个红框里一眼拎出来
+              const emphasis = activeRegionId === item.id || hoveredRegionId === item.id
               const common = {
-                fill: 'rgba(255, 64, 64, 0.12)',
+                fill: emphasis ? 'rgba(255, 64, 64, 0.2)' : 'rgba(255, 64, 64, 0.12)',
                 stroke: 'rgba(220, 38, 38, 0.95)',
-                strokeWidth: 2,
+                strokeWidth: emphasis ? 2.5 : 2,
+                strokeDasharray: activeRegionId === item.id ? '7 7' : undefined,
+                className: cn(
+                  'transition-[fill] duration-200',
+                  activeRegionId === item.id && 'cs-marching cs-region-active'
+                ),
                 vectorEffect: 'non-scaling-stroke' as const,
                 strokeLinejoin: 'round' as const,
               }
@@ -2203,9 +2387,34 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
                 fill="rgba(255, 64, 64, 0.12)"
                 stroke="rgba(255, 32, 32, 0.95)"
                 strokeWidth={2}
-                strokeDasharray="4 3"
+                strokeDasharray="7 7"
+                className="cs-marching"
                 vectorEffect="non-scaling-stroke"
               />
+            )}
+            {/* 吸附参考线：告诉用户「对齐到了图片中线 / 边缘 / 另一个框」 */}
+            {snapGuides.map((guide) =>
+              guide.axis === 'x' ? (
+                <line
+                  key={`gx-${guide.at}`}
+                  x1={guide.at * 100}
+                  x2={guide.at * 100}
+                  y1={0}
+                  y2={100}
+                  className="cs-snap-guide"
+                  vectorEffect="non-scaling-stroke"
+                />
+              ) : (
+                <line
+                  key={`gy-${guide.at}`}
+                  x1={0}
+                  x2={100}
+                  y1={guide.at * 100}
+                  y2={guide.at * 100}
+                  className="cs-snap-guide"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )
             )}
             {lassoPoints.length >= 2 && (
               <polygon
@@ -2221,39 +2430,70 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
             )}
           </svg>
 
-          {/* 编号徽章 + 删除按钮：按包围盒定位，与描边层分离，保证按钮可点 */}
+          {/* 选区外壳：编号徽章（拖动移动 / 单击写说明）+ 删除 + 缩放把手 */}
           {regions.map((item, index) => (
-            <div
-              key={`badge-${item.id}`}
-              className="pointer-events-none absolute z-20"
+            <RegionOverlay
+              key={`overlay-${item.id}`}
+              item={item}
+              index={index}
+              box={boxSize}
+              natural={{ w: naturalWidth, h: naturalHeight }}
+              active={activeRegionId === item.id}
+              hovered={hoveredRegionId === item.id}
+              transforming={transformingId === item.id}
+              disabled={submitting || drafting}
+              onActivate={activateRegion}
+              onHover={setHoveredRegionId}
+              onTransform={handleRegionTransform}
+              onTransformEnd={handleRegionTransformEnd}
+              onDelete={handleDeleteRegion}
+            />
+          ))}
+
+          {/* 正在拉框：实时显示「原图上的像素尺寸」，用户知道自己框了多大一块 */}
+          {draftRect && draftRect.w > 0 && draftRect.h > 0 && (
+            <span
+              className="cs-dim-label absolute z-30"
               style={{
-                left: `${item.region.x * 100}%`,
-                top: `${item.region.y * 100}%`,
-                width: `${item.region.w * 100}%`,
-                height: `${item.region.h * 100}%`,
+                left: `${(draftRect.x + draftRect.w) * 100}%`,
+                top: `${(draftRect.y + draftRect.h) * 100}%`,
+                transform: 'translate(-100%, 6px)',
               }}
             >
-              <button
-                type="button"
-                data-edit-layer-ui
-                title="编辑该区域的说明"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => setActiveRegionId(item.id)}
-                className="pointer-events-auto absolute -left-2.5 -top-2.5 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-[rgba(220,38,38,0.98)] text-[11px] font-bold text-white shadow transition-transform hover:scale-110"
-              >
-                {index + 1}
-              </button>
-              <button
-                type="button"
-                title="删除该选区"
-                className="pointer-events-auto absolute -right-2.5 -top-2.5 flex h-5 w-5 items-center justify-center rounded-full border border-white bg-black/70 text-white hover:bg-danger"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => handleDeleteRegion(item.id)}
-              >
-                <X size={11} />
-              </button>
-            </div>
-          ))}
+              {Math.round(draftRect.w * naturalWidth)} × {Math.round(draftRect.h * naturalHeight)}
+            </span>
+          )}
+
+          {/* 笔刷光标预览：直径 = 笔刷在屏幕上的真实粗细（画笔选区 / 涂鸦 / 橡皮） */}
+          {(brushTool || tool === 'pen' || tool === 'eraser') && (
+            <span
+              ref={brushCursorRef}
+              aria-hidden
+              data-eraser={tool === 'eraser' ? '' : undefined}
+              className="cs-brush-cursor"
+              style={{
+                display: 'none',
+                width: Math.max(
+                  6,
+                  boxSize.w *
+                    (brushTool
+                      ? Math.max(size, BRUSH_MIN_WIDTH)
+                      : tool === 'eraser'
+                        ? size * ERASE_SCALE
+                        : size)
+                ),
+                height: Math.max(
+                  6,
+                  boxSize.w *
+                    (brushTool
+                      ? Math.max(size, BRUSH_MIN_WIDTH)
+                      : tool === 'eraser'
+                        ? size * ERASE_SCALE
+                        : size)
+                ),
+              }}
+            />
+          )}
 
           {/* 标注层（R07 边框 / R08 标记 / R19 显隐 / D3 兜底包围盒）。
               z-20 但 `pointer-events-none`：只有标注几何附近才接管指针，
@@ -2307,9 +2547,13 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
           {brushTool && (
             <div
               className="absolute inset-0 z-10 touch-none"
-              style={{ cursor: 'crosshair' }}
+              style={{ cursor: 'none' }}
               onPointerDown={handleBrushDown}
-              onPointerMove={handleBrushMove}
+              onPointerMove={(event) => {
+                moveBrushCursor(event)
+                handleBrushMove(event)
+              }}
+              onPointerLeave={hideBrushCursor}
               onPointerUp={handleBrushUp}
               onPointerCancel={abortDrafting}
             />
@@ -2371,159 +2615,47 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
         </div>
 
         {/* 顶部工具条：下移避开 Excalidraw 原生工具条（避免两条工具栏重叠） */}
-        <div className="pointer-events-auto absolute left-1/2 top-14 z-20 mt-2 flex max-w-[calc(100%-24px)] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded-full bg-surface/95 px-2.5 py-1.5 shadow-lift ring-1 ring-border-faint backdrop-blur">
-          <div className="flex items-center gap-0.5">
-            <ToolButton
-              active={regionTool}
-              icon={<Frame size={12} />}
-              label="框选"
-              onClick={() => setTool('region')}
-            />
-            <ToolButton
-              active={lassoTool}
-              icon={<Lasso size={12} />}
-              label="套索"
-              onClick={() => setTool('lasso')}
-            />
-            <ToolButton
-              active={brushTool}
-              icon={<Brush size={12} />}
-              label="画笔"
-              title="画笔选区：按住涂抹，松手即成为可填写指令的区域"
-              onClick={() => setTool('brush')}
-            />
-            <ToolButton
-              active={tool === 'pen'}
-              icon={<PenLine size={12} />}
-              label="标注"
-              title="涂鸦标注：只是给上游的视觉提示，不构成选区"
-              onClick={() => setTool('pen')}
-            />
-            <ToolButton
-              active={tool === 'eraser'}
-              icon={<Eraser size={12} />}
-              label="橡皮"
-              title="擦除标注（只作用于标注笔迹，不影响画笔选区）"
-              onClick={() => setTool('eraser')}
-            />
-          </div>
-          <span className="mx-0.5 h-4 w-px bg-border" />
-          <div className={cn('flex items-center gap-0.5', regionTool && 'opacity-40')}>
-            {COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                aria-label={`颜色 ${c}`}
-                onClick={() => {
-                  setColor(c)
-                  setTool('pen')
-                }}
-                className={cn(
-                  'h-5 w-5 rounded-full border transition-transform',
-                  color === c && !regionTool ? 'scale-110 border-brand ring-2 ring-brand/40' : 'border-border'
-                )}
-                style={{ background: c }}
-              />
-            ))}
-          </div>
-          <div className={cn('flex items-center gap-0.5', regionTool && 'opacity-40')}>
-            {SIZES.map((s) => (
-              <button
-                key={s.value}
-                type="button"
-                onClick={() => setSize(s.value)}
-                className={cn(
-                  'rounded px-1.5 py-0.5 text-[11px] transition-colors',
-                  size === s.value ? 'bg-brand-subtle text-brand-text' : 'text-text-tertiary hover:bg-surface-hover'
-                )}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-          <span className="mx-0.5 h-4 w-px bg-border" />
-          <div className="flex items-center gap-0.5">
-            <IconButton disabled={!strokeCount} title="撤销标注" onClick={handleUndo}>
-              <RotateCcw size={12} />
-            </IconButton>
-            <IconButton disabled={!canRedo} title="重做标注" onClick={handleRedo}>
-              <Redo2 size={12} />
-            </IconButton>
-            <IconButton disabled={!strokeCount} title="清空标注" onClick={handleClearStrokes}>
-              <Eraser size={12} />
-            </IconButton>
-            <IconButton
-              disabled={brushStrokeTotal === 0}
-              title="撤销画笔（删除最后画的一笔）"
-              onClick={handleUndoBrush}
-            >
-              <Undo2 size={12} />
-            </IconButton>
-          </div>
-          <span className="whitespace-nowrap rounded-full bg-bg-subtle px-2 py-0.5 text-[11px] text-text-secondary">
-            {regions.length} 区域 · {strokeCount} 标注
-            {brushStrokeTotal > 0 ? ` · ${brushStrokeTotal} 画笔` : ''}
-          </span>
-          {onDelete && (
-            <button
-              type="button"
-              onClick={onDelete}
-              title="删除这张图片"
-              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-text-tertiary transition-colors hover:bg-danger-subtle hover:text-danger"
-            >
-              <Trash2 size={12} /> 删除
-            </button>
-          )}
+        <EditToolbar
+          tool={tool}
+          onToolChange={(next) => {
+            setTool(next)
+            if (drafting) abortDrafting()
+          }}
+          colors={COLORS}
+          color={color}
+          onColor={(next) => {
+            setColor(next)
+            if (!colorActive) setTool('pen')
+          }}
+          sizes={SIZES}
+          size={size}
+          onSize={setSize}
+          borderShape={borderShape}
+          onBorderShape={setBorderShape}
+          markerShape={markerShape}
+          onMarkerShape={setMarkerShape}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          canClear={strokeCount > 0}
+          onClear={handleClearStrokes}
+          regionCount={regions.length}
+          filledCount={filledRegionCount}
+          markCount={strokeCount + annotations.length}
+          canSubmit={canSubmit}
+          submitting={Boolean(submitting)}
+          onSubmit={() => void handleSubmit()}
+          onExit={onClose}
+          onDeleteImage={onDelete}
+          pulseToken={toolPulse}
+        />
 
-          {/* 主操作：直接提交给 AI 生成。
-              ⚠️ 这个按钮曾经缺失：提交逻辑（handleSubmit → onSubmit → 生成链路）一直在，
-              但界面上没有任何入口调用它，用户写完批注后只能「完成」退出，
-              于是出现「写了提示词却没提交给 AI」的情况。
-              现在按「有内容才可用」呈现，未填指令时点击会定位到第一个空区域。 */}
-          <button
-            type="button"
-            onClick={() => void handleSubmit()}
-            disabled={!canSubmit || submitting}
-            aria-label={
-              regions.length === 0 && strokeCount === 0
-                ? '先框选要修改的区域'
-                : `生成：这张图上有 ${regions.length} 个选区、已填 ${filledRegionCount} 个说明`
-            }
-            title={
-              regions.length === 0 && strokeCount === 0
-                ? '先框选要修改的区域'
-                : `提交 ${filledRegionCount} 个区域给 AI 生成`
-            }
-            className={cn(
-              'relative inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all',
-              'bg-brand text-text-inverse hover:brightness-110 active:scale-[0.97]',
-              'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100'
-            )}
-          >
-            {/* 「这张图上有未提交的选区」的持久指示：切走再切回来还在，
-                用青柠（唯一信号色）而不是加文案，避免工具条再长一截 */}
-            {regions.length > 0 && !submitting && (
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-accent ring-2 ring-surface"
-              />
-            )}
-            {submitting ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
-            {submitting ? '生成中' : '生成'}
-            {!submitting && filledRegionCount > 0 && (
-              <span className="rounded-full bg-white/20 px-1 tabular-nums">{filledRegionCount}</span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={onClose}
-            title="退出编辑（已框选的内容会自动保留）"
-            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-text-secondary transition-colors hover:bg-surface-hover"
-          >
-            <X size={12} /> 完成
-          </button>
-        </div>
+        {/* 首次进入编辑：三步引导，贴在图片下方，开始画就自动收起 */}
+        <EditCoach
+          hidden={drafting || regions.length > 0 || annotations.length > 0}
+          style={composerStyle}
+        />
 
         {/* 区域就地输入气泡：框完就在框旁边写，不用跑到画布底部 */}
         {regions.map((item, index) => {
@@ -2563,12 +2695,14 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
                 aria-expanded={false}
                 aria-label={
                   item.prompt.trim()
-                    ? `区域 ${index + 1}：${item.prompt.trim()}，点击继续编辑`
-                    : `区域 ${index + 1}：还没有填写说明，点击填写`
+                    ? t('chip.filled_label', { index: index + 1, prompt: item.prompt.trim() })
+                    : t('chip.empty_label', { index: index + 1 })
                 }
-                onClick={() => setActiveRegionId(item.id)}
+                onClick={() => activateRegion(item.id)}
+                onPointerEnter={() => setHoveredRegionId(item.id)}
+                onPointerLeave={() => setHoveredRegionId(null)}
                 style={style}
-                title="点击填写该区域的说明"
+                title={t('chip.title')}
                 className={cn(
                   'absolute z-40 flex h-[30px] items-center gap-1.5 rounded-full border bg-surface-raised px-2 py-1 text-[11px] shadow-sheet hover:border-brand hover:text-brand-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
                   // 触屏热区扩到 42px 高（视觉仍是 30px，不改布局）：chip 是重新打开输入的唯一入口
@@ -2583,7 +2717,7 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
                   {index + 1}
                 </span>
                 <span className="max-w-[190px] min-w-0 truncate">
-                  {item.prompt.trim() || '填写说明'}
+                  {item.prompt.trim() || t('chip.empty')}
                 </span>
               </button>
             )
@@ -2594,7 +2728,9 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
               ref={bubbleRef}
               data-edit-surface="bubble"
               role="group"
-              aria-label={`区域 ${index + 1} 的修改说明`}
+              aria-label={t('bubble.label', { index: index + 1 })}
+              onPointerEnter={() => setHoveredRegionId(item.id)}
+              onPointerLeave={() => setHoveredRegionId(null)}
               style={style}
               onPointerDown={(event) => event.stopPropagation()}
               className={cn(
@@ -2609,7 +2745,7 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
                   <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[rgba(220,38,38,0.95)] text-[9px] font-bold text-white">
                     {index + 1}
                   </span>
-                  区域 {index + 1}
+                  {t('bubble.title', { index: index + 1 })}
                 </span>
                 <div className="flex items-center gap-0.5">
                   {/* 润色：只改这段描述，不碰画布上的框 */}
@@ -2620,14 +2756,19 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
                     onApply={(next) => handleRegionPromptChange(item.id, next)}
                     disabled={!item.prompt.trim()}
                   />
-                  <button
-                    type="button"
-                    onClick={() => setActiveRegionId(null)}
-                    className="rounded p-0.5 text-text-tertiary hover:bg-surface-hover hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                    aria-label="完成该区域"
+                  <BubbleIconButton
+                    label={t('bubble.redraw')}
+                    onClick={() => redrawRegion(item.id)}
                   >
-                    <X size={12} />
-                  </button>
+                    <RotateCcw size={12} />
+                  </BubbleIconButton>
+                  <BubbleIconButton
+                    label={t('bubble.delete')}
+                    danger
+                    onClick={() => handleDeleteRegion(item.id)}
+                  >
+                    <Trash2 size={12} />
+                  </BubbleIconButton>
                 </div>
               </div>
               <textarea
@@ -2659,38 +2800,54 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
                   if (event.nativeEvent.isComposing || composingRef.current) return
                   if (event.key === 'Enter' && !event.shiftKey) {
                     event.preventDefault()
-                    setActiveRegionId(null)
+                    confirmRegionEdit(item.id)
                   }
                   // Esc 不在这里处理：收起气泡还是退出编辑，统一由宿主按「有没有展开气泡」裁决
                 }}
-                placeholder="描述这一块要怎么改…"
+                placeholder={t('bubble.placeholder')}
                 className="w-full resize-none rounded-[10px] bg-bg-subtle px-2.5 py-2 text-[12px] leading-relaxed text-text placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-brand/40"
               />
-              <div className="mt-1.5 flex items-center gap-1.5">
-                <span className="shrink-0 text-[10px] text-text-faint">
-                  {/* 快捷键只在桌面端有意义；触屏给「点图片收起」（图内空白=收起，图外=退出） */}
-                  <span className="pointer-coarse:hidden">Enter 完成 · Shift+Enter 换行</span>
-                  <span className="hidden pointer-coarse:inline">点图片收起</span>
-                </span>
+              <div className="mt-1 flex items-center gap-1.5 text-[10px] text-text-faint">
+                {/* 快捷键只在桌面端有意义；触屏给「点图片收起」（图内空白=收起，图外=退出） */}
+                <span className="pointer-coarse:hidden">{t('bubble.keys')}</span>
+                <span className="hidden pointer-coarse:inline">{t('bubble.keys_touch')}</span>
                 {/* 字数可牺牲：空间不足时先丢它，绝不截断快捷键提示 */}
                 {item.prompt.trim().length >= 80 && (
-                  <span className="min-w-0 truncate text-[10px] tabular-nums text-text-faint">
-                    {item.prompt.trim().length} 字
+                  <span className="ml-auto min-w-0 truncate tabular-nums">
+                    {t('bubble.chars', { count: item.prompt.trim().length })}
                   </span>
                 )}
+              </div>
+              {/* 快捷操作：取消 / 确认 是「这一块」的去留；去创作 是把这一块交给对话做深度出图 */}
+              <div className="mt-1.5 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => cancelRegionEdit(item.id)}
+                  className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+                >
+                  <X size={12} /> {t('bubble.cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => confirmRegionEdit(item.id)}
+                  disabled={!item.prompt.trim()}
+                  className="inline-flex h-7 items-center gap-1 rounded-full bg-brand px-2.5 text-[11px] font-semibold text-text-inverse transition-[filter,opacity] hover:brightness-110 disabled:opacity-40"
+                >
+                  <Check size={12} strokeWidth={2.6} /> {t('bubble.confirm')}
+                </button>
                 <button
                   type="button"
                   data-edit-layer-ui
                   disabled={!item.prompt.trim() || submitting || analyzing}
                   onClick={() => handleGoCreate(item.id)}
-                  className="ml-auto inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-[11px] font-semibold text-text-inverse transition-opacity hover:opacity-90 disabled:opacity-40"
+                  title={t('bubble.go_create_hint')}
+                  className="ml-auto inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[11px] font-medium text-accent-ink ring-1 ring-inset ring-accent-strong/60 transition-colors hover:bg-accent-soft disabled:opacity-40"
                 >
-                  <Sparkles size={11} /> 去创作
+                  <Sparkles size={11} /> {t('bubble.go_create')}
                 </button>
               </div>
             </div>
           )
-
         })}
 
 
@@ -2698,7 +2855,7 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
         {(analyzing || submitting) && (
           <div className="pointer-events-none absolute bottom-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-surface-raised px-3 py-1.5 text-[11px] text-text-secondary shadow-sheet">
             <Loader2 size={12} className="animate-spin" />
-            {analyzing ? '正在分析需求…' : '正在提交…'}
+            {analyzing ? t('status.analyzing') : t('status.submitting')}
           </div>
         )}
       </div>
@@ -2706,53 +2863,27 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
   }
 )
 
-function ToolButton({
-  active,
-  icon,
+function BubbleIconButton({
   label,
-  title,
-  onClick,
-}: {
-  active: boolean
-  icon: React.ReactNode
-  label: string
-  /** 悬停提示；缺省与文案一致 */
-  title?: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title ?? label}
-      className={cn(
-        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] transition-colors',
-        active ? 'bg-brand-subtle text-brand-text' : 'text-text-tertiary hover:text-text-secondary'
-      )}
-    >
-      {icon} {label}
-    </button>
-  )
-}
-
-function IconButton({
-  disabled,
-  title,
+  danger,
   onClick,
   children,
 }: {
-  disabled?: boolean
-  title: string
+  label: string
+  danger?: boolean
   onClick: () => void
   children: React.ReactNode
 }) {
   return (
     <button
       type="button"
-      disabled={disabled}
-      title={title}
       onClick={onClick}
-      className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+      aria-label={label}
+      title={label}
+      className={cn(
+        'flex h-6 w-6 items-center justify-center rounded-full text-text-tertiary transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+        danger ? 'hover:bg-danger-subtle hover:text-danger' : 'hover:bg-surface-hover hover:text-text'
+      )}
     >
       {children}
     </button>

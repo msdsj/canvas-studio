@@ -1,5 +1,5 @@
 {
-  "app_name": "Canvas Studio",
+  "app_name": "zleap Canvas",
   "tagline": "AI 无限画布创作平台",
   "action": {
     "confirm": "确认",
@@ -68,12 +68,19 @@
   "language": {
     "label": "语言",
     "zh-CN": "简体中文",
-    "en": "English"
+    "en": "English",
+    "switch": "切换语言"
   },
   "error_boundary": {
     "title": "页面出错了",
     "description": "请刷新页面或稍后重试。",
     "not_found_title": "页面不存在",
-    "not_found_desc": "你访问的页面可能已被移动或删除。"
+    "not_found_desc": "你访问的页面可能已被移动或删除。",
+    "back_home": "返回首页"
+  },
+  "network": {
+    "offline": "网络已断开，恢复后会自动继续",
+    "back": "已重新连接",
+    "slow": "网络有点慢，还在加载…"
   }
 }

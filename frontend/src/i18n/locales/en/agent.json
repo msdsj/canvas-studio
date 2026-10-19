@@ -1,0 +1,216 @@
+{
+  "name": "zleap Agent",
+  "trace": {
+    "live_title": "Agent is analyzing",
+    "done_title": "Analysis complete",
+    "failed_title": "Analysis interrupted",
+    "elapsed": "{{seconds}}s",
+    "steps": "{{count}} steps",
+    "expand": "Show reasoning",
+    "collapse": "Hide reasoning",
+    "placeholder": {
+      "understand": "Understanding your request",
+      "plan": "Planning the visual direction",
+      "skill": "Matching design skills",
+      "prepare": "Preparing generation"
+    },
+    "status": {
+      "pending": "Pending",
+      "running": "Running",
+      "done": "Done",
+      "skipped": "Skipped",
+      "blocked": "Needs your input",
+      "failed": "Failed"
+    }
+  },
+  "skill": {
+    "using": "Using skill",
+    "chip": "Skill · {{name}}"
+  },
+  "decision": {
+    "paused": "Pick a direction",
+    "paused_hint": "I'll start once you choose — nothing is charged yet",
+    "started": "Got it — painting your pick",
+    "voided": "This analysis is no longer valid",
+    "voided_hint": "You sent a newer request, so this card no longer applies",
+    "ended": "This round is finished",
+    "starting": "On it…",
+    "recommended": "Recommended",
+    "verbatim": "Use as-is",
+    "count": "{{count}} image(s)",
+    "confirm_direction": "Go with this",
+    "confirm": "Go with this",
+    "chosen": "Chosen",
+    "chosen_label": "Chosen: {{label}}",
+    "submitting": "Submitting…",
+    "pick_first": "Pick a direction first",
+    "click_to_start": "Nothing starts until you confirm",
+    "confirm_to_start": "Confirm to start",
+    "generating_below": "Painting — results will appear below",
+    "selection_changed": "The selection changed before confirming; this analysis was voided",
+    "options_label": "Options",
+    "summary": "{{count}} image(s)",
+    "confidence": "Confidence {{value}}%",
+    "rule": {
+      "explicit_count": "Count you specified",
+      "structure": "Based on selection",
+      "ambiguous": "Ambiguous wording",
+      "needs_image": "Base image missing"
+    },
+    "custom_open": "None of these…",
+    "custom_placeholder": "Describe your direction, e.g. more playful, blue tones",
+    "custom_send": "Re-analyze with this direction",
+    "custom_hint": "Press Enter — I'll combine it with your original request"
+  },
+  "feedback": {
+    "copy": "Copy",
+    "copied": "Copied",
+    "like": "Helpful",
+    "dislike": "Not helpful",
+    "thanks": "Thanks for the feedback"
+  },
+  "empty": {
+    "eyebrow": "Design agent ready",
+    "title": "What shall we create today?",
+    "desc": "Describe the image you want. I'll understand it, match a design skill, check in with you when it's ambiguous, then generate.",
+    "cap_plan": "Breakdown",
+    "cap_skill": "Design skills",
+    "cap_confirm": "Direction check",
+    "cap_canvas": "Straight to canvas",
+    "try": "Try saying"
+  },
+  "result": {
+    "generating": "Generating"
+  },
+  "wait": {
+    "analysis_slow": "The model is slower than usual — still working on it, no need to resend.",
+    "analysis_stalled": "This is taking a while, likely a busy relay. Keep waiting, or stop and retry.",
+    "generation_slow": "Rendering is slower than usual, probably queued. The result will appear right here.",
+    "generation_stalled": "This image is taking a while. Waiting costs nothing extra; stopping refunds your credits.",
+    "offline": "You're offline. I'll resume automatically once you're back — nothing is lost.",
+    "keep_waiting": "Keep waiting",
+    "retry": "Retry",
+    "stop": "Stop",
+    "gen_stage": {
+      "compose": "Laying out the composition",
+      "render": "Rendering the image",
+      "detail": "Polishing details"
+    }
+  },
+  "say": {
+    "started": "On it — painting now",
+    "started_count_one": "On it — painting {{count}} image",
+    "started_count_other": "On it — painting {{count}} images",
+    "started_direction": "On it — going with “{{label}}”",
+    "started_hint": "About 30–60s; results land right here in the chat",
+    "done_one": "{{count}} image ready",
+    "done_other": "{{count}} images ready",
+    "done_hint": "Hover an image to place it, download it, or reference it",
+    "need_direction": "Pick a direction first",
+    "need_direction_hint": "I'll start once you choose — no credits used yet",
+    "deduped": "Already painting this one",
+    "deduped_hint": "No double charge — the result is below",
+    "retype": "Please say it once more",
+    "retype_hint": "The page reloaded and your text didn't survive",
+    "interrupted": "Analysis was interrupted",
+    "interrupted_hint": "Try sending again; if it keeps happening, check your relay",
+    "analyze_failed": "Couldn't analyze that — rephrase or reselect and try again",
+    "compose_failed": "I didn't quite get that — try rephrasing",
+    "selection_changed": "The selection changed before you confirmed, so this plan was voided. Just say it again",
+    "ref_upload_failed": "Reference image didn't upload",
+    "skill_applied": "Applied “{{name}}”",
+    "skill_applied_hint": "Tweak the subject and details, then send — it'll follow this style"
+  },
+  "ui": {
+    "relay_missing": "No relay connected · click to set up",
+    "loading_chat": "Loading conversation…",
+    "relay_title": "Connect a relay first",
+    "relay_desc": "Add the URL and key, then send this message again",
+    "relay_go": "Set up",
+    "relay_template": "Try a local template first",
+    "need_image_title": "Pick an image on the canvas first",
+    "need_image_desc": "This request edits an image. Select it and say it again — I'll start right away.",
+    "need_image_canvas": "Pick on canvas",
+    "from_assets": "From assets",
+    "upload_local": "Upload image",
+    "skill_library": "Design skills",
+    "add_reference": "Add reference",
+    "upload_reference": "Upload reference",
+    "pick_model": "Choose image model",
+    "close": "Close",
+    "canvas_selection": "Canvas selection"
+  },
+  "guide": {
+    "title": "A bit brief — add a few details for a sharper result (or just send)",
+    "dismiss": "No thanks",
+    "usage": {
+      "label": "Use",
+      "poster": {
+        "label": "Poster",
+        "insert": ", for an event poster"
+      },
+      "social": {
+        "label": "Social",
+        "insert": ", for a social media post"
+      },
+      "ecommerce": {
+        "label": "Shop",
+        "insert": ", as an e-commerce product image"
+      },
+      "avatar": {
+        "label": "Avatar",
+        "insert": ", as an avatar"
+      },
+      "banner": {
+        "label": "Banner",
+        "insert": ", as a website banner"
+      }
+    },
+    "style": {
+      "label": "Style",
+      "minimal": {
+        "label": "Minimal",
+        "insert": ", minimal style with lots of white space"
+      },
+      "guochao": {
+        "label": "Guochao",
+        "insert": ", modern Chinese 'guochao' style"
+      },
+      "cyber": {
+        "label": "Cyber",
+        "insert": ", cyberpunk neon style"
+      },
+      "film": {
+        "label": "Film",
+        "insert": ", analog film photo look"
+      },
+      "illustration": {
+        "label": "Flat",
+        "insert": ", flat illustration style"
+      },
+      "3d": {
+        "label": "3D",
+        "insert": ", 3D rendered look"
+      }
+    },
+    "ratio": {
+      "label": "Ratio",
+      "1_1": {
+        "label": "1:1",
+        "insert": ", 1:1 aspect ratio"
+      },
+      "3_4": {
+        "label": "3:4",
+        "insert": ", 3:4 aspect ratio"
+      },
+      "16_9": {
+        "label": "16:9",
+        "insert": ", 16:9 aspect ratio"
+      },
+      "9_16": {
+        "label": "9:16",
+        "insert": ", 9:16 aspect ratio"
+      }
+    }
+  }
+}

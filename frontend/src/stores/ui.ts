@@ -6,6 +6,17 @@ export type AuthMode = 'login' | 'register'
 /** 工作室左栏的三个分区：历史对话 / 参考图 / 作品。 */
 export type StudioTab = 'chats' | 'refs' | 'works'
 
+const AGENT_PANEL_KEY = 'cs.agentPanel'
+
+/** Agent 面板默认展开；只有用户主动收起过才记住「收起」。 */
+function readAgentPanelOpen(): boolean {
+  try {
+    return localStorage.getItem(AGENT_PANEL_KEY) !== 'closed'
+  } catch {
+    return true
+  }
+}
+
 interface UIState {
   leftbarCollapsed: boolean
   rightPanelOpen: boolean
@@ -28,6 +39,15 @@ interface UIState {
 
   studioTab: StudioTab
   setStudioTab: (tab: StudioTab) => void
+
+  /** 工作台左侧 Agent 对话面板（Lovart 式：对话在左、画布在右，可收起） */
+  agentPanelOpen: boolean
+  setAgentPanelOpen: (open: boolean) => void
+  /** 「历史 / 参考图 / 作品」抽屉：贴在 Agent 面板右侧，按需展开 */
+  studioDrawerOpen: boolean
+  /** 打开抽屉并切到指定分区；再次点同一分区则收起 */
+  toggleStudioDrawer: (tab?: StudioTab) => void
+  closeStudioDrawer: () => void
 
   /** 升级 / 激活 Pro 弹窗：全站唯一入口，任意 Pro 能力被拦下时都能唤起 */
   proDialogOpen: boolean
@@ -58,6 +78,24 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   studioTab: 'chats',
   setStudioTab: (tab) => set({ studioTab: tab }),
+
+  agentPanelOpen: readAgentPanelOpen(),
+  setAgentPanelOpen: (open) => {
+    try {
+      localStorage.setItem(AGENT_PANEL_KEY, open ? 'open' : 'closed')
+    } catch {
+      /* ignore */
+    }
+    set({ agentPanelOpen: open })
+  },
+  studioDrawerOpen: false,
+  toggleStudioDrawer: (tab) => {
+    const { studioDrawerOpen, studioTab } = get()
+    if (!tab) return set({ studioDrawerOpen: !studioDrawerOpen })
+    if (studioDrawerOpen && studioTab === tab) return set({ studioDrawerOpen: false })
+    set({ studioDrawerOpen: true, studioTab: tab })
+  },
+  closeStudioDrawer: () => set({ studioDrawerOpen: false }),
 
   proDialogOpen: false,
   proDialogReason: '',

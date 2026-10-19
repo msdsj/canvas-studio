@@ -128,6 +128,9 @@
   --color-accent-strong: #b9e63c;
   --color-accent-soft: #f2ffd2;
   --color-accent-ink: #3a470d;
+  /* [NEW] 青柠「实底」上的文字/图标：两种主题下青柠都是亮色，所以这里恒为深墨，
+   * 不能用 accent-ink（暗色主题里它是浅色，用于深底上的青柠字）。 */
+  --color-on-accent: #1a1f05;
 
   /* 主按钮 / 关键强调用的渐变（墨黑，带一点暖调） */
   --gradient-brand: linear-gradient(135deg, #33301f 0%, #1a1810 55%, #0a0906 100%);
@@ -227,6 +230,7 @@
   --color-accent-strong: #c3f04d;
   --color-accent-soft: #212a10;
   --color-accent-ink: #dfeeae;
+  --color-on-accent: #1a1f05;
 
   --gradient-brand: linear-gradient(135deg, #fffdf2 0%, #efe9d6 55%, #d8d2bd 100%);
   --gradient-brand-soft: linear-gradient(135deg, #1b1912 0%, #1f2413 100%);

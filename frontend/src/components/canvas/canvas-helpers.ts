@@ -1363,3 +1363,75 @@ export async function downloadSelectedImages(
   }
   return index
 }
+
+/* ------------------------------------------------------------------ */
+/* 画布导航（缩放控制 / 屏幕坐标换算）——供右下角导航器与落图动效使用 */
+/* ------------------------------------------------------------------ */
+
+export const ZOOM_MIN = 0.1
+export const ZOOM_MAX = 4
+
+/** 当前视口缩放值（读不到时为 1）。 */
+export function viewportZoom(api: ExcalidrawApiLike | null): number {
+  if (!api) return 1
+  try {
+    return viewportMetrics(api).zoom
+  } catch {
+    return 1
+  }
+}
+
+/**
+ * 以视口中心为锚点缩放到目标值（GSAP 补间）。
+ *
+ * 为什么锚在中心：按钮缩放时用户的视线在画面中央，锚在左上角（Excalidraw 直接写 zoom 的效果）
+ * 会让内容一边放大一边往右下跑，看起来像「画布滑走了」。
+ */
+export function zoomViewportTo(api: ExcalidrawApiLike | null, nextZoom: number): void {
+  if (!api) return
+  const v = viewportMetrics(api)
+  if (v.width <= 0 || v.height <= 0) return
+  const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, nextZoom))
+  // 视口中心对应的 scene 点在缩放前后保持不动
+  const cx = v.width / 2 / v.zoom - v.scrollX
+  const cy = v.height / 2 / v.zoom - v.scrollY
+  const target = { zoom, scrollX: v.width / 2 / zoom - cx, scrollY: v.height / 2 / zoom - cy }
+  if (shouldReduceMotion()) {
+    applyViewport(api, target.zoom, target.scrollX, target.scrollY)
+    return
+  }
+  const proxy = { zoom: v.zoom, scrollX: v.scrollX, scrollY: v.scrollY }
+  gsap.to(proxy, {
+    ...target,
+    duration: 0.36,
+    ease: EASE.out,
+    onUpdate: () => applyViewport(api, proxy.zoom, proxy.scrollX, proxy.scrollY),
+  })
+}
+
+/** 把整幅内容装进视口（带动画）；空画布时什么都不做。 */
+export function fitContentAnimated(api: ExcalidrawApiLike | null): void {
+  if (!api) return
+  let elements: CanvasElement[] = []
+  try {
+    elements = api.getSceneElements()
+  } catch {
+    return
+  }
+  focusSceneBox(api, sceneContentBox(elements), { padding: 72, maxZoom: 1 })
+}
+
+/** scene 矩形 → 画布容器内的屏幕矩形（落图动效 / 占位卡跟随用）。 */
+export function sceneBoxToScreen(
+  api: ExcalidrawApiLike | null,
+  box: { x: number; y: number; w: number; h: number }
+): { x: number; y: number; w: number; h: number } | null {
+  if (!api) return null
+  const v = viewportMetrics(api)
+  return {
+    x: (box.x + v.scrollX) * v.zoom,
+    y: (box.y + v.scrollY) * v.zoom,
+    w: box.w * v.zoom,
+    h: box.h * v.zoom,
+  }
+}

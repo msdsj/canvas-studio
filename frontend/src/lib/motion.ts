@@ -367,12 +367,14 @@ export async function enterStudio(
  * 一旦某个页面数据加载慢，用户会盯着一个僵住的页面。只做新页轻上浮——
  * 120ms 内就能看到响应，这才是"流畅"的体感来源。
  */
+export type RouteTransitionVariant = 'lift' | 'fade' | 'none'
+
 export function useRouteTransition(
   containerRef: RefObject<HTMLElement | null>,
   routeKey: string,
-  options: { y?: number; duration?: number } = {}
+  options: { y?: number; duration?: number; variant?: RouteTransitionVariant } = {}
 ) {
-  const { y = 10, duration = 0.42 } = options
+  const { y = 12, duration = 0.5, variant = 'lift' } = options
   const first = useRef(true)
 
   useLayoutEffect(() => {
@@ -381,24 +383,28 @@ export function useRouteTransition(
     // 首次加载用更快的淡入（用户在等首屏，不该再等动画）
     const isFirst = first.current
     first.current = false
-    if (shouldReduceMotion()) return
+    if (shouldReduceMotion() || variant === 'none') return
 
+    // 'fade'：只动透明度。画布类页面不能给祖先加 transform——
+    // 转场那 0.4s 内 Excalidraw 会按带位移的包围盒算指针坐标，第一笔会画偏。
+    const lift = variant === 'lift' && !isFirst
     const ctx = gsap.context(() => {
       gsap.fromTo(
         el,
-        { opacity: 0, y: isFirst ? 0 : y },
+        { opacity: isFirst ? 0 : 0.35, y: lift ? y : 0, scale: lift ? 0.996 : 1 },
         {
           opacity: 1,
           y: 0,
-          duration: isFirst ? 0.3 : duration,
-          ease: EASE.out,
+          scale: 1,
+          duration: isFirst ? 0.32 : duration,
+          ease: 'expo.out',
           clearProps: 'transform,opacity',
           overwrite: 'auto',
         }
       )
     })
     return () => ctx.revert()
-  }, [containerRef, routeKey, y, duration])
+  }, [containerRef, routeKey, y, duration, variant])
 }
 
 /** 页面不可见时暂停氛围动画（后台标签页不该继续烧 GPU）。 */

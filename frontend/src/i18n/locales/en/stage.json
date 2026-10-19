@@ -1,0 +1,115 @@
+{
+  "history": {
+    "undo": "Undo",
+    "redo": "Redo"
+  },
+  "gen": {
+    "stage": {
+      "queued": "Queued…",
+      "composing": "Composing…",
+      "rendering": "Rendering details…",
+      "finishing": "Almost there…"
+    },
+    "slow_title": "Taking longer than usual",
+    "slow_desc": "The model is busy right now. Still generating — no need to resubmit.",
+    "stalled_title": "This is taking a while",
+    "stalled_desc": "The upstream may be congested. Keep waiting, or cancel — your credits will be refunded.",
+    "keep_waiting": "Keep waiting",
+    "cancel_refund": "Cancel & refund",
+    "cancelling": "Cancelling…",
+    "cancelled": "Cancelled, credits refunded"
+  },
+  "nav": {
+    "label": "Canvas navigation",
+    "map": "Overview map",
+    "film": "Filmstrip",
+    "film_empty": "No images yet — generated or uploaded images will show up here",
+    "fly_to": "Go to this image",
+    "zoom_in": "Zoom in",
+    "zoom_out": "Zoom out",
+    "zoom_reset": "Reset to 100%",
+    "fit": "Fit all content"
+  },
+  "preview": {
+    "title": "Image selected",
+    "alt": "Selected image preview",
+    "reading": "Reading size…",
+    "edit": "Edit",
+    "send_to_chat": "Send to agent",
+    "copy": "Copy image",
+    "copied": "Copied to clipboard",
+    "copy_failed": "This browser can't copy images — try downloading instead",
+    "download": "Download",
+    "download_png": "Download PNG (transparent)",
+    "download_jpg": "Download JPG (white)",
+    "delete": "Delete"
+  },
+  "drop": {
+    "title": "Drop to add to the canvas",
+    "desc": "PNG / JPG / WebP — you can add a note after dropping",
+    "reject": "Only PNG / JPG / WebP images are supported"
+  },
+  "empty": {
+    "eyebrow": "Blank canvas",
+    "title": "Start with a sentence, or drop an image in",
+    "desc": "Tell the agent what you want. It clarifies first, then generates — results land right on this canvas.",
+    "start": {
+      "describe": "Describe it",
+      "describe_hint": "Chat with the agent",
+      "upload": "Upload",
+      "upload_hint": "Or drag onto the canvas",
+      "assets": "From assets",
+      "assets_hint": "Everything you've used"
+    },
+    "inspiration_title": "Need ideas? Try these",
+    "shuffle": "Shuffle",
+    "use_prompt": "Use this prompt",
+    "inspirations": [
+      {
+        "tag": "Brand",
+        "title": "Minimal coffee poster",
+        "prompt": "Minimal coffee brand poster, warm paper texture, centered layout, generous whitespace, a pour-over coffee as the hero"
+      },
+      {
+        "tag": "Product",
+        "title": "Perfume studio shot",
+        "prompt": "Product photo of a clear glass perfume bottle, softbox lighting, light grey gradient background, subtle reflections"
+      },
+      {
+        "tag": "Event",
+        "title": "Music festival key visual",
+        "prompt": "Futuristic music festival key visual, neon lime and ink black, bold headline, dynamic geometric shapes"
+      },
+      {
+        "tag": "Social",
+        "title": "Social cover",
+        "prompt": "Social media cover, 3:4 portrait, spring picnic theme, fresh palette, eye-catching title"
+      },
+      {
+        "tag": "Illustration",
+        "title": "Cozy illustration",
+        "prompt": "Cozy hand-drawn illustration of a cat sunbathing by the window, watercolor texture, warm afternoon light"
+      },
+      {
+        "tag": "E-commerce",
+        "title": "Product hero",
+        "prompt": "E-commerce hero image, white background, floating wireless earbuds at 45 degrees, clean drop shadow"
+      },
+      {
+        "tag": "Tech",
+        "title": "AI launch banner",
+        "prompt": "AI product launch banner, 21:9, dark background, holographic light and particle streams, title area in the center"
+      },
+      {
+        "tag": "Holiday",
+        "title": "Mid-Autumn greeting",
+        "prompt": "Mid-Autumn Festival greeting card, modern Chinese style, full moon and jade rabbit, gold outlines, red and gold palette"
+      },
+      {
+        "tag": "Avatar",
+        "title": "3D cartoon avatar",
+        "prompt": "3D cartoon-style avatar, rounded shapes, soft materials, solid background, front-facing bust"
+      }
+    ]
+  }
+}

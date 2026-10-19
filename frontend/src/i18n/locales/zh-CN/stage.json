@@ -1,0 +1,115 @@
+{
+  "history": {
+    "undo": "撤销",
+    "redo": "重做"
+  },
+  "gen": {
+    "stage": {
+      "queued": "排队中…",
+      "composing": "构图中…",
+      "rendering": "渲染细节…",
+      "finishing": "即将完成…"
+    },
+    "slow_title": "比平时慢一些",
+    "slow_desc": "模型这会儿有点忙，仍在生成，不用重新提交。",
+    "stalled_title": "等得有点久了",
+    "stalled_desc": "可能遇到上游拥堵。你可以继续等，也可以取消——取消后额度会退回。",
+    "keep_waiting": "继续等待",
+    "cancel_refund": "取消并退回额度",
+    "cancelling": "正在取消…",
+    "cancelled": "已取消，额度已退回"
+  },
+  "nav": {
+    "label": "画布导航",
+    "map": "全景缩略图",
+    "film": "作品胶片",
+    "film_empty": "画布上还没有图片，生成或上传后会出现在这里",
+    "fly_to": "定位到这张图",
+    "zoom_in": "放大",
+    "zoom_out": "缩小",
+    "zoom_reset": "重置为 100%",
+    "fit": "适配全部内容"
+  },
+  "preview": {
+    "title": "已选中图片",
+    "alt": "选中图片预览",
+    "reading": "读取尺寸中…",
+    "edit": "编辑",
+    "send_to_chat": "交给 Agent 继续改",
+    "copy": "复制图片",
+    "copied": "已复制到剪贴板",
+    "copy_failed": "当前浏览器不支持复制图片，请改用下载",
+    "download": "下载",
+    "download_png": "下载 PNG（透明）",
+    "download_jpg": "下载 JPG（白底）",
+    "delete": "删除"
+  },
+  "drop": {
+    "title": "松手，把图片放进画布",
+    "desc": "支持 PNG / JPG / WebP，放下后可以补一句说明",
+    "reject": "只支持 PNG / JPG / WebP 图片"
+  },
+  "empty": {
+    "eyebrow": "空白画布",
+    "title": "从一句话开始，或把图拖进来",
+    "desc": "告诉 Agent 你想要什么，它会先理清需求再出图；结果会直接落在这块画布上。",
+    "start": {
+      "describe": "描述画面",
+      "describe_hint": "在左侧和 Agent 说",
+      "upload": "上传图片",
+      "upload_hint": "也可直接拖进画布",
+      "assets": "从素材库选",
+      "assets_hint": "用过的图都在这"
+    },
+    "inspiration_title": "没思路？试试这些",
+    "shuffle": "换一批",
+    "use_prompt": "放进输入框",
+    "inspirations": [
+      {
+        "tag": "品牌",
+        "title": "极简咖啡海报",
+        "prompt": "极简咖啡品牌海报，暖砂纸质感，居中排版，留白充足，一杯手冲咖啡作为主体"
+      },
+      {
+        "tag": "产品",
+        "title": "香水棚拍",
+        "prompt": "透明玻璃香水瓶产品摄影，柔光箱打光，浅灰渐变背景，瓶身有细腻反光"
+      },
+      {
+        "tag": "活动",
+        "title": "音乐节主视觉",
+        "prompt": "未来感音乐节主视觉，荧光青柠与墨黑撞色，大字标题，动感几何图形"
+      },
+      {
+        "tag": "社媒",
+        "title": "小红书封面",
+        "prompt": "小红书封面图，3:4 竖版，春日野餐主题，清新配色，标题醒目"
+      },
+      {
+        "tag": "插画",
+        "title": "治愈系插画",
+        "prompt": "治愈系手绘插画，一只猫在窗边晒太阳，水彩质感，温暖午后光线"
+      },
+      {
+        "tag": "电商",
+        "title": "新品主图",
+        "prompt": "电商新品主图，白底，蓝牙耳机悬浮展示，45 度角，干净的投影"
+      },
+      {
+        "tag": "科技",
+        "title": "AI 发布会 Banner",
+        "prompt": "AI 产品发布会横幅，21:9，深色背景，全息光效与粒子流，中央留出标题区"
+      },
+      {
+        "tag": "节日",
+        "title": "中秋贺图",
+        "prompt": "中秋节贺图，国潮风格，圆月与玉兔，金色描边，红金配色"
+      },
+      {
+        "tag": "头像",
+        "title": "3D 卡通头像",
+        "prompt": "3D 卡通风格头像，圆润造型，柔和材质，纯色背景，正面半身"
+      }
+    ]
+  }
+}

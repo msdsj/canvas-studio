@@ -1,0 +1,110 @@
+/* 图片编辑层的专用样式（框选 / 把手 / 尺寸标签 / 画笔光标 / 引导）。
+ * 只用设计 token；选区本身保持红色——它要在任意内容的图片上都看得见，
+ * 这是「机器在图上画的标记」，不属于界面配色体系。 */
+
+/* 缩放把手：白底 + 红描边的小方块，触屏上扩大热区但视觉尺寸不变 */
+.cs-region-handle {
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 3px;
+  background: #fff;
+  border: 1.5px solid rgb(220, 38, 38);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 140ms var(--ease-out);
+}
+.cs-region-handle:hover {
+  transform: scale(1.35);
+}
+.cs-region-handle::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+@media (pointer: coarse) {
+  .cs-region-handle {
+    width: 14px;
+    height: 14px;
+    margin: -7px 0 0 -7px;
+  }
+  .cs-region-handle::before {
+    inset: -10px;
+  }
+}
+.cs-h-nw { left: 0; top: 0; }
+.cs-h-n { left: 50%; top: 0; }
+.cs-h-ne { left: 100%; top: 0; }
+.cs-h-e { left: 100%; top: 50%; }
+.cs-h-se { left: 100%; top: 100%; }
+.cs-h-s { left: 50%; top: 100%; }
+.cs-h-sw { left: 0; top: 100%; }
+.cs-h-w { left: 0; top: 50%; }
+
+/* 徽章：hover 放大 + 抓手光标，暗示「能拖」 */
+.cs-region-badge {
+  transition: transform 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+}
+.cs-region-badge:hover {
+  transform: scale(1.12);
+}
+.cs-region-badge:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* 尺寸标签：深色药丸，图上任何背景都读得清 */
+.cs-dim-label {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(14, 12, 7, 0.82);
+  color: #fbfaf4;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  pointer-events: none;
+}
+
+/* 正在画 / 激活的选区：描边「蚂蚁线」流动，表示「这块正被操作」 */
+.cs-marching {
+  animation: cs-march 0.9s linear infinite;
+}
+@keyframes cs-march {
+  to {
+    stroke-dashoffset: -14;
+  }
+}
+
+/* 激活选区的外发光：比改颜色更能把它从多个红框里拎出来 */
+.cs-region-active {
+  filter: drop-shadow(0 0 3px rgba(220, 38, 38, 0.55));
+}
+
+/* 吸附参考线 */
+.cs-snap-guide {
+  stroke: var(--color-accent-strong);
+  stroke-width: 1px;
+  stroke-dasharray: 3 3;
+}
+
+/* 画笔光标预览圈：双圈（白 + 黑）保证深浅图上都可见 */
+.cs-brush-cursor {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 9999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  background: rgba(220, 38, 38, 0.12);
+  transform: translate(-50%, -50%);
+  z-index: 25;
+}
+.cs-brush-cursor[data-eraser] {
+  background: transparent;
+  border-style: dashed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-marching {
+    animation: none;
+  }
+}

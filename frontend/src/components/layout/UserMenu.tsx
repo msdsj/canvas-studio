@@ -28,7 +28,6 @@ import { useAuth } from '@/hooks/use-auth'
 import { useLanguage } from '@/hooks/use-language'
 import { useTheme } from '@/hooks/use-theme'
 import { useQuotaStore } from '@/stores/quota'
-import type { SupportedLanguage } from '@/i18n'
 import type { ThemeMode } from '@/stores/theme'
 
 /**
@@ -120,10 +119,10 @@ export function UserMenu({
         <DropdownMenuLabel className="flex items-center gap-1.5 text-caption text-text-tertiary">
           <Languages size={13} /> {t('language.label')}
         </DropdownMenuLabel>
-        {options.map((lang: SupportedLanguage) => (
-          <DropdownMenuItem key={lang} onClick={() => setLanguage(lang)}>
-            <span className="flex-1">{lang === 'zh-CN' ? '简体中文' : 'English'}</span>
-            {language === lang && <Check size={14} className="text-brand" />}
+        {options.map((item) => (
+          <DropdownMenuItem key={item.code} onClick={() => setLanguage(item.code)}>
+            <span lang={item.code} className="flex-1">{item.nativeName}</span>
+            {language === item.code && <Check size={14} className="text-brand" />}
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />

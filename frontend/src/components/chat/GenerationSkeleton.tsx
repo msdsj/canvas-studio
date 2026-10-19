@@ -11,9 +11,20 @@ import './streaming.css'
  * 扫过的位置提亮、离开的位置回落，再加上青柠描边的极缓呼吸，
  * 看上去像「图像正在一点点显出来」，而不是「页面挂了」。
  *
+ * 版式与结果网格同构（1 张整宽、多张两列、按真实宽高比占位），
+ * 结果到达时图片直接「显影」在原位，而不是骨架消失后再把列表顶开。
+ *
  * 降级：prefers-reduced-motion / 低性能设备下不扫描，只保留静态骨架与文案。
  */
-export function GenerationSkeleton({ count = 3 }: { count?: number }) {
+export function GenerationSkeleton({
+  count = 1,
+  ratio = 1,
+}: {
+  /** 预计张数：骨架格数与最终结果网格一致，图出来时不会跳版 */
+  count?: number
+  /** 宽高比（宽 / 高）：骨架提前占好真实比例 */
+  ratio?: number
+}) {
   const rootRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -61,12 +72,21 @@ export function GenerationSkeleton({ count = 3 }: { count?: number }) {
   }, [])
 
   return (
-    <div ref={rootRef} className="flex gap-1.5" aria-hidden>
+    <div
+      ref={rootRef}
+      className={count === 1 ? 'grid grid-cols-1' : 'grid grid-cols-2 gap-1.5'}
+      aria-hidden
+    >
       {Array.from({ length: count }).map((_, index) => (
         <div
           key={index}
           data-frame
-          className="cs-breathe-edge relative h-[84px] w-[84px] overflow-hidden rounded-xs cs-ghost-frame"
+          className="cs-breathe-edge cs-ghost-frame relative mx-auto w-full overflow-hidden rounded-sm"
+          // 单张竖图按「高 300」反推最大宽度：9:16 在 400px 宽的面板里否则会高过一屏
+          style={{
+            aspectRatio: String(ratio),
+            maxWidth: count === 1 ? `min(100%, ${Math.round(300 * ratio)}px)` : undefined,
+          }}
         >
           {/* 相纸里的裁切线：暗示「这里将出现一张图」，比纯灰块有内容 */}
           <span className="absolute inset-[7px] rounded-xs border border-dashed border-border-strong/70" />

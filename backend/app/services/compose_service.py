@@ -564,13 +564,13 @@ async def stream_compose(
                 session.id,
                 user.id,
                 "assistant",
-                "还没有配置 AI 中转站，我先停在这里。填好地址、Key 和模型后，这句需求我就能直接分析并出图。",
+                "还没连上 AI 中转站，我先停在这里。填好地址、Key 和模型后，再发一次这句话我就能直接开画。",
                 attachments=[
                     {
                         "type": "compose_run",
                         "run_id": "",
                         "status": "unconfigured",
-                        "reply": "还没有配置 AI 中转站，我先停在这里。",
+                        "reply": "还没连上 AI 中转站，我先停在这里。",
                         "content": text,
                         "steps": list(trace.steps),
                         "final_prompt": "",
@@ -981,7 +981,13 @@ async def stream_compose(
         run.steps = list(trace.steps)
         run.updated_at = utcnow()
 
-        reply = f"已开始生成：{str(plan_data.get('title') or '按你的需求')[:40]}。"
+        # 面向用户的一句话：说清「画什么、几张、多久、去哪看」，不复述提示词
+        title = str(plan_data.get("title") or "").strip()[:40]
+        reply = (
+            f"好的，开始画「{title}」"
+            if title
+            else "好的，按你的描述开始画"
+        ) + f"，共 {len(tasks)} 张，大约 30–60 秒，结果会直接出现在下面。"
         message = await _append_message(
             db, session.id, user.id, "assistant", reply,
             attachments=[_compose_attachment(run, reply, status="completed", tasks=tasks)],

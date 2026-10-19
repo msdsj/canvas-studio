@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Check, Loader2 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
 import type { SkillOption } from '@/lib/api/chat'
+import { DecisionBadge, DecisionCard, DecisionOptions } from './agent/DecisionCard'
 
 /** 卡片状态：待选 / 提交中 / 已选；`voided` 表示已被新的提交作废。 */
 export type ConfirmCardState = 'pending' | 'choosing' | 'done' | 'voided'
@@ -27,22 +28,21 @@ interface ConfirmCountCardProps {
  * 「要 1 张还是 2 张」的确认卡。
  *
  * 两条硬约束：
- * 1. **绝不倒计时自动执行**——未经用户点「就按这个来」，一分额度都不花出去；
+ * 1. **绝不倒计时自动执行**——未经用户点主按钮，一分额度都不花出去；
  * 2. **点卡片只是选中，点主按钮才执行**——避免误触直接产生费用。
  *
- * 选项控件与澄清卡同构（序号徽标 + 青柠选中态 + 对勾），保证两处「让用户选」的动作
- * 看起来是同一种东西，而不是两套控件。
+ * 外壳与方案控件和澄清卡共用（DecisionCard），保证所有「让用户选」的动作长得一样。
  */
 export function ConfirmCountCard({
   reply,
   reason,
   options,
-  fingerprint,
   runId,
   state,
   chosenId,
   onChoose,
 }: ConfirmCountCardProps) {
+  const { t } = useTranslation('agent')
   const [localChosen, setLocalChosen] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -69,106 +69,55 @@ export function ConfirmCountCard({
   }
 
   return (
-    <div
-      className={cn(
-        'rounded-md bg-surface p-3 shadow-sheet',
-        voided && 'opacity-60'
-      )}
-      data-run-id={runId}
-      aria-busy={busy || state === 'choosing'}
-    >
-      <div className="flex items-start gap-2">
-        <span className="relative mt-[7px] flex h-1.5 w-1.5 shrink-0 items-center justify-center">
-          {/* 暂停态脉冲：与澄清卡同一套语言，让"停下来等用户"这件事在所有决策点长得一样 */}
-          <span className="absolute h-1.5 w-1.5 animate-ping rounded-full bg-brand opacity-60" />
-          <span className="relative h-1.5 w-1.5 rounded-full bg-brand" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-micro font-medium text-text-secondary">
-            {settled ? '已按你的选择开始生成' : voided ? '这次分析已作废' : '已暂停，等你选择'}
-          </p>
-          <p className="mt-0.5 text-caption font-medium leading-snug text-text [overflow-wrap:anywhere]">
-            {reply}
-          </p>
-          {reason && (
-            <p className="mt-1 text-micro leading-snug text-text-tertiary [overflow-wrap:anywhere]">
-              {reason}
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-2.5 flex flex-col gap-1.5">
-        {options.map((option, index) => {
-          const isChosen = activeChosen === option.id
-          return (
-            <button
-              key={option.id}
-              type="button"
-              disabled={locked || busy}
-              aria-pressed={isChosen}
-              onClick={() => setLocalChosen(option.id)}
-              className={cn(
-                'w-full rounded-sm px-2.5 py-2 text-left transition-all',
-                isChosen
-                  ? 'bg-accent-soft ring-1 ring-accent-strong'
-                  : 'bg-surface ring-1 ring-inset ring-border-faint hover:bg-surface-hover',
-                'disabled:cursor-not-allowed disabled:opacity-60'
-              )}
-            >
-              <span className="flex items-center gap-2">
-                <span
-                  className={cn(
-                    'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-micro font-semibold tabular-nums transition-colors',
-                    isChosen ? 'bg-accent text-accent-ink' : 'bg-bg-subtle text-text-tertiary'
-                  )}
-                >
-                  {isChosen ? <Check size={11} strokeWidth={3} /> : index + 1}
-                </span>
-                <span className="min-w-0 flex-1 text-caption font-medium text-text [overflow-wrap:anywhere]">
-                  {option.label}
-                </span>
-                <span className="shrink-0 rounded-full bg-bg-subtle px-1.5 py-0.5 text-micro font-medium tabular-nums text-text-secondary">
-                  产出 {option.image_count} 张
-                </span>
+    <DecisionCard
+      tone={busy ? 'choosing' : state}
+      status={settled ? t('decision.started') : voided ? t('decision.voided') : t('decision.paused')}
+      title={reply}
+      reason={reason || undefined}
+      runId={runId}
+      busy={busy || state === 'choosing'}
+      footer={
+        <>
+          <Button
+            size="sm"
+            variant="primary"
+            className="h-8 shrink-0 px-3 text-caption"
+            disabled={locked || busy || !activeChosen}
+            onClick={() => void confirm()}
+          >
+            {busy ? (
+              <span className="inline-flex items-center gap-1">
+                <Loader2 size={12} className="animate-spin" /> {t('decision.submitting')}
               </span>
-              {option.description && (
-                <span className="mt-1 block pl-7 text-micro leading-snug text-text-tertiary [overflow-wrap:anywhere]">
-                  {option.description}
-                </span>
-              )}
-            </button>
-          )
+            ) : settled ? (
+              t('decision.chosen')
+            ) : (
+              t('decision.confirm')
+            )}
+          </Button>
+          <span className="min-w-0 flex-1 text-micro leading-snug text-text-tertiary [overflow-wrap:anywhere]">
+            {voided
+              ? t('decision.voided_hint')
+              : settled
+                ? t('decision.chosen_label', { label: optionLabel(options, activeChosen) })
+                : t('decision.confirm_to_start')}
+          </span>
+        </>
+      }
+    >
+      <DecisionOptions
+        options={options}
+        value={activeChosen}
+        onChange={setLocalChosen}
+        disabled={locked || busy}
+        label={t('decision.options_label')}
+        renderOption={(option) => ({
+          title: option.label,
+          description: option.description,
+          badges: <DecisionBadge>{t('decision.count', { count: option.image_count })}</DecisionBadge>,
         })}
-      </div>
-
-      <div className="mt-2.5 flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="primary"
-          className="h-7 shrink-0 px-2.5 text-caption"
-          disabled={locked || busy || !activeChosen}
-          onClick={() => void confirm()}
-        >
-          {busy ? (
-            <span className="inline-flex items-center gap-1">
-              <Loader2 size={12} className="animate-spin" /> 正在提交…
-            </span>
-          ) : settled ? (
-            '已选择'
-          ) : (
-            '就按这个来'
-          )}
-        </Button>
-        <span className="min-w-0 flex-1 text-micro leading-snug text-text-tertiary [overflow-wrap:anywhere]">
-          {voided
-            ? '已作废'
-            : settled
-              ? `已选择：${optionLabel(options, activeChosen)}`
-              : '确认后开始生成'}
-        </span>
-      </div>
-    </div>
+      />
+    </DecisionCard>
   )
 }
 

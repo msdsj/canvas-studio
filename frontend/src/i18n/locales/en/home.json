@@ -1,0 +1,391 @@
+{
+  "brand": {
+    "name": "zleap",
+    "product": "zleap Canvas",
+    "company": "zleap Deep Space",
+    "tag": "AI Design Agent"
+  },
+  "nav": {
+    "how": "How it works",
+    "login": "Log in",
+    "start": "Start free",
+    "enter": "Open studio",
+    "highlights": "Highlights",
+    "gallery": "Inspiration",
+    "faq": "FAQ"
+  },
+  "hero": {
+    "badge": "Design agent online · chat becomes canvas",
+    "title_lead": "Your AI design agent,",
+    "title_accent": "from one line to a canvas.",
+    "subtitle": "Describe what you want. The agent understands the brief, plans the layout, picks design skills and generates the work — right onto an infinite canvas where you keep editing."
+  },
+  "composer": {
+    "aria": "Describe your request to the design agent",
+    "placeholders": [
+      "Key visual for the zleap AgentOS launch, deep-space violet, neon glow…",
+      "Minimal coffee brand poster, warm paper texture, centered layout",
+      "E-commerce hero: glass perfume bottle, soft light, light gray backdrop",
+      "Turn this photo into a Japanese film look, keep the expression"
+    ],
+    "attach": "Reference",
+    "attach_aria": "Add reference images",
+    "remove_attach": "Remove reference image",
+    "paste_hint": "Paste screenshots",
+    "send": "Send",
+    "send_hint": "Enter to send · Shift + Enter for new line",
+    "limit": "Up to 4 reference images",
+    "mode": {
+      "label": "Agent",
+      "title": "Mode",
+      "agent": "Agent mode",
+      "agent_desc": "Understands the brief, plans options and checks direction with you when needed",
+      "more": "More modes coming soon"
+    }
+  },
+  "suggestions": {
+    "title": "Try these",
+    "items": [
+      "AgentOS tech launch banner, 21:9",
+      "Minimal coffee poster, warm paper texture",
+      "Futuristic music festival key visual, lime and ink",
+      "Social cover: autumn camping checklist"
+    ]
+  },
+  "workflow": {
+    "status": "Agent is",
+    "steps": {
+      "understand": {
+        "title": "Understanding",
+        "detail": "Subject, scene, audience and brand tone"
+      },
+      "plan": {
+        "title": "Planning layout",
+        "detail": "Hierarchy, ratio and whitespace, with options"
+      },
+      "skill": {
+        "title": "Calling skills",
+        "detail": "Poster layout / product shot / style transfer"
+      },
+      "generate": {
+        "title": "Generating",
+        "detail": "Renders in parallel and lands on the canvas"
+      },
+      "refine": {
+        "title": "Refining",
+        "detail": "Inpaint, remove background, upscale until it fits"
+      }
+    }
+  },
+  "floating": {
+    "skill": "Skill · Poster layout",
+    "ratio": "16:9 · 2 images",
+    "style": "Style · Deep-space neon",
+    "confirm": "Direction A confirmed"
+  },
+  "auth": {
+    "continue": "Log in and we'll start generating right away",
+    "register": "Sign up to generate your first image"
+  },
+  "how": {
+    "eyebrow": "How it works",
+    "title": "Work with the agent like you would with a designer",
+    "subtitle": "Every step is visible: what it's thinking, which skill it used, and why.",
+    "steps": [
+      {
+        "title": "Describe",
+        "desc": "A sentence, a few references, or a region marked on the canvas."
+      },
+      {
+        "title": "Analyze",
+        "desc": "The agent breaks the brief down and asks you to pick a direction when it's unclear."
+      },
+      {
+        "title": "Generate",
+        "desc": "Matching design skills render in parallel and land on the canvas."
+      },
+      {
+        "title": "Iterate",
+        "desc": "Quick edit, inpaint, remove background and upscale — all on one canvas."
+      }
+    ]
+  },
+  "capabilities": {
+    "title": "One canvas for the whole design flow",
+    "items": [
+      {
+        "title": "Infinite canvas",
+        "desc": "Lay results side by side to compare, combine and export."
+      },
+      {
+        "title": "Skill library",
+        "desc": "Poster, e-commerce, social and brand skills, ready to apply."
+      },
+      {
+        "title": "Region editing",
+        "desc": "Box or brush an area and change only that part."
+      },
+      {
+        "title": "Direction check",
+        "desc": "Confirm direction on vague briefs; failed runs are refunded."
+      },
+      {
+        "title": "Model switching",
+        "desc": "Pick the image model per scene — speed or quality."
+      },
+      {
+        "title": "Light & dark",
+        "desc": "A studio-grade dark mode for long sessions."
+      }
+    ]
+  },
+  "cta": {
+    "title": "Let the agent design your next piece",
+    "button": "Sign up and start free",
+    "eyebrow": "Start now",
+    "subtitle": "No design background or complex prompts needed. Say what you want — the agent handles the rest.",
+    "placeholder": "Describe the image you want…"
+  },
+  "footer": {
+    "rights": "© {{year}} zleap",
+    "slogan": "Design the agent way",
+    "about": "An AI design agent by zleap. Chat is the canvas, box to edit — professional design for everyone.",
+    "columns": [
+      {
+        "title": "Product",
+        "links": [
+          {
+            "label": "Highlights",
+            "href": "#highlights"
+          },
+          {
+            "label": "Inspiration",
+            "href": "#gallery"
+          },
+          {
+            "label": "How it works",
+            "href": "#how"
+          }
+        ]
+      },
+      {
+        "title": "Capabilities",
+        "links": [
+          {
+            "label": "Overview",
+            "href": "#capabilities"
+          },
+          {
+            "label": "FAQ",
+            "href": "#faq"
+          }
+        ]
+      },
+      {
+        "title": "zleap",
+        "links": [
+          {
+            "label": "zleap",
+            "href": "#"
+          },
+          {
+            "label": "AgentOS",
+            "href": "#"
+          }
+        ]
+      }
+    ]
+  },
+  "preview": {
+    "window": "zleap Canvas · Autumn camping poster",
+    "user": "Make an autumn camping poster, plus a mountain scene",
+    "reply": "Generated 2 images with the Outdoor Poster skill — both are on the canvas. Box any area you want changed and tell me how.",
+    "edit": "Turn the sky into an aurora",
+    "caption": "A real workflow: one sentence → box a region → only that region is redrawn"
+  },
+  "marquee": {
+    "label": "Supported styles",
+    "rows": [
+      [
+        "Minimalism",
+        "Cyber neon",
+        "Film look",
+        "Memphis",
+        "Swiss type",
+        "Watercolor",
+        "3D clay",
+        "Retro poster"
+      ],
+      [
+        "Product shots",
+        "Social covers",
+        "Brand logos",
+        "Launch KV",
+        "Product photo",
+        "Holiday posters",
+        "App icons",
+        "Mascots"
+      ]
+    ]
+  },
+  "story": {
+    "eyebrow": "Why zleap Canvas",
+    "title": "Not another prompt box — a design partner that thinks",
+    "chat": {
+      "tag": "Chat is the canvas",
+      "title": "Say one sentence, get a new piece on the canvas",
+      "desc": "Chat and canvas share one workspace. Every image the agent creates lands on an infinite canvas, ready to compare and combine — no digging through your downloads folder.",
+      "bullets": [
+        "Results auto-place without covering your work",
+        "Switch back to any chat and the canvas restores",
+        "Reuse any result as a reference in one click"
+      ],
+      "bubble": "Make an autumn camping poster"
+    },
+    "region": {
+      "tag": "Box to edit",
+      "title": "Don't like a part? Box it and change just that",
+      "desc": "Box or paint any region, write how to change it, and the agent redraws only that area — every other pixel stays put. Give different instructions to multiple regions.",
+      "bullets": [
+        "Box, brush and lasso selections",
+        "Separate instructions per region, one submit",
+        "Undo and redo at any time"
+      ],
+      "chip": "Make it glass"
+    },
+    "decompose": {
+      "tag": "Agent breakdown",
+      "title": "Not sure what you want? The agent helps you figure it out",
+      "desc": "The agent splits a vague request into composition, color, typography and copy. When details are missing it asks you to pick a direction first — and only then spends credits.",
+      "bullets": [
+        "Every reasoning step can be expanded",
+        "Asks instead of guessing when unclear",
+        "Matches from 70+ design skills"
+      ],
+      "request": "A techy keynote visual for our launch",
+      "parts": [
+        "Layout",
+        "Color",
+        "Type",
+        "Copy"
+      ],
+      "result": "AgentOS launch KV",
+      "result_meta": "21:9 · Deep-space neon · 2 images"
+    }
+  },
+  "gallery": {
+    "eyebrow": "Inspiration",
+    "title": "Stuck on the first prompt? Start from an idea",
+    "subtitle": "Pick a scenario close to what you want and hit “Start with this” — the prompt fills the composer, tweak a few words and go.",
+    "use": "Start with this",
+    "cats": {
+      "all": "All",
+      "poster": "Posters",
+      "ecommerce": "Product shots",
+      "social": "Social covers",
+      "brand": "Logos",
+      "illustration": "Illustration",
+      "photo": "Photo edits"
+    },
+    "items": [
+      {
+        "cat": "poster",
+        "title": "Tech keynote visual",
+        "prompt": "AgentOS keynote visual, deep blue-violet gradient, holographic cube in the center, neon glow, 21:9"
+      },
+      {
+        "cat": "ecommerce",
+        "title": "Perfume product shot",
+        "prompt": "Clear glass perfume bottle product shot, soft light, warm peach background, space for copy on the right, 1:1"
+      },
+      {
+        "cat": "social",
+        "title": "Social cover",
+        "prompt": "Social cover: autumn camping checklist, hand-lettered title, candy-color collage, 3:4"
+      },
+      {
+        "cat": "brand",
+        "title": "Minimal logo",
+        "prompt": "Minimal geometric logo, lime and ink black, diamond and circle combined, for an AI tech brand"
+      },
+      {
+        "cat": "illustration",
+        "title": "Mountain illustration",
+        "prompt": "Flat mountain illustration, morning mist, warm light from top right, blog header, 4:3"
+      },
+      {
+        "cat": "photo",
+        "title": "Film-look portrait",
+        "prompt": "Turn this portrait into a Japanese film look, keep the expression, warm tones, light grain"
+      },
+      {
+        "cat": "poster",
+        "title": "Music festival poster",
+        "prompt": "Futuristic music festival key visual, fluorescent lime and ink black, bold sans-serif type, 3:4"
+      },
+      {
+        "cat": "ecommerce",
+        "title": "Skincare scene",
+        "prompt": "Blue glass skincare bottle, rippling water reflection, clean and airy, hero image for a product page"
+      },
+      {
+        "cat": "social",
+        "title": "Mascot avatar",
+        "prompt": "Chibi mascot avatar, candy-color background, rounded lines, for social accounts"
+      }
+    ]
+  },
+  "stats": {
+    "items": [
+      {
+        "value": 70,
+        "suffix": "+",
+        "label": "Design skills",
+        "desc": "Posters, e-commerce, brand, UI, 3D… ready to use"
+      },
+      {
+        "value": 16,
+        "suffix": "",
+        "label": "Scenarios",
+        "desc": "From marketing assets to brand identity"
+      },
+      {
+        "value": 4,
+        "suffix": "",
+        "label": "Agent steps",
+        "desc": "Understand → plan → generate → iterate, all visible"
+      },
+      {
+        "value": 100,
+        "suffix": "%",
+        "label": "Refund on failure",
+        "desc": "Failed generations return your credits automatically"
+      }
+    ]
+  },
+  "faq": {
+    "title": "Questions you may have",
+    "items": [
+      {
+        "q": "How is this different from other AI image tools?",
+        "a": "zleap Canvas is a design agent: it understands and breaks down your request, checks direction with you when needed, then uses matching design skills. Results land on an infinite canvas where you can box any region and keep editing instead of starting over."
+      },
+      {
+        "q": "Can I use it if I'm not sure what I want?",
+        "a": "Yes. When details are missing the agent offers a few directions to choose from and starts only after you pick one. You can also start from the inspiration gallery and tweak a few words."
+      },
+      {
+        "q": "Does a region edit change the rest of the image?",
+        "a": "No. Region edits only redraw the area you boxed or painted; everything else stays the same. You can give different instructions to multiple regions."
+      },
+      {
+        "q": "Do failed generations cost credits?",
+        "a": "No. Credits are refunded automatically when a task fails, times out or is cancelled."
+      },
+      {
+        "q": "Can I use the images commercially?",
+        "a": "Ownership follows the agreements between your organization and the model provider. Before commercial use, double-check any text and brand elements in the image."
+      }
+    ]
+  }
+}

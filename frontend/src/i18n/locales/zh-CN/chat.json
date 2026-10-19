@@ -93,13 +93,13 @@
     "no_result": "该任务没有可编辑的图片"
   },
   "task": {
-    "queued": "排队中，前面还有任务",
+    "queued": "排队中，马上轮到你",
     "running": "生成中",
     "paused": "已停止",
     "cancelled": "已停止",
     "succeeded": "已完成",
-    "failed": "没画成",
-    "timeout": "等太久了，已自动停止",
+    "failed": "这次没画出来",
+    "timeout": "等得太久，我先停下了",
     "progress": "进度 {{progress}}%",
     "pause": "暂停",
     "resume": "继续",
@@ -112,11 +112,11 @@
     "unread": "未查看",
     "marked_seen": "已标记为已读",
     "stop": "停止生成",
-    "placed": "已放入",
+    "placed": "已在画布",
     "refunded": "额度已退回",
-    "elapsed": "生成中 · {{seconds}}s，通常 30–90 秒",
-    "slow_90": "比平时慢一些，可以先去画布看看",
-    "slow_180": "仍在生成，超时会自动结束并退回额度",
+    "elapsed": "正在画 · {{seconds}}s，一般 30–90 秒",
+    "slow_90": "比平时慢一点，可以先去画布上看看",
+    "slow_180": "还在画，超时会自动停下并退回额度",
     "image_failed": "图片加载失败",
     "image_retry": "重试",
     "copy_prompt": "复制提示词",
@@ -128,7 +128,14 @@
     "limit_hint": "最多同时 {{max}} 个任务，等一张完成或先停一张",
     "thinking_title": "思考过程",
     "thinking_steps": "{{count}} 步",
-    "optimized_prompt": "优化后指令"
+    "optimized_prompt": "优化后指令",
+    "place_one": "放到画布",
+    "placed_toast": "已放到画布",
+    "add_all_to_canvas": "全部放到画布",
+    "all_placed": "都已在画布上",
+    "done_count": "已完成 {{count}} 张",
+    "generating_count": "正在画 {{count}} 张",
+    "failed_hint": "额度已经退回，换个说法或直接重试都行"
   },
   "edit": {
     "compare": "编辑对比",
@@ -157,10 +164,15 @@
     "back_to_latest": "回到最新"
   },
   "network": {
-    "offline": "网络已断开，正在重连…",
+    "offline": "网络断开了，恢复后我会自动接上",
     "restored": "网络已恢复"
   },
   "draft": {
     "restored": "已恢复上次未发送的内容"
+  },
+  "header": {
+    "active_tasks": "{{count}} 张生成中",
+    "relay_connected": "中转站已连接：{{name}}",
+    "relay_configure": "配置 AI 中转站"
   }
 }

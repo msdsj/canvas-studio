@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Wallet, TriangleAlert, CircleSlash } from 'lucide-react'
+import { Wallet, TriangleAlert, CircleSlash, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { quotaState } from '@/stores/quota'
 import { useQuota } from '@/hooks/use-quota'
@@ -17,7 +17,14 @@ import { tweenNumber } from '@/lib/motion'
  * 用户会怀疑自己看错了；滚动 420ms 既确认了变化，又不打断操作。
  * 滚动只写 textContent，不触发 React 重渲染。
  */
-export function QuotaBadge({ compact = false }: { compact?: boolean }) {
+export function QuotaBadge({
+  compact = false,
+  chip = false,
+}: {
+  compact?: boolean
+  /** 胶囊形态（⚡ 数字）：工作台顶栏用，与 Lovart 的积分显示同构 */
+  chip?: boolean
+}) {
   const { t } = useTranslation('workspace')
   const { balance, thresholdPct, totalGranted } = useQuota()
   const setQuotaModalOpen = useUIStore((s) => s.setQuotaModalOpen)
@@ -47,6 +54,28 @@ export function QuotaBadge({ compact = false }: { compact?: boolean }) {
       : state === 'warning'
         ? 'bg-warning-subtle text-warning hover:opacity-90'
         : 'bg-danger-subtle text-danger hover:opacity-90'
+
+  if (chip) {
+    return (
+      <button
+        type="button"
+        onClick={() => state !== 'normal' && setQuotaModalOpen(true)}
+        className={cn(
+          'inline-flex h-8 shrink-0 items-center gap-1 rounded-full px-2.5 text-caption font-semibold tabular-nums transition-colors',
+          state === 'normal' ? 'text-text hover:bg-surface-hover' : tone
+        )}
+        title={`${balance} ${t('quota.badge_label')}`}
+        aria-label={`${balance} ${t('quota.badge_label')}`}
+      >
+        {state === 'normal' ? (
+          <Zap size={14} className="fill-accent text-accent-ink" />
+        ) : (
+          <Icon size={14} />
+        )}
+        <span ref={numberRef}>{balance}</span>
+      </button>
+    )
+  }
 
   if (compact) {
     return (

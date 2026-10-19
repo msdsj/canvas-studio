@@ -1,0 +1,120 @@
+/* 画布舞台层（生成占位卡 / 显影动效 / 拖放区 / 原生浮层收口）
+ *
+ * 只用设计 token：亮暗两套主题下 --color-accent / --color-surface 等会自动切换，
+ * 这里不写任何主题分支。
+ */
+
+/* ---------------------------------------------------------------------------
+ * 收起 Excalidraw 原生左下角浮层（缩放 + 撤销/重做）。
+ * 缩放由右下角导航器接管、撤销/重做由底部 dock 接管；
+ * 浮层只是视觉上隐藏——底部 dock 仍通过它的按钮驱动 Excalidraw 的历史栈，
+ * 所以用 visibility 而不是 display:none，保证按钮的 disabled 状态照常更新。
+ * ------------------------------------------------------------------------- */
+.cs-canvas-shell .layer-ui__wrapper__footer-left {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 生成占位卡：显影中的相纸
+ * ------------------------------------------------------------------------- */
+.cs-gen-card {
+  background: var(--color-surface);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-accent-strong) 55%, transparent),
+    var(--shadow-lift);
+}
+
+.cs-gen-aurora {
+  background:
+    radial-gradient(120% 80% at 15% 10%, color-mix(in srgb, var(--color-accent) 38%, transparent), transparent 60%),
+    radial-gradient(100% 90% at 90% 100%, color-mix(in srgb, var(--color-accent-strong) 26%, transparent), transparent 62%),
+    var(--color-bg-subtle);
+  animation: cs-gen-breathe 4.8s ease-in-out infinite alternate;
+}
+
+.cs-gen-grid {
+  background-image: radial-gradient(color-mix(in srgb, var(--color-text) 14%, transparent) 1px, transparent 1px);
+  background-size: 14px 14px;
+  mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+  opacity: 0.6;
+}
+
+.cs-gen-scan {
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--color-accent) 55%, transparent) 70%,
+    color-mix(in srgb, var(--color-accent-strong) 85%, transparent) 96%,
+    transparent
+  );
+  mix-blend-mode: soft-light;
+  filter: blur(2px);
+}
+
+/* 阶段文案切换：key 变化时重新挂载，自带一次上浮淡入 */
+.cs-gen-stage {
+  animation: cs-gen-stage-in 420ms var(--ease-out) both;
+}
+
+@keyframes cs-gen-breathe {
+  from {
+    filter: saturate(1) brightness(1);
+  }
+  to {
+    filter: saturate(1.25) brightness(1.04);
+  }
+}
+
+@keyframes cs-gen-stage-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 显影扫光
+ * ------------------------------------------------------------------------- */
+.cs-reveal-sheen {
+  background: linear-gradient(
+    100deg,
+    transparent,
+    color-mix(in srgb, var(--color-surface) 55%, transparent) 50%,
+    transparent
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * 拖放区：虚线框缓慢流动（marching ants），提示「放这里」
+ * ------------------------------------------------------------------------- */
+.cs-drop-frame {
+  background-color: color-mix(in srgb, var(--color-surface) 72%, transparent);
+  background-image:
+    linear-gradient(90deg, var(--color-accent-strong) 50%, transparent 50%),
+    linear-gradient(90deg, var(--color-accent-strong) 50%, transparent 50%),
+    linear-gradient(0deg, var(--color-accent-strong) 50%, transparent 50%),
+    linear-gradient(0deg, var(--color-accent-strong) 50%, transparent 50%);
+  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+  background-size: 14px 2px, 14px 2px, 2px 14px, 2px 14px;
+  background-position: 0 0, 0 100%, 0 0, 100% 0;
+  animation: cs-drop-march 900ms linear infinite;
+}
+
+@keyframes cs-drop-march {
+  to {
+    background-position: 14px 0, -14px 100%, 0 -14px, 100% 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-gen-aurora,
+  .cs-gen-stage,
+  .cs-drop-frame {
+    animation: none;
+  }
+}

@@ -39,6 +39,8 @@ interface ChatTextareaProps {
   topRightSlot?: ReactNode
   /** 工具栏右侧插槽（生图模型选择），位于发送键左边 */
   rightSlot?: ReactNode
+  /** 输入卡片上方的插槽（需求补全引导）：贴着输入框，随内容出现/收起 */
+  aboveSlot?: ReactNode
   /** 外部信号（递增触发聚焦输入框） */
   focusSignal?: number
   /** 已上传的参考图（粘贴 / 选择） */
@@ -77,6 +79,7 @@ export function ChatTextarea({
   leftSlot,
   topRightSlot,
   rightSlot,
+  aboveSlot,
   focusSignal,
   attachments = [],
   onRemoveAttachment,
@@ -145,6 +148,7 @@ export function ChatTextarea({
 
   return (
     <div className="shrink-0 px-2.5 pb-2.5 pt-1">
+      {aboveSlot}
       <div
         onDrop={handleDrop}
         onDragOver={(event) => {

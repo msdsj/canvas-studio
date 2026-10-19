@@ -1,0 +1,128 @@
+/* ---------------------------------------------------------------------------
+ * Agent 视觉件：头像光环 / 占位光带 / 决策卡选中脉冲
+ *
+ * 持续氛围用 CSS（不压主线程），结构性进出场交给 GSAP（AgentTrace / DecisionCard）。
+ * 颜色全部取 token，明暗主题自动跟随。
+ * ------------------------------------------------------------------------- */
+
+/* Agent 头像：墨色底 + 青柠核心；工作中外圈一道旋转的锥形光 */
+.cs-agent-glyph {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: var(--gradient-brand);
+  color: var(--color-accent);
+  box-shadow: var(--shadow-xs);
+  isolation: isolate;
+}
+.cs-agent-glyph[data-active='true']::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    var(--color-accent) 90deg,
+    transparent 200deg,
+    color-mix(in srgb, var(--color-accent) 50%, transparent) 300deg,
+    transparent 360deg
+  );
+  animation: cs-agent-spin 1.6s linear infinite;
+}
+.cs-agent-glyph[data-active='true'] > svg {
+  animation: cs-agent-core 1.6s var(--ease-in-out) infinite;
+}
+@keyframes cs-agent-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes cs-agent-core {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.82);
+    opacity: 0.75;
+  }
+}
+
+/* 文字流光：「Agent 正在分析」标题上一道缓慢掠过的高光 */
+.cs-agent-shine {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-text-secondary) 0%,
+    var(--color-text-secondary) 40%,
+    var(--color-text) 50%,
+    var(--color-text-secondary) 60%,
+    var(--color-text-secondary) 100%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: cs-agent-shine 2.4s linear infinite;
+}
+@keyframes cs-agent-shine {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+/* 占位阶段条：还没有任何步骤到达时的骨架 */
+.cs-agent-bar {
+  position: relative;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--color-bg-subtle);
+}
+.cs-agent-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-accent) 45%, transparent),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: cs-agent-bar 1.5s var(--ease-in-out) infinite;
+}
+@keyframes cs-agent-bar {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-agent-glyph[data-active='true']::before,
+  .cs-agent-glyph[data-active='true'] > svg,
+  .cs-agent-shine,
+  .cs-agent-bar::after {
+    animation: none;
+  }
+  .cs-agent-shine {
+    color: var(--color-text-secondary);
+    background: none;
+  }
+}
+.cs-lite .cs-agent-glyph[data-active='true']::before,
+.cs-lite .cs-agent-glyph[data-active='true'] > svg,
+.cs-lite .cs-agent-shine,
+.cs-lite .cs-agent-bar::after {
+  animation: none;
+}
+.cs-lite .cs-agent-shine {
+  color: var(--color-text-secondary);
+  background: none;
+}

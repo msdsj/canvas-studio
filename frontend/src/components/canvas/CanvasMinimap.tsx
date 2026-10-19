@@ -62,10 +62,11 @@ function buildWorld(content: Box | null, view: Box | null): World | null {
 
 interface CanvasMinimapProps {
   api: ExcalidrawApiLike | null
+  className?: string
 }
 
 /**
- * 画布左下角的全局缩略图。
+ * 画布全局缩略图（嵌在右下角导航器里）。
  *
  * 解决什么问题：内容一多（尤其是程序落图把图排到视口之外）或用户把画布拖远了之后，
  * 主画布上只剩空白，「内容去哪了」没有答案。缩略图给出全局位置 + 当前取景框，
@@ -75,7 +76,7 @@ interface CanvasMinimapProps {
  * 走 state 意味着工作台在拖动时整棵重渲染（画布拖动必然掉帧），
  * 所以这里在 rAF 里直接画，并在「场景签名没变」时跳过重绘。
  */
-export function CanvasMinimap({ api }: CanvasMinimapProps) {
+export function CanvasMinimap({ api, className }: CanvasMinimapProps) {
   const { t } = useTranslation('canvas')
   const canvasRef = useRef<HTMLCanvasElement>(null)
   /** 上一次绘制使用的 world 映射（点击定位要把屏幕坐标反算回 scene 坐标）。 */
@@ -89,6 +90,12 @@ export function CanvasMinimap({ api }: CanvasMinimapProps) {
    */
   const frozenRef = useRef<World | null>(null)
   const draggingRef = useRef(false)
+  /**
+   * 缩略图里画真实的图片缩影，而不是灰块：一眼就能认出「那张海报在右上角」。
+   * 解码好的位图按 fileId 缓存；新图解码完成时置脏，下一帧重画。
+   */
+  const thumbsRef = useRef(new Map<string, HTMLImageElement>())
+  const dirtyRef = useRef(false)
 
   useEffect(() => {
     let raf = 0
@@ -122,8 +129,15 @@ export function CanvasMinimap({ api }: CanvasMinimapProps) {
         view ? `${view.x.toFixed(1)},${view.y.toFixed(1)},${view.w.toFixed(1)},${view.h.toFixed(1)}` : '-',
         frozen ? 'frozen' : 'free',
       ].join('|')
-      if (sig === lastSig) return
+      if (sig === lastSig && !dirtyRef.current) return
       lastSig = sig
+      dirtyRef.current = false
+      let files: Record<string, { dataURL?: string } | undefined> = {}
+      try {
+        files = (instance?.getFiles() ?? {}) as typeof files
+      } catch {
+        files = {}
+      }
 
       const ctx = canvas.getContext('2d')
       if (!ctx) return
@@ -154,8 +168,10 @@ export function CanvasMinimap({ api }: CanvasMinimapProps) {
 
       // 取景框底色先铺（在元素之下），保证内容块不会被色块压住看不清
       if (view) {
-        ctx.fillStyle = 'rgba(205, 245, 100, 0.16)'
+        ctx.fillStyle = accent
+        ctx.globalAlpha = 0.14
         ctx.fillRect(toX(view.x), toY(view.y), view.w * scale, view.h * scale)
+        ctx.globalAlpha = 1
       }
 
       // 元素块：图片实心、其他形状半透明（只求「看出东西在哪」，不还原细节）
@@ -169,6 +185,26 @@ export function CanvasMinimap({ api }: CanvasMinimapProps) {
         if (el.type === 'image') {
           ctx.fillStyle = mat
           ctx.fillRect(x, y, w, h)
+          const fileId = el.fileId ? String(el.fileId) : ''
+          const dataURL = fileId ? files[fileId]?.dataURL : undefined
+          if (fileId && dataURL) {
+            let thumb = thumbsRef.current.get(fileId)
+            if (!thumb) {
+              thumb = new Image()
+              thumb.onload = () => {
+                dirtyRef.current = true
+              }
+              thumb.src = dataURL
+              thumbsRef.current.set(fileId, thumb)
+            }
+            if (thumb.complete && thumb.naturalWidth > 0 && w >= 2 && h >= 2) {
+              try {
+                ctx.drawImage(thumb, x, y, w, h)
+              } catch {
+                /* 解码失败时保留底色块 */
+              }
+            }
+          }
           ctx.strokeStyle = ink
           ctx.lineWidth = 0.6
           ctx.strokeRect(x + 0.3, y + 0.3, Math.max(0.4, w - 0.6), Math.max(0.4, h - 0.6))
@@ -184,7 +220,15 @@ export function CanvasMinimap({ api }: CanvasMinimapProps) {
       if (view) {
         ctx.strokeStyle = accent
         ctx.lineWidth = 1.5
-        ctx.strokeRect(toX(view.x), toY(view.y), view.w * scale, view.h * scale)
+        const vx = toX(view.x)
+        const vy = toY(view.y)
+        const vw = view.w * scale
+        const vh = view.h * scale
+        // 圆角取景框：和外层卡片同一种语言，比直角硬框柔和
+        ctx.beginPath()
+        if (typeof ctx.roundRect === 'function') ctx.roundRect(vx, vy, vw, vh, 3)
+        else ctx.rect(vx, vy, vw, vh)
+        ctx.stroke()
       }
       ctx.restore()
     }
@@ -230,12 +274,7 @@ export function CanvasMinimap({ api }: CanvasMinimapProps) {
 
   return (
     <div
-      className={cn(
-        // 左下角，但必须落在 Excalidraw 原生缩放岛（footer-left，距底约 52px）之上，
-        // 否则两块浮层会互相压住
-        'absolute bottom-[60px] left-3 z-20 rounded-[12px] bg-surface-raised/95 p-1.5',
-        'shadow-float ring-1 ring-inset ring-border-faint backdrop-blur-md'
-      )}
+      className={cn('rounded-[10px]', className)}
       title={t('minimap.hint', { defaultValue: '画布缩略图：点击或拖动可快速定位' })}
     >
       <canvas

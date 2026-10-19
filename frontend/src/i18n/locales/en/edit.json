@@ -1,0 +1,116 @@
+{
+  "tool": {
+    "region": {
+      "label": "Box",
+      "hint": "Drag a rectangle over the area to change"
+    },
+    "lasso": {
+      "label": "Lasso",
+      "hint": "Draw a loop to select an irregular area"
+    },
+    "brush": {
+      "label": "Brush",
+      "hint": "Paint over an area; release to make it a region"
+    },
+    "pen": {
+      "label": "Sketch",
+      "hint": "Free-hand hints for the AI; not a selection"
+    },
+    "border": {
+      "label": "Frame",
+      "hint": "Draw a rectangle or ellipse to highlight a spot"
+    },
+    "marker": {
+      "label": "Marker",
+      "hint": "Arrows, numbers or text labels"
+    },
+    "eraser": {
+      "label": "Eraser",
+      "hint": "Erase sketch strokes; regions stay intact"
+    }
+  },
+  "toolbar": {
+    "tools": "Edit tools",
+    "undo": "Undo",
+    "redo": "Redo",
+    "delete_image": "Delete this image",
+    "exit": "Exit edit",
+    "exit_hint": "Exit editing (your regions are kept)",
+    "submit": "Apply edits",
+    "submit_count_one": "Apply {{count}} edit",
+    "submit_count_other": "Apply {{count}} edits",
+    "submitting": "Submitting",
+    "submit_empty": "Select an area to change first",
+    "submit_hint_one": "Send {{count}} edit to the AI",
+    "submit_hint_other": "Send {{count}} edits to the AI"
+  },
+  "option": {
+    "rect": "Rectangle",
+    "ellipse": "Ellipse",
+    "arrow": "Arrow",
+    "index": "Number",
+    "label": "Text",
+    "color": "Color",
+    "color_value": "Color {{value}}",
+    "size": "Size",
+    "clear_marks": "Clear sketches"
+  },
+  "keys": {
+    "title": "Keyboard shortcuts",
+    "select_tools": "Box / Lasso / Brush",
+    "mark_tools": "Sketch / Frame / Marker / Eraser",
+    "undo": "Undo",
+    "redo": "Redo",
+    "confirm": "Confirm region note",
+    "cancel": "Cancel region / exit edit",
+    "delete": "Delete current region"
+  },
+  "region": {
+    "badge_hint": "Drag to move, click to write a note",
+    "badge_label": "Region {{index}}: drag to move, click to edit",
+    "delete": "Delete region",
+    "delete_label": "Delete region {{index}}"
+  },
+  "chip": {
+    "title": "Click to describe this region",
+    "empty": "Add a note",
+    "empty_label": "Region {{index}}: no note yet, click to add",
+    "filled_label": "Region {{index}}: {{prompt}}, click to edit"
+  },
+  "bubble": {
+    "label": "Edit note for region {{index}}",
+    "title": "Region {{index}}",
+    "placeholder": "Describe the change, e.g. make the sky blue…",
+    "redraw": "Redraw this region",
+    "delete": "Delete this region",
+    "keys": "Enter to confirm · Shift+Enter newline · Esc to cancel",
+    "keys_touch": "Tap the image to collapse",
+    "chars_one": "{{count}} char",
+    "chars_other": "{{count}} chars",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "go_create": "Create in chat",
+    "go_create_hint": "Hand this region and note to the agent for a fuller creation"
+  },
+  "status": {
+    "analyzing": "Analyzing your request…",
+    "submitting": "Submitting edits…"
+  },
+  "coach": {
+    "title": "Edit an image in 3 steps",
+    "dismiss": "Dismiss guide",
+    "got_it": "Got it",
+    "frame": {
+      "title": "Mark the area",
+      "desc": "Use Box, Lasso or Brush. Drag the number to move, drag corners to resize"
+    },
+    "describe": {
+      "title": "Say how to change it",
+      "desc": "Write in the bubble next to the region. Enter confirms, Esc cancels"
+    },
+    "submit": {
+      "title": "Send to the AI",
+      "desc": "Hit “Apply edits” to run all changes at once; ⌘Z undoes anytime"
+    }
+  }
+}

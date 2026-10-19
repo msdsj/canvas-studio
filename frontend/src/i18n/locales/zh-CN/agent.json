@@ -1,0 +1,214 @@
+{
+  "name": "zleap Agent",
+  "trace": {
+    "live_title": "Agent 正在思考",
+    "done_title": "已完成分析",
+    "failed_title": "分析中断",
+    "elapsed": "用时 {{seconds}}s",
+    "steps": "{{count}} 步",
+    "expand": "查看分析过程",
+    "collapse": "收起分析过程",
+    "placeholder": {
+      "understand": "读懂你想要什么",
+      "plan": "构思画面方向",
+      "skill": "挑选合适的设计技能",
+      "prepare": "整理出图方案"
+    },
+    "status": {
+      "pending": "等待中",
+      "running": "进行中",
+      "done": "完成",
+      "skipped": "已跳过",
+      "blocked": "需要你确认",
+      "failed": "失败"
+    }
+  },
+  "skill": {
+    "using": "使用技能",
+    "chip": "使用技能 · {{name}}"
+  },
+  "decision": {
+    "paused": "等你选一下方向",
+    "paused_hint": "你选好我再动笔，不会提前扣额度",
+    "started": "收到，按你选的开始画了",
+    "voided": "这次分析已作废",
+    "voided_hint": "你后来又发了新需求，这张卡就不用管了",
+    "ended": "这一轮已经结束了",
+    "starting": "好的，马上开始…",
+    "recommended": "最推荐",
+    "verbatim": "一字不改",
+    "count": "产出 {{count}} 张",
+    "confirm_direction": "就按这个方向",
+    "confirm": "就按这个来",
+    "chosen": "已选择",
+    "chosen_label": "已选择：{{label}}",
+    "submitting": "正在提交…",
+    "pick_first": "先挑一个方向",
+    "click_to_start": "确认后才会开始画",
+    "confirm_to_start": "确认后开始画",
+    "generating_below": "正在画，结果会出现在下面",
+    "selection_changed": "选区在确认前变了，这次分析已作废",
+    "options_label": "可选方案",
+    "summary": "产出 {{count}} 张",
+    "confidence": "置信度 {{value}}%",
+    "rule": {
+      "explicit_count": "按你指定的数量",
+      "structure": "按选区结构判定",
+      "ambiguous": "表述不唯一",
+      "needs_image": "缺少底图"
+    },
+    "custom_open": "都不是，我想…",
+    "custom_placeholder": "说说你想要的方向，比如：更活泼一点，用蓝色调",
+    "custom_send": "按这个方向重新分析",
+    "custom_hint": "回车发送，我会结合你最初的需求重新理解"
+  },
+  "feedback": {
+    "copy": "复制",
+    "copied": "已复制",
+    "like": "有帮助",
+    "dislike": "没帮助",
+    "thanks": "感谢反馈"
+  },
+  "empty": {
+    "eyebrow": "设计 Agent 已就绪",
+    "title": "今天想创作什么？",
+    "desc": "描述你想要的画面。我会先理解需求、匹配设计技能，需求不明确时停下来和你确认方向，再开始生成。",
+    "cap_plan": "需求拆解",
+    "cap_skill": "设计技能",
+    "cap_confirm": "方向确认",
+    "cap_canvas": "直落画布",
+    "try": "试试这样说"
+  },
+  "result": {
+    "generating": "正在生成画面"
+  },
+  "wait": {
+    "analysis_slow": "模型这次回得比平时慢，我还在处理，不用重发。",
+    "analysis_stalled": "已经等了比较久，可能是中转站拥堵。你可以继续等，或者停下重试一次。",
+    "generation_slow": "出图比平时慢一些，通常是在排队，结果出来会直接显示在这里。",
+    "generation_stalled": "这张图等得有点久了。继续等不会额外扣额度；也可以停掉重来，额度会退回。",
+    "offline": "网络断开了，恢复后我会自动接上，进度不会丢。",
+    "keep_waiting": "继续等待",
+    "retry": "重试",
+    "stop": "停止",
+    "gen_stage": {
+      "compose": "正在排版构图",
+      "render": "正在渲染画面",
+      "detail": "正在打磨细节"
+    }
+  },
+  "say": {
+    "started": "好，开始画了",
+    "started_count": "好，按 {{count}} 张开始画",
+    "started_direction": "好，按「{{label}}」方向开始画",
+    "started_hint": "大约 30–60 秒，结果会直接出现在对话里",
+    "done": "画好了 {{count}} 张",
+    "done_hint": "悬停图片可以放到画布、下载或继续引用",
+    "need_direction": "先帮我定个方向",
+    "need_direction_hint": "选好我再开始画，不会提前扣额度",
+    "deduped": "这句刚刚已经在画了",
+    "deduped_hint": "没有重复扣额度，结果就在下面",
+    "retype": "再说一次需求吧",
+    "retype_hint": "页面刷新过，原话没能留在输入框里",
+    "interrupted": "分析被打断了",
+    "interrupted_hint": "再发一次试试；如果反复出现，检查一下中转站",
+    "analyze_failed": "这次没分析出来，换个说法或重新框选后再试",
+    "compose_failed": "这次没理解到位，换个说法再试一次",
+    "selection_changed": "选区在确认前变了，这次方案作废了，重新说一次需求就好",
+    "ref_upload_failed": "参考图没传上去",
+    "skill_applied": "已套用「{{name}}」",
+    "skill_applied_hint": "改改主体和细节就能发，出图会按这套风格走"
+  },
+  "ui": {
+    "relay_missing": "还没连上中转站 · 点这里配置",
+    "loading_chat": "正在载入对话…",
+    "relay_title": "先把中转站接上",
+    "relay_desc": "填好地址和 Key，再把这句话发一次就行",
+    "relay_go": "去配置",
+    "relay_template": "先用本地模板试一次",
+    "need_image_title": "先在画布上选一张图",
+    "need_image_desc": "这句话是要改某张图的。选中它再说一次，我马上开始。",
+    "need_image_canvas": "去画布选图",
+    "from_assets": "从素材库选",
+    "upload_local": "上传本地图片",
+    "skill_library": "设计技能库",
+    "add_reference": "添加参考",
+    "upload_reference": "上传本地参考",
+    "pick_model": "选择生图模型",
+    "close": "关闭",
+    "canvas_selection": "画布选区"
+  },
+  "guide": {
+    "title": "需求有点简短，补几句我能画得更准（可直接发送）",
+    "dismiss": "不用了",
+    "usage": {
+      "label": "用途",
+      "poster": {
+        "label": "海报",
+        "insert": "，用作活动海报"
+      },
+      "social": {
+        "label": "社媒",
+        "insert": "，用于小红书/社媒配图"
+      },
+      "ecommerce": {
+        "label": "电商",
+        "insert": "，用作电商商品主图"
+      },
+      "avatar": {
+        "label": "头像",
+        "insert": "，用作头像"
+      },
+      "banner": {
+        "label": "横幅",
+        "insert": "，用作网页横幅"
+      }
+    },
+    "style": {
+      "label": "风格",
+      "minimal": {
+        "label": "极简",
+        "insert": "，极简风格、大留白"
+      },
+      "guochao": {
+        "label": "国潮",
+        "insert": "，国潮风格"
+      },
+      "cyber": {
+        "label": "赛博",
+        "insert": "，赛博朋克霓虹风格"
+      },
+      "film": {
+        "label": "胶片",
+        "insert": "，胶片摄影质感"
+      },
+      "illustration": {
+        "label": "插画",
+        "insert": "，扁平插画风格"
+      },
+      "3d": {
+        "label": "3D",
+        "insert": "，3D 渲染质感"
+      }
+    },
+    "ratio": {
+      "label": "比例",
+      "1_1": {
+        "label": "1:1",
+        "insert": "，画面比例 1:1"
+      },
+      "3_4": {
+        "label": "3:4",
+        "insert": "，画面比例 3:4"
+      },
+      "16_9": {
+        "label": "16:9",
+        "insert": "，画面比例 16:9"
+      },
+      "9_16": {
+        "label": "9:16",
+        "insert": "，画面比例 9:16"
+      }
+    }
+  }
+}

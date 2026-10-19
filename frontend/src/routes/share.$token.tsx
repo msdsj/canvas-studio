@@ -41,7 +41,7 @@ function SharePage() {
           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-brand text-text-inverse">
             <Sparkles size={16} />
           </span>
-          <span className="text-md font-semibold text-text">{name || 'Canvas Studio'}</span>
+          <span className="text-md font-semibold text-text">{name || 'zleap Canvas'}</span>
         </div>
         <span className="text-micro text-text-tertiary">{t('share.readonly')}</span>
       </header>

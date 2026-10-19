@@ -37,5 +37,24 @@
   "maintenance": {
     "title": "Under maintenance",
     "desc": "The platform is under maintenance, please try again later."
+  },
+  "drawer": {
+    "title": "My studio",
+    "close": "Close drawer",
+    "chats": "History",
+    "refs": "References",
+    "works": "Works"
+  },
+  "agent_panel": {
+    "title": "zleap Agent",
+    "collapse": "Collapse agent panel",
+    "expand": "Open agent panel",
+    "home": "Back to home",
+    "new_chat": "New chat"
+  },
+  "canvas_bar": {
+    "export": "Export",
+    "share": "Share",
+    "more": "More"
   }
 }
