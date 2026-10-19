@@ -4,6 +4,7 @@ import { ArrowRight, Check, MessageSquareText, Wand2 } from 'lucide-react'
 import { gsap } from '@/lib/gsap'
 import { ArtSwatch } from './ArtSwatch'
 import { useVisibleLoop } from './use-visible-loop'
+import { asList } from '@/i18n'
 
 /** 演示舞台的统一外壳：画布点阵底 + 圆角 + 浮起阴影 */
 function Stage({ children, className = '' }: { children: React.ReactNode; className?: string }) {
@@ -141,7 +142,7 @@ export function RegionEditDemo() {
 export function DecomposeDemo() {
   const { t } = useTranslation('home')
   const ref = useRef<HTMLDivElement>(null)
-  const parts = t('story.decompose.parts', { returnObjects: true }) as string[]
+  const parts = asList(t('story.decompose.parts', { returnObjects: true }))
 
   useVisibleLoop(ref, (root) => {
     const q = gsap.utils.selector(root)

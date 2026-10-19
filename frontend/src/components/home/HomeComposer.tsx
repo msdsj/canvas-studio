@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { pressFeedback, prefersReducedMotion } from '@/lib/motion'
+import { asList } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 const MAX_FILES = 4
@@ -58,8 +59,10 @@ export function HomeComposer({ sending, onSubmit, handleRef }: HomeComposerProps
   const filesRef = useRef<LocalAttachment[]>([])
   filesRef.current = files
 
-  const placeholders = t('composer.placeholders', { returnObjects: true }) as string[]
-  const suggestions = t('suggestions.items', { returnObjects: true }) as string[]
+  // returnObjects 在「键缺失」或「i18n 未初始化完成」时会返回字符串而非数组，
+  // 直接 .map() 会抛 TypeError 打穿整页。统一走 asList 收敛。
+  const placeholders = asList(t('composer.placeholders', { returnObjects: true }))
+  const suggestions = asList(t('suggestions.items', { returnObjects: true }))
   const canSend = value.trim().length > 0 && !sending
 
   const submit = () => {

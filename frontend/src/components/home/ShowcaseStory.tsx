@@ -4,6 +4,7 @@ import { BrainCircuit, MessagesSquare, Scan } from 'lucide-react'
 import { gsap } from '@/lib/gsap'
 import { shouldReduceMotion } from '@/lib/motion'
 import { ChatToCanvasDemo, DecomposeDemo, RegionEditDemo } from './StoryDemos'
+import { asList } from '@/i18n'
 
 const CHAPTERS = [
   { key: 'chat', icon: MessagesSquare, Demo: ChatToCanvasDemo },
@@ -105,7 +106,7 @@ export function ShowcaseStory() {
         <div className="cs-story-track flex flex-col gap-14">
           {CHAPTERS.map((chapter, index) => {
             const Icon = chapter.icon
-            const bullets = t(`story.${chapter.key}.bullets`, { returnObjects: true }) as string[]
+            const bullets = asList(t(`story.${chapter.key}.bullets`, { returnObjects: true }))
             return (
               <div key={chapter.key} className="cs-story-chapter grid items-center gap-6 md:grid-cols-2 md:gap-12">
                 <div data-story-text className="max-w-[460px]">

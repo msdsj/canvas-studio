@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Sparkle } from 'lucide-react'
 import { gsap, ScrollTrigger } from '@/lib/gsap'
 import { shouldReduceMotion } from '@/lib/motion'
+import { asList } from '@/i18n'
 
 /**
  * 风格关键词跑马灯：两行反向滚动，滚动页面时顺势加速（速度跟随滚动方向与快慢）。
@@ -14,7 +15,7 @@ import { shouldReduceMotion } from '@/lib/motion'
  */
 export function StyleMarquee() {
   const { t } = useTranslation('home')
-  const rows = t('marquee.rows', { returnObjects: true }) as string[][]
+  const rows = asList<string[]>(t('marquee.rows', { returnObjects: true }))
   const rootRef = useRef<HTMLDivElement>(null)
 
   useLayoutEffect(() => {
