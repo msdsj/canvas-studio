@@ -116,9 +116,9 @@ const QUICK_OP_PROMPT: Record<'enhance' | 'cutout', string> = {
 }
 
 /** 结果落画布时的单张最大边长 / 最小边长 / 相邻间距（多产出横向排布）。 */
-const RESULT_MAX_SIDE = 320
+const RESULT_MAX_SIDE = 240
 const RESULT_MIN_SIDE = 80
-const RESULT_GAP = 40
+const RESULT_GAP = 32
 
 /**
  * 把一次任务的全部产出横向排布到画布上。
@@ -1360,8 +1360,10 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     const zoom = appState.zoom?.value ?? 1
     const scrollX = appState.scrollX ?? 0
     const scrollY = appState.scrollY ?? 0
-    const sceneW = 320
-    const sceneH = base.w > 0 && base.h > 0 ? Math.round((320 * base.h) / base.w) : 320
+    // 占位卡与最终落图同尺寸：结果出来时不跳变
+    const sceneW = RESULT_MAX_SIDE
+    const sceneH =
+      base.w > 0 && base.h > 0 ? Math.round((RESULT_MAX_SIDE * base.h) / base.w) : RESULT_MAX_SIDE
     const sceneX = base.x + base.w + 60
     const sceneY = base.y
     setPlaceholders((prev) => [

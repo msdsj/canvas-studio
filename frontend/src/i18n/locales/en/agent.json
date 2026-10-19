@@ -21,7 +21,14 @@
       "skipped": "Skipped",
       "blocked": "Needs your input",
       "failed": "Failed"
-    }
+    },
+    "thought_live": "Live reasoning",
+    "thought_stats": "{{chars}} chars · {{speed}}/s",
+    "structuring": "Writing structured result · {{chars}} chars",
+    "output_chars": "{{chars}} chars out",
+    "streamed": "streamed",
+    "show_thought": "Show model reasoning",
+    "hide_thought": "Hide reasoning"
   },
   "skill": {
     "using": "Using skill",

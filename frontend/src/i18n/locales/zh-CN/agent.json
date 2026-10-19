@@ -21,7 +21,14 @@
       "skipped": "已跳过",
       "blocked": "需要你确认",
       "failed": "失败"
-    }
+    },
+    "thought_live": "实时推理",
+    "thought_stats": "{{chars}} 字 · {{speed}} 字/秒",
+    "structuring": "正在写出结构化结果 · 已输出 {{chars}} 字",
+    "output_chars": "输出 {{chars}} 字",
+    "streamed": "流式",
+    "show_thought": "查看模型推理原文",
+    "hide_thought": "收起推理原文"
   },
   "skill": {
     "using": "使用技能",

@@ -50,7 +50,8 @@ export interface ImageActionBarProps {
   onDelete: () => void
 }
 
-const GAP = 10
+/** 操作条与图片的间距：拉开一些，别压在图片边缘、挡住视线 */
+const GAP = 18
 const EDGE = 8
 
 /**
@@ -91,8 +92,8 @@ export function ImageActionBar({
     if (!bar || !host) return
     const hostW = host.clientWidth
     const hostH = host.clientHeight
-    // 画布窄时只留图标：标签版大约 560px，放不下就别硬挤成两行
-    setCompact(hostW < 640)
+    // 画布窄时只留图标：标签版大约 500px，放不下就别硬挤成两行
+    setCompact(hostW < 600)
     const barW = bar.offsetWidth
     const barH = bar.offsetHeight
     let top = rect.y - barH - GAP
@@ -137,23 +138,18 @@ export function ImageActionBar({
       // 编辑层的「点图片」判定会跳过这里，避免点按钮被当成点图
       data-edit-layer-ui
       onPointerDown={(event) => event.stopPropagation()}
-      className="pointer-events-auto invisible absolute left-0 top-0 z-30 flex items-center gap-0.5 rounded-[14px] bg-surface-raised/95 p-1 opacity-0 shadow-float ring-1 ring-border-faint backdrop-blur-md"
+      className="pointer-events-auto invisible absolute left-0 top-0 z-30 flex items-center gap-px rounded-[12px] bg-surface-raised p-[3px] opacity-0 shadow-float ring-1 ring-border"
     >
       <span
         data-bar-item
-        className="mr-0.5 flex h-8 shrink-0 items-center gap-1 rounded-[10px] bg-bg-subtle px-2 text-micro font-semibold tabular-nums text-text-secondary"
+        className="mr-0.5 flex h-7 shrink-0 items-center gap-1 rounded-[9px] bg-bg-subtle px-1.5 text-micro font-semibold tabular-nums text-text-secondary"
         title={naturalSize ? `${naturalSize.width} × ${naturalSize.height}` : undefined}
       >
         <span className={cn(version > 1 && 'text-accent-ink')}>V{version}</span>
-        {naturalSize && !compact && (
-          <span className="font-normal text-text-faint">
-            {naturalSize.width}×{naturalSize.height}
-          </span>
-        )}
       </span>
 
       <BarButton compact={compact} label={t('bar.edit')} hint={t('bar.edit_hint')} onClick={onEdit} primary>
-        <SquareDashedMousePointer size={15} />
+        <SquareDashedMousePointer size={14} />
       </BarButton>
       <BarButton
         compact={compact}
@@ -163,7 +159,7 @@ export function ImageActionBar({
         loading={busy === 'enhance'}
         disabled={busy !== null}
       >
-        <ZoomIn size={15} />
+        <ZoomIn size={14} />
       </BarButton>
       <BarButton
         compact={compact}
@@ -173,7 +169,7 @@ export function ImageActionBar({
         loading={busy === 'cutout'}
         disabled={busy !== null}
       >
-        <Scissors size={15} />
+        <Scissors size={14} />
       </BarButton>
       <BarButton
         compact={compact}
@@ -183,21 +179,21 @@ export function ImageActionBar({
         loading={busy === 'variation'}
         disabled={busy !== null}
       >
-        <Shuffle size={15} />
+        <Shuffle size={14} />
       </BarButton>
-      <BarButton compact={compact} label={t('bar.reference')} hint={t('bar.reference_hint')} onClick={onReference}>
-        <MessageSquarePlus size={15} />
+      <BarButton compact label={t('bar.reference')} hint={t('bar.reference_hint')} onClick={onReference}>
+        <MessageSquarePlus size={14} />
       </BarButton>
       {canCompare && (
-        <BarButton compact={compact} label={t('bar.compare')} hint={t('bar.compare_hint')} onClick={onCompare}>
-          <Columns2 size={15} />
+        <BarButton compact label={t('bar.compare')} hint={t('bar.compare_hint')} onClick={onCompare}>
+          <Columns2 size={14} />
         </BarButton>
       )}
 
-      <span data-bar-item aria-hidden className="mx-0.5 h-5 w-px bg-border" />
+      <span data-bar-item aria-hidden className="mx-0.5 h-4 w-px bg-border" />
 
       <BarButton compact label={t('bar.download')} hint={t('bar.download_hint')} onClick={() => onDownload('png')}>
-        <Download size={15} />
+        <Download size={14} />
       </BarButton>
       <DropdownMenu>
         <Tooltip>
@@ -207,9 +203,9 @@ export function ImageActionBar({
                 type="button"
                 data-bar-item
                 aria-label={t('bar.more')}
-                className="flex h-8 w-8 items-center justify-center rounded-[10px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+                className="flex h-7 w-7 items-center justify-center rounded-[9px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
               >
-                <Ellipsis size={16} />
+                <Ellipsis size={14} />
               </button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
@@ -217,14 +213,14 @@ export function ImageActionBar({
         </Tooltip>
         <DropdownMenuContent align="end" className="w-48" data-edit-layer-ui>
           <DropdownMenuItem onClick={onCopy}>
-            <Copy size={15} /> {t('bar.copy')}
+            <Copy size={14} /> {t('bar.copy')}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => onDownload('jpg')}>
-            <Download size={15} /> {t('bar.download_jpg')}
+            <Download size={14} /> {t('bar.download_jpg')}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onDelete} className="text-danger focus:text-danger">
-            <Trash2 size={15} /> {t('bar.delete')}
+            <Trash2 size={14} /> {t('bar.delete')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -262,14 +258,14 @@ function BarButton({
           aria-label={label}
           aria-busy={loading}
           className={cn(
-            'flex h-8 shrink-0 items-center gap-1.5 rounded-[10px] text-caption font-medium transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-50',
-            compact ? 'w-8 justify-center' : 'px-2.5',
+            'flex h-7 shrink-0 items-center gap-1 rounded-[9px] text-micro font-medium transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-50',
+            compact ? 'w-7 justify-center' : 'px-2',
             primary
               ? 'bg-accent-soft text-accent-ink hover:bg-accent/40'
               : 'text-text-secondary hover:bg-surface-hover hover:text-text'
           )}
         >
-          {loading ? <Loader2 size={15} className="animate-spin" /> : children}
+          {loading ? <Loader2 size={14} className="animate-spin" /> : children}
           {!compact && <span>{label}</span>}
         </button>
       </TooltipTrigger>

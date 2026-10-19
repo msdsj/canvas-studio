@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertCircle, Check, ChevronDown, CircleDashed, Loader2, MinusCircle } from 'lucide-react'
+import { AlertCircle, Brain, Check, ChevronDown, CircleDashed, Cpu, Loader2, MinusCircle } from 'lucide-react'
 import { gsap } from '@/lib/gsap'
 import { shouldReduceMotion } from '@/lib/motion'
 import { cn } from '@/lib/utils'
@@ -18,6 +18,10 @@ export interface TraceStep {
   status: 'pending' | 'running' | 'done' | 'skipped' | 'blocked' | 'failed'
   elapsed_ms: number
   items?: string[]
+  /** 这一步模型输出的推理原文（可展开回看） */
+  thought?: string
+  /** 模型 / 耗时 / 输出量 */
+  meta?: { model?: string; elapsed_ms?: number; output_chars?: number; streamed?: boolean }
 }
 
 interface AgentTraceProps {
@@ -32,6 +36,12 @@ interface AgentTraceProps {
   onRetry?: () => void
   /** 网络断开：等待条改为「已断网，恢复后自动续上」 */
   offline?: boolean
+  /** 实时模式：模型正在写出的推理文字 */
+  thought?: string
+  /** 实时模式：进入结构化输出后已写出的字数 */
+  thoughtChars?: number
+  /** 历史模式默认展开（刚完成的那一轮保持展开，过程与回答同屏） */
+  defaultOpen?: boolean
   className?: string
 }
 
@@ -59,10 +69,13 @@ export function AgentTrace({
   onStop,
   onRetry,
   offline = false,
+  thought = '',
+  thoughtChars = 0,
+  defaultOpen = false,
   className,
 }: AgentTraceProps) {
   const { t } = useTranslation('agent')
-  const [open, setOpen] = useState(live)
+  const [open, setOpen] = useState(live || defaultOpen)
   const bodyRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLOListElement>(null)
   const seenRef = useRef<Set<string>>(new Set())
@@ -180,6 +193,9 @@ export function AgentTrace({
             onStop={onStop}
             onRetry={onRetry}
           />
+          {(thought || thoughtChars > 0) && (
+            <ThoughtStream text={thought} chars={thoughtChars} seconds={liveSeconds} />
+          )}
         </>
       ) : (
         <button
@@ -329,6 +345,8 @@ function TraceRow({
             {step.detail}
           </p>
         )}
+        {step.meta?.model && <StepMeta meta={step.meta} />}
+        {step.thought && <StepThought text={step.thought} />}
         {items.length > 0 && (
           <ul className="mt-1.5 flex flex-col gap-1 rounded-xs bg-bg-subtle/60 px-2.5 py-2">
             {items.map((item, index) => (
@@ -345,5 +363,91 @@ function TraceRow({
         )}
       </div>
     </li>
+  )
+}
+
+/**
+ * 实时推理流：模型「边想边写」的原文逐字出现，自动滚到底；
+ * 进入结构化输出阶段后显示已写出的字数与速度，让等待有可感知的进度。
+ */
+function ThoughtStream({ text, chars, seconds }: { text: string; chars: number; seconds: number }) {
+  const { t } = useTranslation('agent')
+  const boxRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const box = boxRef.current
+    if (box) box.scrollTop = box.scrollHeight
+  }, [text])
+  const total = text.length + chars
+  const speed = seconds > 0 ? Math.round(total / seconds) : 0
+  return (
+    <div className="mt-2 overflow-hidden rounded-xs ring-1 ring-inset ring-border-faint" aria-live="polite">
+      <div className="flex items-center gap-1.5 bg-bg-subtle/70 px-2.5 py-1.5 text-micro text-text-tertiary">
+        <Brain size={12} className="text-accent-ink" />
+        <span className="font-medium text-text-secondary">{t('trace.thought_live')}</span>
+        <span className="ml-auto tabular-nums">
+          {t('trace.thought_stats', { chars: total, speed })}
+        </span>
+      </div>
+      {text && (
+        <div
+          ref={boxRef}
+          className="max-h-[132px] overflow-y-auto whitespace-pre-wrap px-2.5 py-2 text-micro leading-relaxed text-text-secondary [overflow-wrap:anywhere]"
+        >
+          {text}
+          {chars === 0 && (
+            <span className="cs-caret ml-0.5 inline-block h-[1em] w-[2px] rounded-full bg-accent-strong align-[-0.15em]" />
+          )}
+        </div>
+      )}
+      {chars > 0 && (
+        <div className="flex items-center gap-1.5 border-t border-border-faint px-2.5 py-1.5 text-micro text-text-tertiary">
+          <Loader2 size={11} className="animate-spin text-accent-ink" />
+          <span className="tabular-nums">{t('trace.structuring', { chars })}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 一步的可量化信息：模型 · 耗时 · 输出字数。 */
+function StepMeta({ meta }: { meta: NonNullable<TraceStep['meta']> }) {
+  const { t } = useTranslation('agent')
+  const seconds = meta.elapsed_ms ? (meta.elapsed_ms / 1000).toFixed(1) : null
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-micro tabular-nums text-text-faint">
+      <Cpu size={11} className="shrink-0" />
+      <span className="font-medium text-text-tertiary">{meta.model}</span>
+      {seconds && <span>· {seconds}s</span>}
+      {meta.output_chars ? <span>· {t('trace.output_chars', { chars: meta.output_chars })}</span> : null}
+      {meta.streamed && <span>· {t('trace.streamed')}</span>}
+    </p>
+  )
+}
+
+/** 推理原文：默认收起一行预览，点开看全文。 */
+function StepThought({ text }: { text: string }) {
+  const { t } = useTranslation('agent')
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="mt-1.5 rounded-xs bg-bg-subtle/60 px-2.5 py-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 text-left text-micro font-medium text-text-tertiary hover:text-text"
+      >
+        <Brain size={11} className="shrink-0 text-accent-ink" />
+        <span className="flex-1">{open ? t('trace.hide_thought') : t('trace.show_thought')}</span>
+        <ChevronDown size={12} className={cn('shrink-0 transition-transform', open && 'rotate-180')} />
+      </button>
+      <p
+        className={cn(
+          'mt-1 whitespace-pre-wrap text-micro leading-relaxed text-text-secondary [overflow-wrap:anywhere]',
+          !open && 'line-clamp-1'
+        )}
+      >
+        {text}
+      </p>
+    </div>
   )
 }

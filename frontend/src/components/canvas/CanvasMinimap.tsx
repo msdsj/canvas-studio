@@ -9,8 +9,8 @@ import {
 } from './canvas-helpers'
 
 /** 缩略图尺寸（CSS 像素）。画布内容按需缩放到这个框里。 */
-const MAP_W = 176
-const MAP_H = 112
+const MAP_W = 144
+const MAP_H = 92
 
 interface Box {
   x: number

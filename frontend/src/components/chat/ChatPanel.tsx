@@ -156,6 +156,8 @@ function upsertStep<T extends { id: string }>(steps: T[], next: T): T[] {
 function ThinkingBubble({
   steps,
   reply,
+  thought,
+  thoughtChars,
   offline,
   onStop,
   onRetry,
@@ -163,6 +165,10 @@ function ThinkingBubble({
   steps: TraceStep[]
   /** 正在流式输出的回复正文（分析结论已定，Agent 正在「说成人话」） */
   reply: string
+  /** 需求分析的实时思考文字 */
+  thought: string
+  /** 结构化输出阶段已写出的字数 */
+  thoughtChars: number
   offline: boolean
   onStop: () => void
   onRetry?: () => void
@@ -177,15 +183,23 @@ function ThinkingBubble({
       <div className="min-w-0 pl-[30px]">
         {reply ? (
           <>
-            {/* 开始回话后轨迹收成一行摘要（不再计时）：注意力交给正在出现的回答 */}
-            <AgentTrace steps={steps} className="mb-2" />
+            {/* 开始回话后轨迹保持展开（不再计时）：全链路过程与回答同屏可见 */}
+            <AgentTrace steps={steps} defaultOpen className="mb-2" />
             <div className="min-w-0 rounded-[16px] rounded-tl-[6px] bg-surface px-3.5 py-2.5 shadow-xs ring-1 ring-inset ring-border-faint">
               <Markdown content={reply} size="ui" />
               <span className="cs-caret ml-0.5 inline-block h-[1em] w-[2px] rounded-full bg-accent-strong align-[-0.15em]" />
             </div>
           </>
         ) : (
-          <AgentTrace steps={steps} live offline={offline} onStop={onStop} onRetry={onRetry} />
+          <AgentTrace
+            steps={steps}
+            live
+            thought={thought}
+            thoughtChars={thoughtChars}
+            offline={offline}
+            onStop={onStop}
+            onRetry={onRetry}
+          />
         )}
       </div>
     </div>
@@ -245,6 +259,9 @@ export function ChatPanel({
   const [composeSteps, setComposeSteps] = useState<ComposeStep[]>([])
   /** 回复正文的流式草稿：落库后由 loadMessages 带回的正式消息接替 */
   const [replyDraft, setReplyDraft] = useState('')
+  /** 需求分析的实时思考过程（流式），以及进入结构化输出后的字数 */
+  const [thoughtDraft, setThoughtDraft] = useState('')
+  const [thoughtChars, setThoughtChars] = useState(0)
   const [composing, setComposing] = useState(false)
   /** 澄清卡状态：按 runId 记录选择结果，刷新后以消息附件为准 */
   const [composeRunUi, setComposeRunUi] = useState<Record<string, ComposeRunUiState>>({})
@@ -356,6 +373,8 @@ export function ChatPanel({
     setNeedsImage(false)
     setComposeSteps([])
     setReplyDraft('')
+    setThoughtDraft('')
+    setThoughtChars(0)
     setRefs([])
     // 切会话时上一个请求的收尾回调可能已经落在旧会话上：必须把提交态清掉，
     // 否则新会话里发送键会一直禁用（表现为「切了个对话就发不出去了」）。
@@ -799,6 +818,8 @@ export function ChatPanel({
       void loadMessages(sessionId as string).then(() => {
         setComposeSteps([])
         setReplyDraft('')
+        setThoughtDraft('')
+        setThoughtChars(0)
       })
       void loadRelay()
 
@@ -853,6 +874,8 @@ export function ChatPanel({
     setComposing(true)
     setComposeSteps([])
     setReplyDraft('')
+    setThoughtDraft('')
+    setThoughtChars(0)
     // 新提交让旧的澄清卡作废：不允许两张卡同时可点
     setComposeRunUi((prev) => {
       const next = { ...prev }
@@ -883,6 +906,11 @@ export function ChatPanel({
         onDelta: (text, reset) => {
           setReplyDraft((prev) => (reset ? '' : prev + text))
         },
+        onThought: (text, reset) => {
+          setThoughtDraft((prev) => (reset ? '' : prev + text))
+          if (reset) setThoughtChars(0)
+        },
+        onThoughtProgress: (chars) => setThoughtChars(chars),
         onResult: (result) => {
           settled = true
           applyComposeResult(result)
@@ -892,6 +920,8 @@ export function ChatPanel({
           setComposing(false)
           setComposeSteps([])
           setReplyDraft('')
+          setThoughtDraft('')
+          setThoughtChars(0)
           // 失败把原话还给用户：输入框已清空时不要让用户重打一遍
           setInput((prev) => prev || content)
           toast.error(ta('say.interrupted'), message)
@@ -901,6 +931,8 @@ export function ChatPanel({
           setComposing(false)
           setComposeSteps([])
           setReplyDraft('')
+          setThoughtDraft('')
+          setThoughtChars(0)
           if (!cancelledRef.current) {
             setInput((prev) => prev || content)
             toast.error(ta('say.interrupted'), ta('say.interrupted_hint'))
@@ -1171,6 +1203,8 @@ export function ChatPanel({
     composeSteps.length === 0
 
   const analysisActive = Boolean(analysis?.active)
+  /** 最新一条 AI 回复：它的分析轨迹默认展开，历史回复折叠成一行摘要 */
+  const latestReplyId = [...messages].reverse().find((item) => item.role === 'assistant')?.id
   /**
    * 画布上有**真实的区域选区**：这句话应当被当成「编辑需求」而不是从零生成。
    *
@@ -1193,6 +1227,8 @@ export function ChatPanel({
     // 停下后实时气泡要一起收掉：只看 composeSteps 判定显示，残留步骤会让它一直挂着
     setComposeSteps([])
     setReplyDraft('')
+    setThoughtDraft('')
+    setThoughtChars(0)
   }
 
   /**
@@ -1327,6 +1363,7 @@ export function ChatPanel({
 
             {timeline.map((entry) => {
               if (entry.kind === 'message') {
+                const isLatestReply = entry.message.id === latestReplyId
                 const run = pickSkillRun(entry.message.attachments)
                 const compose = pickComposeRun(entry.message.attachments)
                 const images = pickImages(entry.message.attachments)
@@ -1349,6 +1386,7 @@ export function ChatPanel({
                       message={entry.message}
                       images={images}
                       traceSteps={traceSteps}
+                      traceOpen={isLatestReply}
                       skillId={compose?.skill_id || null}
                       skillName={run?.skill?.name || null}
                     />
@@ -1455,6 +1493,8 @@ export function ChatPanel({
               <ThinkingBubble
                 steps={composeSteps.length > 0 ? composeSteps : (analysis?.steps ?? [])}
                 reply={replyDraft}
+                thought={thoughtDraft}
+                thoughtChars={thoughtChars}
                 offline={!online}
                 onStop={stopRun}
                 onRetry={

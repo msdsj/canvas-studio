@@ -162,7 +162,7 @@ export function CanvasNavigator({ api, elements, selectionCard }: CanvasNavigato
       {selectionCard && (
         <div
           ref={cardRef}
-          className="pointer-events-auto w-[248px] max-w-[calc(100vw-48px)] rounded-[14px] bg-surface-raised/95 p-2.5 shadow-float ring-1 ring-inset ring-border-faint backdrop-blur-md"
+          className="pointer-events-auto w-[232px] max-w-[calc(100vw-48px)] rounded-[12px] bg-surface-raised/95 p-2.5 shadow-float ring-1 ring-inset ring-border-faint backdrop-blur-md"
         >
           {selectionCard}
         </div>
@@ -170,9 +170,9 @@ export function CanvasNavigator({ api, elements, selectionCard }: CanvasNavigato
 
       <div
         ref={panelRef}
-        className="pointer-events-auto overflow-hidden rounded-[14px] bg-surface-raised/95 shadow-float ring-1 ring-inset ring-border-faint backdrop-blur-md"
+        className="pointer-events-auto overflow-hidden rounded-[12px] bg-surface-raised/95 shadow-float ring-1 ring-inset ring-border-faint backdrop-blur-md"
       >
-        <div className="p-1.5">
+        <div className="p-1">
           {view === 'film' ? (
             <Filmstrip api={api} elements={elements} />
           ) : (
@@ -254,19 +254,19 @@ function Filmstrip({ api, elements }: { api: ExcalidrawApiLike | null; elements:
 
   if (images.length === 0) {
     return (
-      <p className="flex h-[112px] w-[176px] items-center justify-center px-3 text-center text-micro leading-snug text-text-tertiary">
+      <p className="flex h-[92px] w-[144px] items-center justify-center px-3 text-center text-micro leading-snug text-text-tertiary">
         {t('nav.film_empty')}
       </p>
     )
   }
 
   return (
-    <div className="w-[176px]">
+    <div className="w-[144px]">
       <p className="mb-1 flex items-center justify-between px-0.5 text-micro text-text-tertiary">
         <span>{t('nav.film')}</span>
         <span className="tabular-nums">{images.length}</span>
       </p>
-      <div ref={listRef} className="grid max-h-[168px] grid-cols-3 gap-1 overflow-y-auto pr-0.5">
+      <div ref={listRef} className="grid max-h-[138px] grid-cols-3 gap-1 overflow-y-auto pr-0.5">
         {images.map(({ el, url }) => (
           <button
             key={el.id}

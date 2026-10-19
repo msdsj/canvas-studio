@@ -98,8 +98,8 @@ export function ImagePreviewPanel({
           <img src={imageUrl} alt={t('preview.alt')} className="max-h-full max-w-full rounded-[2px] object-contain" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-caption font-semibold text-text">{t('preview.title')}</p>
-          <p className="font-mono text-micro tabular-nums text-text-tertiary">
+          <p className="truncate whitespace-nowrap text-caption font-semibold text-text">{t('preview.title')}</p>
+          <p className="truncate whitespace-nowrap font-mono text-micro tabular-nums text-text-tertiary">
             {measured ? `${measured.w} × ${measured.h}` : t('preview.reading')}
           </p>
         </div>

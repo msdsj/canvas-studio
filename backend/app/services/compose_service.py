@@ -66,7 +66,18 @@ STEPS: tuple[tuple[str, str], ...] = (
     ("reason", "推导方案"),
     ("prompt", "生成提示词"),
     ("dispatch", "提交生图"),
+    ("schedule", "张数判定与并发调度"),
 )
+
+#: 一次需求最多并发出几张（与 create_image_task 的 n 上限一致）
+MAX_IMAGES = 4
+#: 分析流：首字最长等待 / 整体时长上限（超时回落到非流式的 _call_json）
+ANALYZE_FIRST_TOKEN_TIMEOUT = 20.0
+ANALYZE_TOTAL_TIMEOUT = 75.0
+#: 分析过程原文最多保留多少字（实时推送 + 落库回看）
+THOUGHT_MAX_CHARS = 2000
+#: 模型输出里「思考过程」与「JSON」之间的分隔标记（见 compose_analyze.md）
+JSON_MARKER = "<<<JSON>>>"
 
 
 # --------------------------------------------------------------------------- #
@@ -241,6 +252,9 @@ def _extract_json(text: str) -> dict[str, Any] | None:
     """从模型回复里稳健抽取 JSON（容忍围栏、前后说明）。"""
     if not text:
         return None
+    # 「先写思考、再写 JSON」的输出：只在标记之后找，免得思考里的花括号干扰
+    if JSON_MARKER in text:
+        text = text.split(JSON_MARKER, 1)[1]
     fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
     candidates = [fenced.group(1)] if fenced else []
     candidates.append(text)
@@ -284,7 +298,14 @@ class _Trace:
         status: str = "done",
         detail: str | None = None,
         items: list[str] | None = None,
+        thought: str | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """结束一步。
+
+        - `thought`：这一步模型输出的原始推理文字（前端可展开回看）；
+        - `meta`：模型 / 耗时 / 输出量等可量化信息，用来如实展示「算力花在哪」。
+        """
         started = self._started.pop(step_id, None)
         elapsed = int((time.perf_counter() - started) * 1000) if started else 0
         for step in reversed(self.steps):
@@ -296,6 +317,10 @@ class _Trace:
                 step["detail"] = detail
             if items is not None:
                 step["items"] = items
+            if thought:
+                step["thought"] = thought[:THOUGHT_MAX_CHARS]
+            if meta:
+                step["meta"] = meta
             return step
         payload = {
             "id": step_id,
@@ -325,7 +350,7 @@ def _confidence(value: Any, default: float = 0.9) -> int:
     return int(round(max(0.0, min(1.0, number)) * 100))
 
 
-def _normalize_options(raw: Any) -> list[dict[str, Any]]:
+def _normalize_options(raw: Any, default_count: int = 1) -> list[dict[str, Any]]:
     """把模型给的方案收敛成前端可渲染的结构；没有 prompt 的方案直接丢弃。
 
     顺序即推荐序：模型排在前面的是它认为最贴合的方案，前端把第一条标成「最推荐」。
@@ -352,7 +377,8 @@ def _normalize_options(raw: Any) -> list[dict[str, Any]]:
             "size": size,
             # 契约字段（R04）：由 size 派生，保证前端两条路径拿到的比例一致
             "aspect": plan_validator.aspect_from_size(size),
-            "image_count": 1,
+            # 每个方向可以自带张数；没写就沿用分析判定的张数
+            "image_count": _clamp_count(item.get("image_count"), default_count),
         }
         _log_option_drift(option)
         options.append(option)
@@ -368,7 +394,7 @@ def _log_option_drift(option: dict[str, Any]) -> None:
         logger.info("澄清方案不符合契约（保留不丢弃）：%s", str(exc)[:300])
 
 
-def _verbatim_option(text: str, size: str = "1024x1024") -> dict[str, Any]:
+def _verbatim_option(text: str, size: str = "1024x1024", image_count: int = 1) -> dict[str, Any]:
     """「直接用我的原话」——永远排在选项列表最后，且永远存在。
 
     这是整条链的兜底与用户主权：无论模型觉得这句话多含糊、多想替他改，
@@ -380,7 +406,7 @@ def _verbatim_option(text: str, size: str = "1024x1024") -> dict[str, Any]:
         "description": "一字不改，按你写的这句去生成",
         "prompt": text.strip()[:_MAX_PROMPT],
         "size": _normalize_size(size),
-        "image_count": 1,
+        "image_count": _clamp_count(image_count, 1),
     }
 
 
@@ -540,6 +566,168 @@ async def _call_json(
             data={"reason": "no_content", "stage": stage, "attempts": attempts},
         )
     return plan, outcome, repair_log
+
+
+async def _stream_analysis(
+    target: relay_service.RelayTarget,
+    messages: list[dict[str, Any]],
+    sink: dict[str, Any],
+) -> AsyncIterator[str]:
+    """流式跑需求分析：模型边想边写，思考文字实时推给前端。
+
+    事件：
+    - `{"event":"thought","text":...}`：思考过程的增量（`<<<JSON>>>` 之前的自然语言）；
+    - `{"event":"thought_progress","chars":N}`：进入 JSON 段后只报字数，不刷原文。
+
+    结束后 `sink` 里放 `analysis`（解析好的 dict）与 `thought`（思考全文）。
+    读不出 JSON / 超时 / 上游报错都抛异常，由调用方回落到非流式的 `_call_json`。
+    """
+    started = time.perf_counter()
+    stream = relay_service.chat_stream(target, messages, temperature=0.4, max_tokens=1800)
+    iterator = stream.__aiter__()
+    raw: list[str] = []
+    thought_sent = 0  # 已经推给前端的思考字数
+    in_json = False
+    last_progress = 0
+    first = True
+    while True:
+        elapsed = time.perf_counter() - started
+        budget = ANALYZE_FIRST_TOKEN_TIMEOUT if first else ANALYZE_TOTAL_TIMEOUT - elapsed
+        if budget <= 0:
+            raise asyncio.TimeoutError()
+        try:
+            piece = await asyncio.wait_for(iterator.__anext__(), timeout=budget)
+        except StopAsyncIteration:
+            break
+        first = False
+        raw.append(piece)
+        text = "".join(raw)
+        if not in_json:
+            stripped = text.lstrip()
+            # 模型跳过了思考、直接写 JSON：不把 JSON 当思考刷给用户
+            if JSON_MARKER in text or stripped.startswith(("{", "```")):
+                in_json = True
+                head = text.split(JSON_MARKER, 1)[0] if JSON_MARKER in text else ""
+                if len(head) > thought_sent:
+                    yield _sse({"event": "thought", "text": head[thought_sent:THOUGHT_MAX_CHARS]})
+                    thought_sent = len(head)
+            else:
+                # 末尾留出标记长度：防止 "<<<JS" 这种半截标记先被推出去
+                safe = max(0, len(text) - len(JSON_MARKER))
+                safe = min(safe, THOUGHT_MAX_CHARS)
+                if safe > thought_sent:
+                    yield _sse({"event": "thought", "text": text[thought_sent:safe]})
+                    thought_sent = safe
+        if in_json:
+            body_chars = len(text.split(JSON_MARKER, 1)[-1])
+            if body_chars - last_progress >= 80:
+                last_progress = body_chars
+                yield _sse({"event": "thought_progress", "chars": body_chars})
+
+    text = "".join(raw)
+    if not in_json and len(text) > thought_sent:
+        # 没写标记、整段都当成了思考：补推剩余部分（JSON 还是会从全文里找）
+        tail = text[thought_sent:THOUGHT_MAX_CHARS]
+        if tail and not tail.lstrip().startswith("{"):
+            yield _sse({"event": "thought", "text": tail})
+    parsed = _extract_json(text)
+    if parsed is None:
+        raise AppError(ErrorCode.UPSTREAM_FORMAT_ERROR, "分析结果读不出来")
+    thought = text.split(JSON_MARKER, 1)[0].strip() if JSON_MARKER in text else ""
+    if thought.startswith(("{", "```")):
+        thought = ""
+    parsed["_meta"] = {
+        "model": target.model,
+        "provider": target.name,
+        "source": target.source,
+        "elapsed_ms": int((time.perf_counter() - started) * 1000),
+        "output_chars": len(text),
+        "streamed": True,
+    }
+    sink["analysis"] = parsed
+    sink["thought"] = thought[:THOUGHT_MAX_CHARS]
+
+
+def _clamp_count(value: Any, default: int = 1) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = default
+    return max(1, min(MAX_IMAGES, number))
+
+
+def resolve_jobs(analysis: dict[str, Any], base_prompt: str) -> list[dict[str, Any]]:
+    """把分析结果展开成 N 个独立生图任务（通用：不认任何具体场景）。
+
+    - 张数来自模型的 `image_count`（夹到 1–4），缺省为 1；
+    - 每张的提示词：`images[i].prompt` 有内容（≥8 字）就用它（「不同画面」拆分），
+      否则用 `base_prompt`（「同一画面多版本」/ 单张）；
+    - 只有 1 张时**永远**用 `base_prompt`：保持原话直用的规则不变。
+    """
+    base = base_prompt.strip()
+    count = _clamp_count(analysis.get("image_count"), 1)
+    raw_images = analysis.get("images") if isinstance(analysis.get("images"), list) else []
+    jobs: list[dict[str, Any]] = []
+    for index in range(count):
+        item = raw_images[index] if index < len(raw_images) and isinstance(raw_images[index], dict) else {}
+        custom = str(item.get("prompt") or "").strip()[:_MAX_PROMPT]
+        label = str(item.get("label") or "").strip()[:20]
+        use_custom = count > 1 and len(custom) >= 8
+        jobs.append(
+            {
+                "index": index + 1,
+                "label": label or (f"第 {index + 1} 张" if count > 1 else ""),
+                "prompt": custom if use_custom else base,
+                "custom": use_custom,
+            }
+        )
+    return jobs
+
+
+async def _free_slots(db: AsyncSession, user_id: str) -> int:
+    """当前用户还能同时跑几个任务（受 MAX_ACTIVE_TASKS_PER_USER 约束）。"""
+    from app.config import settings
+    from app.services import config_service, task_service
+
+    limit = int(
+        await config_service.get_value(db, "MAX_ACTIVE_TASKS_PER_USER", settings.max_active_tasks_per_user)
+    )
+    return max(0, limit - await task_service.count_active(db, user_id))
+
+
+async def _pool_capacity() -> dict[str, int] | None:
+    """号池可用账号数（尽力而为：网关不可达 / 演示模式就不展示）。"""
+    from app.services import pool_service
+
+    try:
+        stats = await asyncio.wait_for(pool_service.stats(), timeout=2.0)
+    except Exception:  # noqa: BLE001 - 只是展示信息，拿不到就不说
+        return None
+    if not stats.get("total"):
+        return None
+    return {"total": int(stats.get("total") or 0), "normal": int(stats.get("normal") or 0)}
+
+
+async def _schedule_jobs(
+    db: AsyncSession, user_id: str, jobs: list[dict[str, Any]], count_reason: str
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """按可用并发槽位裁剪任务数，并给出调度说明（用于「张数判定与并发调度」一步）。"""
+    wanted = len(jobs)
+    free = await _free_slots(db, user_id)
+    # 一个槽位都没有时仍保留 1 个：让 create_or_get 抛出准确的「任务上限」错误
+    allowed = max(1, min(wanted, free))
+    scheduled = jobs[:allowed]
+    items = [f"需要生成 {wanted} 张" + (f"：{count_reason}" if count_reason else "")]
+    for job in scheduled:
+        source = "专属描述" if job["custom"] else "原话"
+        label = f"「{job['label']}」" if job["label"] else ""
+        items.append(f"通道 {job['index']}{label} → 独立账号额度 · 提示词来源：{source}")
+    if allowed < wanted:
+        items.append(f"当前只剩 {allowed} 个并发槽位，先提交 {allowed} 张；其余等这批完成后再发一次即可")
+    pool = await _pool_capacity()
+    if pool:
+        items.append(f"号池可用账号 {pool['normal']}/{pool['total']}，按最少占用优先分配，避免同号冲突")
+    return scheduled, items
 
 
 async def _load_assets(db: AsyncSession, user: User, ids: list[str]) -> list[Any]:
@@ -730,17 +918,35 @@ async def stream_compose(
             )
             yield _sse({"event": "step", "step": dict(step)})
         else:
+            analyze_messages = [
+                {"role": "system", "content": template},
+                {"role": "user", "content": user_prompt},
+            ]
+            thought_text = ""
             try:
-                analysis, _outcome, _repairs = await _call_json(
-                    db,
-                    user.id,
-                    [
-                        {"role": "system", "content": template},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    target=target,
-                    stage="analyze",
-                )
+                # 先走流式：思考过程实时可见；流式读不出 JSON 再回落到非流式 + 纠错重试
+                sink: dict[str, Any] = {}
+                streamed_ok = False
+                try:
+                    async for chunk in _stream_analysis(target, analyze_messages, sink):
+                        yield chunk
+                    streamed_ok = "analysis" in sink
+                except (AppError, asyncio.TimeoutError, OSError) as exc:
+                    logger.warning("流式分析失败，回落非流式：%s", getattr(exc, "message", exc))
+                except Exception:  # noqa: BLE001 - 流式只是体验增强，任何异常都回落
+                    logger.exception("流式分析异常，回落非流式")
+                if streamed_ok:
+                    analysis = sink["analysis"]
+                    thought_text = str(sink.get("thought") or "")
+                else:
+                    yield _sse({"event": "thought_reset"})
+                    analysis, _outcome, _repairs = await _call_json(
+                        db,
+                        user.id,
+                        analyze_messages,
+                        target=target,
+                        stage="analyze",
+                    )
             except AppError as exc:
                 step = trace.finish("analyze", status="failed", detail=exc.message)
                 yield _sse({"event": "step", "step": dict(step)})
@@ -794,10 +1000,28 @@ async def stream_compose(
                     [issue.as_dict() for issue in drift.errors],
                 )
             thinking = [str(item) for item in (analysis.get("thinking") or []) if str(item).strip()][:5]
+            # 结构化拆解：把模型读出的主体 / 风格 / 约束 / 张数也摆出来，过程才完整
+            facts: list[str] = []
+            if analysis.get("subject"):
+                facts.append(f"主体：{str(analysis.get('subject'))[:60]}")
+            if analysis.get("style"):
+                facts.append(f"风格：{str(analysis.get('style'))[:60]}")
+            constraints = [str(c) for c in (analysis.get("constraints") or []) if str(c).strip()]
+            if constraints:
+                facts.append(f"约束：{'；'.join(constraints[:3])[:80]}")
+            facts.append(f"判定张数：{_clamp_count(analysis.get('image_count'), 1)}")
+            meta_raw = analysis.get("_meta") if isinstance(analysis.get("_meta"), dict) else {}
             step = trace.finish(
                 "analyze",
                 detail=str(analysis.get("summary") or "已读懂需求")[:160],
-                items=thinking,
+                items=thinking + facts,
+                thought=thought_text,
+                meta={
+                    "model": str(meta_raw.get("model") or target.model),
+                    "elapsed_ms": int(meta_raw.get("elapsed_ms") or 0),
+                    "output_chars": int(meta_raw.get("output_chars") or 0),
+                    "streamed": bool(meta_raw.get("streamed")),
+                },
             )
             yield _sse({"event": "step", "step": dict(step)})
 
@@ -828,8 +1052,9 @@ async def stream_compose(
                 )
             reason = str(ambiguity.get("reason") or "").strip()[:200]
             # 模型的方案在前（默认第一条最推荐），「直接用我的原话」永远排在最后兜底
-            options = _normalize_options(ambiguity.get("options"))
-            options = [*options, _verbatim_option(text)]
+            analyzed_count = _clamp_count(analysis.get("image_count"), 1)
+            options = _normalize_options(ambiguity.get("options"), analyzed_count)
+            options = [*options, _verbatim_option(text, image_count=analyzed_count)]
             step = trace.finish(
                 "ambiguity",
                 status="blocked",
@@ -1009,7 +1234,20 @@ async def stream_compose(
         )
         yield _sse({"event": "step", "step": dict(step)})
 
-        # ---- 5) 提交生图 ----
+        # ---- 5) 张数判定与并发调度 ----
+        step = trace.start("schedule", STEPS[5][1], "按分析结果确定张数，为每张分配独立通道")
+        yield _sse({"event": "step", "step": dict(step)})
+        jobs = resolve_jobs(analysis, final_prompt)
+        count_reason = str(analysis.get("count_reason") or "").strip()[:80]
+        jobs, schedule_items = await _schedule_jobs(db, user.id, jobs, count_reason)
+        step = trace.finish(
+            "schedule",
+            detail=f"并发提交 {len(jobs)} 个独立任务" if len(jobs) > 1 else "单张生成，占用 1 个账号通道",
+            items=schedule_items,
+        )
+        yield _sse({"event": "step", "step": dict(step)})
+
+        # ---- 6) 提交生图 ----
         step = trace.start("dispatch", STEPS[4][1])
         yield _sse({"event": "step", "step": dict(step)})
         run = SkillRun(
@@ -1020,11 +1258,13 @@ async def stream_compose(
             message_id=user_message.id,
             skill_id=SKILL_COMPOSE,
             status="dispatching",
-            image_count=1,
+            image_count=len(jobs),
             confidence=_confidence(analysis.get("confidence")),
             input={"content": text, "image_refs": [asset.id for asset in assets]},
             plan={
                 "final_prompt": final_prompt,
+                "image_count": len(jobs),
+                "jobs": [{k: job[k] for k in ("index", "label", "custom")} for job in jobs],
                 "negative": negative,
                 "size": size,
                 # R04 新增的三个契约字段（size 保留，向后兼容）
@@ -1066,6 +1306,8 @@ async def stream_compose(
                 # 用 run.id 会让「每次都是新 run」，幂等形同虚设。
                 idempotency_key=_dedupe_key(session.id, text, [asset.id for asset in assets]),
                 model=model,
+                jobs=jobs,
+                keep=(session,),
             )
         except AppError as exc:
             logger.warning("提交生图失败 run=%s: %s", run.id, exc.message)
@@ -1102,7 +1344,21 @@ async def stream_compose(
 
         run.status = "completed"
         run.task_ids = [item["id"] for item in tasks]
-        step = trace.finish("dispatch", detail=f"已提交 {len(tasks)} 个生图任务")
+        dispatch_items = [
+            f"任务 {item.get('index', i + 1)}"
+            + (f"「{item['label']}」" if item.get("label") else "")
+            + f" · #{str(item['id'])[:8]}"
+            + (" · 复用刚提交的任务" if item.get("deduped") else " · 已进入生成队列")
+            for i, item in enumerate(tasks)
+        ]
+        failed_jobs = len(jobs) - len(tasks)
+        if failed_jobs > 0:
+            dispatch_items.append(f"{failed_jobs} 张未能提交（额度或并发不足），已提交的照常生成")
+        step = trace.finish(
+            "dispatch",
+            detail=f"已并发提交 {len(tasks)} 个生图任务" if len(tasks) > 1 else "已提交 1 个生图任务",
+            items=dispatch_items,
+        )
         yield _sse({"event": "step", "step": dict(step)})
         run.steps = list(trace.steps)
         run.updated_at = utcnow()
@@ -1285,54 +1541,75 @@ async def _dispatch(
     refs: list[str],
     idempotency_key: str,
     model: str | None = None,
+    jobs: list[dict[str, Any]] | None = None,
+    keep: tuple[Any, ...] = (),
 ) -> list[dict[str, Any]]:
-    """按最终提示词建任务。
+    """按分析结果建 N 个**独立**任务并并发执行。
 
-    - 有参考图 → 图生图（以第一张为底图）；
-    - 没有参考图 → 文生图；
-    - `negative` 折进提示词尾部（上游 gpt-image 系列没有独立负向参数）。
+    - 有参考图 → 图生图（以第一张为底图）；没有 → 文生图；
+    - 每张一个任务（n=1）：每个任务各自走一次网关，网关按「最少占用」为每次调用
+      选一个号池账号，N 个任务就落到 N 个账号上，互不抢同一个账号的并发额度；
+    - `negative` 折进提示词尾部（上游 gpt-image 系列没有独立负向参数）；
+    - 第 2 张起失败（额度 / 并发不足）不连坐已提交的任务：返回成功的部分；
+      **一张都没提交成功**才抛错。
 
     拼装走 `plan_validator.assemble_dispatch_prompt()`（唯一来源），与
     `assert_dispatchable()` 校验的是同一段文本，避免「校验的和派发的不是一份」。
     """
-    prompt = plan_validator.assemble_dispatch_prompt(final_prompt, negative)
-
-    created: list[Any] = []
-    if refs:
-        asset = await asset_service.get_asset(db, user, refs[0])
-        task, is_new = await generate_service.create_edit_task(
-            db,
-            user.id,
-            prompt=prompt,
-            model=model or "gpt-image-2",
-            size=size,
-            base_image_url=asset.url,
-            session_id=run.session_id,
-            canvas_id=run.canvas_id,
-            idempotency_key=idempotency_key,
-            extra={"compose_run_id": run.id, "n": 1, "negative": negative},
-        )
-    else:
-        task, is_new = await generate_service.create_image_task(
-            db,
-            user.id,
-            prompt=prompt,
-            model=model or "gpt-image-2",
-            size=size,
-            quality="standard",
-            n=1,
-            session_id=run.session_id,
-            canvas_id=run.canvas_id,
-            idempotency_key=idempotency_key,
-            extra={"compose_run_id": run.id, "negative": negative},
-        )
-    created.append((task, is_new))
+    jobs = jobs or [{"index": 1, "label": "", "prompt": final_prompt, "custom": False}]
+    batch = len(jobs) > 1
+    base_asset = await asset_service.get_asset(db, user, refs[0]) if refs else None
+    base_url = base_asset.url if base_asset else None
+    # 先把 run 落盘：pre_deduct 余额不足会 rollback 整个会话，不能把 run 一起卷走
     await db.commit()
 
     payload: list[dict[str, Any]] = []
-    for task, is_new in created:
-        if is_new:
-            _spawn_run(task.id)
+    first_error: AppError | None = None
+    for job in jobs:
+        prompt = plan_validator.assemble_dispatch_prompt(str(job["prompt"]), negative)
+        key = f"{idempotency_key}:{job['index']}" if batch else idempotency_key
+        extra: dict[str, Any] = {"compose_run_id": run.id, "negative": negative}
+        if batch:
+            extra.update({"batch_index": job["index"], "batch_total": len(jobs), "batch_label": job["label"]})
+        try:
+            if base_url:
+                task, is_new = await generate_service.create_edit_task(
+                    db,
+                    user.id,
+                    prompt=prompt,
+                    model=model or "gpt-image-2",
+                    size=size,
+                    base_image_url=base_url,
+                    session_id=run.session_id,
+                    canvas_id=run.canvas_id,
+                    idempotency_key=key,
+                    extra={**extra, "n": 1},
+                )
+            else:
+                task, is_new = await generate_service.create_image_task(
+                    db,
+                    user.id,
+                    prompt=prompt,
+                    model=model or "gpt-image-2",
+                    size=size,
+                    quality="standard",
+                    n=1,
+                    session_id=run.session_id,
+                    canvas_id=run.canvas_id,
+                    idempotency_key=key,
+                    extra=extra,
+                )
+            await db.commit()
+        except AppError as exc:
+            # pre_deduct 失败时会话已 rollback：把调用方还要用的对象重新载入
+            for obj in (run, *keep):
+                try:
+                    await db.refresh(obj)
+                except Exception:  # noqa: BLE001 - 对象未落库（极少见）时忽略
+                    pass
+            first_error = first_error or exc
+            logger.warning("第 %s 张提交失败 run=%s: %s", job["index"], run.id, exc.message)
+            break
         payload.append(
             {
                 "id": task.id,
@@ -1341,10 +1618,20 @@ async def _dispatch(
                 "prompt": task.prompt,
                 "cost": task.cost,
                 "image_count": 1,
+                "index": job["index"],
+                "label": job["label"],
                 # 幂等命中：复用了刚建过的任务，这次并没有真正重跑
                 "deduped": not is_new,
+                "_new": is_new,
             }
         )
+
+    if not payload:
+        raise first_error or AppError(ErrorCode.UPSTREAM_ERROR, "没能提交生图任务")
+    # 全部建好后一起起跑：N 个任务同时进网关，才是真正的并发
+    for item in payload:
+        if item.pop("_new"):
+            _spawn_run(item["id"])
     return payload
 
 
@@ -1415,17 +1702,33 @@ async def confirm_compose(
     run.updated_at = utcnow()
     await db.flush()
 
-    tasks = await _dispatch(
-        db,
-        user,
-        run,
-        final_prompt=str(plan.get("final_prompt") or ""),
-        negative=str(plan.get("negative") or ""),
-        size=plan["size"],
-        refs=refs,
-        # 幂等键必须随方案变化：同一 run 选不同方案是不同的产出
-        idempotency_key=f"compose:{run.id}:{option_id}",
+    # 张数：选中的方向自带的 image_count（澄清时已按分析结果写入），同一提示词出 N 版
+    jobs = resolve_jobs(
+        {"image_count": chosen.get("image_count") or 1}, str(plan.get("final_prompt") or "")
     )
+    jobs, _ = await _schedule_jobs(db, user.id, jobs, "")
+    plan["image_count"] = len(jobs)
+    run.plan = plan
+    run.image_count = len(jobs)
+    try:
+        tasks = await _dispatch(
+            db,
+            user,
+            run,
+            final_prompt=str(plan.get("final_prompt") or ""),
+            negative=str(plan.get("negative") or ""),
+            size=plan["size"],
+            refs=refs,
+            # 幂等键必须随方案变化：同一 run 选不同方案是不同的产出
+            idempotency_key=f"compose:{run.id}:{option_id}",
+            jobs=jobs,
+        )
+    except AppError:
+        # _dispatch 会先把 run 落盘：一张都没提交成功时退回 clarify，用户还能再点一次
+        run.status = "clarify"
+        run.updated_at = utcnow()
+        await db.commit()
+        raise
     run.status = "completed"
     run.task_ids = [item["id"] for item in tasks]
     await _sync_attachment(db, run, option_id)

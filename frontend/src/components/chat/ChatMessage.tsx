@@ -16,6 +16,8 @@ interface ChatMessageProps {
   images?: MessageImageAttachment[]
   /** AI 回复背后的分析轨迹（compose_run / skill_run 的 steps），默认折叠 */
   traceSteps?: TraceStep[]
+  /** 轨迹默认展开（最新一轮回复：分析过程与回答同屏） */
+  traceOpen?: boolean
   /** 本次套用的设计技能 */
   skillId?: string | null
   skillName?: string | null
@@ -74,7 +76,7 @@ function ActionButton({
  *
  * 中间处理信息（最终提示词）不在这里出现。
  */
-function ChatMessageInner({ message, streaming, images, traceSteps, skillId, skillName }: ChatMessageProps) {
+function ChatMessageInner({ message, streaming, images, traceSteps, traceOpen, skillId, skillName }: ChatMessageProps) {
   const { t } = useTranslation('chat')
   const { t: ta } = useTranslation('agent')
   const isUser = message.role === 'user'
@@ -155,6 +157,7 @@ function ChatMessageInner({ message, streaming, images, traceSteps, skillId, ski
         {hasTrace ? (
           <AgentTrace
             steps={traceSteps ?? []}
+            defaultOpen={traceOpen}
             skillId={skillId}
             skillName={skillName}
             className="mb-2"
@@ -227,6 +230,7 @@ export const ChatMessage = memo(
     prev.message.id === next.message.id &&
     prev.message.content === next.message.content &&
     prev.streaming === next.streaming &&
+    prev.traceOpen === next.traceOpen &&
     (prev.images?.length ?? 0) === (next.images?.length ?? 0) &&
     (prev.images?.[0]?.asset_id ?? '') === (next.images?.[0]?.asset_id ?? '') &&
     (prev.traceSteps?.length ?? 0) === (next.traceSteps?.length ?? 0) &&

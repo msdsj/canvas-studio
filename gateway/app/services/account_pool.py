@@ -76,7 +76,9 @@ class AccountPool:
             "last_error": str(raw.get("last_error") or ""),
             "failures": int(raw.get("failures") or 0),
             "cooldown_until": float(raw.get("cooldown_until") or 0),
-            "in_flight": int(raw.get("in_flight") or 0),
+            # Leases are process-local: a count persisted before a crash/restart
+            # would make the account look busy forever, so always start at 0.
+            "in_flight": 0,
             "max_concurrency": max(1, int(raw.get("max_concurrency") or 2)),
         }
 
@@ -138,7 +140,13 @@ class AccountPool:
             return {"updated": True, "id": item["id"]}
 
     async def select(self, *, kind: str) -> dict[str, Any] | None:
-        """Select a healthy account using round-robin with cooldown support."""
+        """Select the least-loaded healthy account (round-robin breaks ties).
+
+        Concurrent requests (e.g. one compose run fanning out N image tasks)
+        each call this once.  Picking the account with the fewest in-flight
+        leases spreads N parallel calls over N different accounts whenever the
+        pool has them, instead of stacking them on one account's concurrency.
+        """
         await self._ensure_loaded()
         now = time.time()
         async with self._lock:
@@ -147,17 +155,22 @@ class AccountPool:
                 return None
             start = self._cursor % len(items)
             self._cursor += 1
-            for offset in range(len(items)):
-                item = items[(start + offset) % len(items)]
-                if item.get("status") in {"disabled", "abnormal"} or float(item.get("cooldown_until") or 0) > now:
-                    continue
-                if int(item.get("in_flight") or 0) >= int(item.get("max_concurrency") or 2):
-                    continue
-                item["last_used"] = now
-                item["last_kind"] = kind
-                item["in_flight"] = int(item.get("in_flight") or 0) + 1
-                return dict(item)
-        return None
+            ordered = [items[(start + offset) % len(items)] for offset in range(len(items))]
+            candidates = [
+                item
+                for item in ordered
+                if item.get("status") not in {"disabled", "abnormal"}
+                and float(item.get("cooldown_until") or 0) <= now
+                and int(item.get("in_flight") or 0) < int(item.get("max_concurrency") or 2)
+            ]
+            if not candidates:
+                return None
+            # min() keeps the first of equals, so round-robin order decides ties
+            item = min(candidates, key=lambda value: int(value.get("in_flight") or 0))
+            item["last_used"] = now
+            item["last_kind"] = kind
+            item["in_flight"] = int(item.get("in_flight") or 0) + 1
+            return dict(item)
 
     async def release(self, account_id: str) -> None:
         """Release one request lease, including failed requests."""

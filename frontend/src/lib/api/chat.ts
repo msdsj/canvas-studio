@@ -151,6 +151,10 @@ export interface ComposeStep {
   status: 'pending' | 'running' | 'done' | 'skipped' | 'blocked' | 'failed'
   elapsed_ms: number
   items?: string[]
+  /** 这一步模型输出的原始推理文字（分析步骤才有） */
+  thought?: string
+  /** 可量化信息：模型 / 耗时 / 输出字数 / 是否流式 */
+  meta?: { model?: string; elapsed_ms?: number; output_chars?: number; streamed?: boolean }
 }
 
 /**
@@ -186,6 +190,9 @@ export interface ComposeResult {
     cost: number
     /** 幂等命中：复用了刚建过的任务，本次没有重复扣额度 */
     deduped?: boolean
+    /** 并发批次里的序号与名称（多张时才有） */
+    index?: number
+    label?: string
   }>
   final_prompt: string
   negative?: string
@@ -401,6 +408,10 @@ export const chatApi = {
       onStep: (step: ComposeStep) => void
       /** 回复正文的流式增量（结论已定，正在「说成人话」）；`reset` = 清空已收到的半截重来 */
       onDelta?: (text: string, reset?: boolean) => void
+      /** 需求分析的思考过程增量；`reset` = 流式失败已回落，清空重来 */
+      onThought?: (text: string, reset?: boolean) => void
+      /** 进入结构化输出阶段后只报字数 */
+      onThoughtProgress?: (chars: number) => void
       onResult: (result: ComposeResult) => void
       onError: (message: string) => void
       onClose?: () => void
@@ -441,14 +452,19 @@ export const chatApi = {
             if (dataStr) {
               try {
                 const obj = JSON.parse(dataStr) as {
-                  event?: 'step' | 'result' | 'delta' | 'delta_reset'
+                  event?: 'step' | 'result' | 'delta' | 'delta_reset' | 'thought' | 'thought_reset' | 'thought_progress'
                   step?: ComposeStep
                   result?: ComposeResult
                   text?: string
+                  chars?: number
                 }
                 if (obj.event === 'step' && obj.step) handlers.onStep(obj.step)
                 if (obj.event === 'delta' && obj.text) handlers.onDelta?.(obj.text)
                 if (obj.event === 'delta_reset') handlers.onDelta?.('', true)
+                if (obj.event === 'thought' && obj.text) handlers.onThought?.(obj.text)
+                if (obj.event === 'thought_reset') handlers.onThought?.('', true)
+                if (obj.event === 'thought_progress' && typeof obj.chars === 'number')
+                  handlers.onThoughtProgress?.(obj.chars)
                 if (obj.event === 'result' && obj.result) handlers.onResult(obj.result)
               } catch {
                 /* 忽略半包 */
