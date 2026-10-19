@@ -399,6 +399,8 @@ export const chatApi = {
     },
     handlers: {
       onStep: (step: ComposeStep) => void
+      /** 回复正文的流式增量（结论已定，正在「说成人话」）；`reset` = 清空已收到的半截重来 */
+      onDelta?: (text: string, reset?: boolean) => void
       onResult: (result: ComposeResult) => void
       onError: (message: string) => void
       onClose?: () => void
@@ -439,11 +441,14 @@ export const chatApi = {
             if (dataStr) {
               try {
                 const obj = JSON.parse(dataStr) as {
-                  event?: 'step' | 'result'
+                  event?: 'step' | 'result' | 'delta' | 'delta_reset'
                   step?: ComposeStep
                   result?: ComposeResult
+                  text?: string
                 }
                 if (obj.event === 'step' && obj.step) handlers.onStep(obj.step)
+                if (obj.event === 'delta' && obj.text) handlers.onDelta?.(obj.text)
+                if (obj.event === 'delta_reset') handlers.onDelta?.('', true)
                 if (obj.event === 'result' && obj.result) handlers.onResult(obj.result)
               } catch {
                 /* 忽略半包 */

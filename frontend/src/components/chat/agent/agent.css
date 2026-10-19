@@ -126,3 +126,18 @@
   color: var(--color-text-secondary);
   background: none;
 }
+
+/* 流式输出光标：1.05s 一次的柔和闪烁（比 animate-pulse 节奏更像打字机） */
+.cs-caret {
+  animation: cs-caret-blink 1.05s steps(1, end) infinite;
+}
+@keyframes cs-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cs-caret {
+    animation: none;
+  }
+}

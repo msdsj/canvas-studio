@@ -97,6 +97,21 @@ function ChatMessageInner({ message, streaming, images, traceSteps, skillId, ski
     const shots = images ?? []
     return (
       <div className="cs-bubble-in-right group flex flex-col items-end gap-1.5">
+        {/* 头部：时间 · 你（右对齐），与 Agent 侧的「名字 · 时间」镜像 */}
+        <div className="flex items-center gap-1.5 pr-0.5">
+          {message.content && (
+            <span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+              <ActionButton
+                label={copied ? ta('feedback.copied') : ta('feedback.copy')}
+                onClick={() => void copy()}
+              >
+                {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
+              </ActionButton>
+            </span>
+          )}
+          {time && <span className="text-micro tabular-nums text-text-faint">{time}</span>}
+          <span className="text-micro font-medium text-text-tertiary">{t('message.you')}</span>
+        </div>
         {shots.length > 0 && (
           <div className="flex max-w-[88%] flex-wrap justify-end gap-1.5">
             {shots.slice(0, 3).map((image) => (
@@ -115,20 +130,13 @@ function ChatMessageInner({ message, streaming, images, traceSteps, skillId, ski
           </div>
         )}
         {message.content && (
-          <div className="max-w-[88%] rounded-[18px] rounded-br-[6px] bg-bg-subtle px-3.5 py-2.5 text-text">
-            <p className="whitespace-pre-wrap text-ui leading-[1.7] [overflow-wrap:anywhere]">
+          // 墨色实底：用户自己的话要一眼和 Agent 的回答分开（对标 zleap 软件开发的对话）
+          <div className="max-w-[86%] rounded-[16px] rounded-tr-[6px] bg-brand px-3.5 py-2 text-text-inverse shadow-sheet">
+            <p className="whitespace-pre-wrap text-ui leading-[1.65] [overflow-wrap:anywhere]">
               {message.content}
             </p>
           </div>
         )}
-        <div className="flex items-center gap-1 pr-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-          {time && <span className="text-micro tabular-nums text-text-faint">{time}</span>}
-          {message.content && (
-            <ActionButton label={copied ? ta('feedback.copied') : ta('feedback.copy')} onClick={() => void copy()}>
-              {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
-            </ActionButton>
-          )}
-        </div>
       </div>
     )
   }
@@ -158,15 +166,17 @@ function ChatMessageInner({ message, streaming, images, traceSteps, skillId, ski
         )}
 
         {message.content ? (
-          <div className="min-w-0 text-text">
-            <Markdown content={message.content} />
+          // 回答放进一张浅描边卡片：长回复（列表 / 参数）有边界才好读，
+          // 和下方的决策卡、结果卡在视觉上属于同一组
+          <div className="min-w-0 rounded-[16px] rounded-tl-[6px] bg-surface px-3.5 py-2.5 shadow-xs ring-1 ring-inset ring-border-faint">
+            <Markdown content={message.content} size="ui" />
             {/* 流式光标：让"还在写"这件事有明确的视觉信号 */}
             {streaming && (
-              <span className="ml-0.5 inline-block h-[1em] w-[2px] animate-pulse rounded-full bg-accent-strong align-[-0.15em]" />
+              <span className="cs-caret ml-0.5 inline-block h-[1em] w-[2px] rounded-full bg-accent-strong align-[-0.15em]" />
             )}
           </div>
         ) : streaming ? (
-          <div className="inline-flex items-center gap-1 py-2">
+          <div className="inline-flex items-center gap-1 rounded-[16px] rounded-tl-[6px] bg-surface px-3.5 py-3 ring-1 ring-inset ring-border-faint">
             {[0, 1, 2].map((index) => (
               <span
                 key={index}
@@ -178,7 +188,7 @@ function ChatMessageInner({ message, streaming, images, traceSteps, skillId, ski
         ) : null}
 
         {message.content && !streaming && (
-          <div className="mt-1.5 flex items-center gap-0.5 text-text-tertiary">
+          <div className="mt-1 flex items-center gap-0.5 text-text-tertiary opacity-70 transition-opacity group-hover:opacity-100">
             <ActionButton label={copied ? ta('feedback.copied') : ta('feedback.copy')} onClick={() => void copy()}>
               {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
             </ActionButton>

@@ -127,7 +127,7 @@
     "relay_go": "去配置",
     "relay_template": "先用本地模板试一次",
     "need_image_title": "先在画布上选一张图",
-    "need_image_desc": "这句话是要改某张图的。选中它再说一次，我马上开始。",
+    "need_image_desc": "这句话是要改某张图的。在画布上选中它，点操作条里的「引用」，再说一次就开始。",
     "need_image_canvas": "去画布选图",
     "from_assets": "从素材库选",
     "upload_local": "上传本地图片",

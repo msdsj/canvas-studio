@@ -145,6 +145,98 @@ def _sse(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+# --------------------------------------------------------------------------- #
+# 面向用户的回复正文（流式）
+# --------------------------------------------------------------------------- #
+#: 首字最长等待：超过就放弃流式、改用本地文案，别让用户对着空气泡发呆
+REPLY_FIRST_TOKEN_TIMEOUT = 12.0
+#: 整段回复的总时长上限
+REPLY_TOTAL_TIMEOUT = 40.0
+#: 回复正文上限（防止模型失控刷屏）
+REPLY_MAX_CHARS = 1200
+#: 本地文案「打字机」每段字数与间隔：让回落文案也是一个字一个字出来，体验与流式一致
+TYPEWRITER_CHUNK = 4
+TYPEWRITER_DELAY = 0.014
+
+
+async def _typewriter(text: str) -> AsyncIterator[str]:
+    """把一段现成文案按小段吐出（回落路径用）。"""
+    for start in range(0, len(text), TYPEWRITER_CHUNK):
+        yield _sse({"event": "delta", "text": text[start : start + TYPEWRITER_CHUNK]})
+        await asyncio.sleep(TYPEWRITER_DELAY)
+
+
+async def _stream_reply(
+    db: AsyncSession,
+    target: relay_service.RelayTarget | None,
+    *,
+    mode: str,
+    facts: dict[str, Any],
+    fallback: str,
+    sink: list[str],
+) -> AsyncIterator[str]:
+    """生成这一轮的回复正文，以 `{"event":"delta","text":...}` 逐段推给前端。
+
+    结论（澄清 / 已开画 / 失败）在调用前就已经定了，这里只负责「把结论说成人话」：
+    - 有中转站 → 流式请求 `compose_reply` 提示词，边生成边推；
+    - 没有中转站、首字超时、上游报错 → 回落到 `fallback`（原来那一句），用打字机吐出。
+
+    完整正文写进 `sink[0]`，调用方拿它落库。回复失败**绝不**影响主流程：
+    任务已经提交、澄清选项已经落库，最差也只是回复短一点。
+    """
+    collected: list[str] = []
+
+    async def pump() -> AsyncIterator[str]:
+        template = await prompt_service.load(db, "compose_reply")
+        payload = json.dumps({"mode": mode, **facts}, ensure_ascii=False)
+        stream = relay_service.chat_stream(
+            target,  # type: ignore[arg-type] - 调用方已判空
+            [
+                {"role": "system", "content": template},
+                {"role": "user", "content": f"本轮事实（JSON）：\n{payload}\n\n请直接写回复正文。"},
+            ],
+            temperature=0.6,
+            max_tokens=700,
+        )
+        iterator = stream.__aiter__()
+        started = time.perf_counter()
+        first = True
+        while True:
+            budget = REPLY_FIRST_TOKEN_TIMEOUT if first else REPLY_TOTAL_TIMEOUT - (time.perf_counter() - started)
+            if budget <= 0:
+                break
+            try:
+                piece = await asyncio.wait_for(iterator.__anext__(), timeout=budget)
+            except StopAsyncIteration:
+                break
+            first = False
+            room = REPLY_MAX_CHARS - sum(len(item) for item in collected)
+            if room <= 0:
+                break
+            piece = piece[:room]
+            collected.append(piece)
+            yield _sse({"event": "delta", "text": piece})
+
+    if target is not None:
+        try:
+            async for chunk in pump():
+                yield chunk
+        except (AppError, asyncio.TimeoutError, OSError) as exc:  # noqa: PERF203
+            logger.warning("回复正文流式失败，回落本地文案 mode=%s: %s", mode, getattr(exc, "message", exc))
+        except Exception:  # noqa: BLE001 - 回复是锦上添花，任何异常都不能打断主流程
+            logger.exception("回复正文流式异常 mode=%s", mode)
+
+    text = "".join(collected).strip()
+    if len(text) < 8:
+        # 什么都没拿到（或只蹦出几个字就断了）：让前端清掉半截，换成完整的本地文案
+        if collected:
+            yield _sse({"event": "delta_reset"})
+        async for chunk in _typewriter(fallback):
+            yield chunk
+        text = fallback
+    sink.append(text)
+
+
 def _extract_json(text: str) -> dict[str, Any] | None:
     """从模型回复里稳健抽取 JSON（容忍围栏、前后说明）。"""
     if not text:
@@ -764,8 +856,32 @@ async def stream_compose(
             )
             db.add(run)
             await db.flush()
+            # 回复正文：先把「理解到什么 / 差什么 / 可以往哪走」说成人话，再落卡片
+            reply_sink: list[str] = []
+            async for chunk in _stream_reply(
+                db,
+                target,
+                mode="clarify",
+                facts={
+                    "user_text": text,
+                    "summary": analysis.get("summary") or "",
+                    "missing": missing[:4],
+                    "question": question,
+                    "reason": reason,
+                    "has_reference_images": bool(assets),
+                    "options": [
+                        {"label": item.get("label"), "description": item.get("description")}
+                        for item in options
+                        if item.get("id") != VERBATIM_OPTION_ID
+                    ],
+                },
+                fallback=question,
+                sink=reply_sink,
+            ):
+                yield chunk
+            # 消息正文 = 完整回复；附件里的 reply 仍是那句短问题，给决策卡做标题
             message = await _append_message(
-                db, session.id, user.id, "assistant", question,
+                db, session.id, user.id, "assistant", reply_sink[0],
                 attachments=[_compose_attachment(run, question, status="clarify")],
             )
             run.input = {**(run.input or {}), "result_message_id": message.id}
@@ -958,8 +1074,18 @@ async def stream_compose(
             yield _sse({"event": "step", "step": dict(step)})
             run.steps = list(trace.steps)
             run.updated_at = utcnow()
+            reply_sink = []
+            async for chunk in _stream_reply(
+                db,
+                target,
+                mode="failed",
+                facts={"user_text": text, "reason": exc.message},
+                fallback=exc.message,
+                sink=reply_sink,
+            ):
+                yield chunk
             message = await _append_message(
-                db, session.id, user.id, "assistant", exc.message,
+                db, session.id, user.id, "assistant", reply_sink[0],
                 attachments=[_compose_attachment(run, exc.message, status="failed")],
             )
             run.input = {**(run.input or {}), "result_message_id": message.id}
@@ -983,11 +1109,34 @@ async def stream_compose(
 
         # 面向用户的一句话：说清「画什么、几张、多久、去哪看」，不复述提示词
         title = str(plan_data.get("title") or "").strip()[:40]
-        reply = (
+        fallback_reply = (
             f"好的，开始画「{title}」"
             if title
             else "好的，按你的描述开始画"
         ) + f"，共 {len(tasks)} 张，大约 30–60 秒，结果会直接出现在下面。"
+        # 任务已经在跑了：这时再写回复正文，不会拖慢出图
+        reply_sink = []
+        async for chunk in _stream_reply(
+            db,
+            target,
+            mode="direct",
+            facts={
+                "user_text": text,
+                "title": title,
+                "subject": plan_data.get("subject") or analysis.get("subject") or "",
+                "style_tags": list(plan_data.get("style_tags") or [])[:5],
+                "aspect": plan_data.get("aspect") or "",
+                "size": size,
+                "decisions": [str(item) for item in (plan_data.get("reasoning") or [])][:4],
+                "skill": skill.name if skill else "",
+                "image_count": len(tasks),
+                "has_reference_images": bool(assets),
+            },
+            fallback=fallback_reply,
+            sink=reply_sink,
+        ):
+            yield chunk
+        reply = reply_sink[0]
         message = await _append_message(
             db, session.id, user.id, "assistant", reply,
             attachments=[_compose_attachment(run, reply, status="completed", tasks=tasks)],

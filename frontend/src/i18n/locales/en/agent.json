@@ -129,7 +129,7 @@
     "relay_go": "Set up",
     "relay_template": "Try a local template first",
     "need_image_title": "Pick an image on the canvas first",
-    "need_image_desc": "This request edits an image. Select it and say it again — I'll start right away.",
+    "need_image_desc": "This request edits an image. Select it on the canvas, tap \"Reference\" on its toolbar, then say it again.",
     "need_image_canvas": "Pick on canvas",
     "from_assets": "From assets",
     "upload_local": "Upload image",

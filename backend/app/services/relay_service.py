@@ -18,6 +18,7 @@ import json
 import socket
 import time
 from dataclasses import dataclass, field
+from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -757,6 +758,111 @@ async def chat_resilient(
         purpose=purpose,
     )
 
+
+
+def _stream_delta(target: RelayTarget, obj: dict[str, Any]) -> str:
+    """从一条流式事件里取出**正文**增量。
+
+    思考型模型的 `reasoning_content` / Anthropic `thinking_delta` 一律跳过：
+    那是模型的草稿，用户要看的是回答本身。
+    """
+    if target.protocol == "anthropic":
+        if obj.get("type") != "content_block_delta":
+            return ""
+        delta = obj.get("delta") or {}
+        if isinstance(delta, dict) and delta.get("type") == "text_delta":
+            return str(delta.get("text") or "")
+        return ""
+    try:
+        choices = obj.get("choices") or []
+        if not choices:
+            return ""
+        delta = choices[0].get("delta") or {}
+        content = delta.get("content")
+        if isinstance(content, list):
+            return "".join(str(part.get("text") or "") for part in content if isinstance(part, dict))
+        return str(content or "")
+    except (AttributeError, IndexError, TypeError):
+        return ""
+
+
+async def chat_stream(
+    target: RelayTarget,
+    messages: list[dict[str, Any]],
+    *,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+) -> AsyncIterator[str]:
+    """流式调用中转站，逐段吐出**正文**文本。
+
+    只给「面向用户的自然语言回复」用：它没有 JSON 契约、不需要纠错重试，
+    要的是首字快。所以这里**不走** `chat_resilient` 的重试链——
+    失败直接抛 `AppError`，由调用方回落到本地文案（回复不该因为润色失败而卡住整条链）。
+
+    兼容两种情况：
+    - 标准 SSE（`data: {...}` 行，OpenAI / Anthropic 两种协议）；
+    - 中转站无视 `stream: true`、一次性回整包 JSON —— 也照样取出正文吐一次。
+    """
+    await guard_url(target.base_url)
+    overrides: dict[str, Any] = {}
+    if temperature is not None:
+        overrides["temperature"] = temperature
+    if max_tokens is not None:
+        overrides["max_tokens"] = max_tokens
+    if target.protocol == "anthropic":
+        body = _anthropic_body(target, messages, **overrides)
+    else:
+        body = _openai_body(target, messages, **overrides)
+    body["stream"] = True
+    headers = {**_auth_headers(target), "Accept": "text/event-stream"}
+    timeout = httpx.Timeout(
+        connect=_CONNECT_TIMEOUT, read=_READ_TIMEOUT, write=_READ_TIMEOUT, pool=_CONNECT_TIMEOUT
+    )
+
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        async with client.stream("POST", target.endpoint, headers=headers, json=body) as response:
+            if response.status_code >= 400:
+                raw = await response.aread()
+                raise AppError(ErrorCode.UPSTREAM_ERROR, _short_reason(response.status_code, raw))
+
+            content_type = (response.headers.get("content-type") or "").lower()
+            if "event-stream" not in content_type:
+                # 不支持流式的中转站：读完整包，按非流式协议取正文
+                raw = await response.aread()
+                if len(raw) > _MAX_RESPONSE_BYTES:
+                    raise AppError(ErrorCode.UPSTREAM_ERROR, "中转站返回的内容过大")
+                try:
+                    payload = json.loads(raw.decode("utf-8", "ignore"))
+                except ValueError as exc:
+                    raise AppError(ErrorCode.UPSTREAM_FORMAT_ERROR, "中转站返回的不是可读的回复") from exc
+                text = _extract_text(target, payload) if isinstance(payload, dict) else ""
+                if text:
+                    yield text
+                return
+
+            total = 0
+            async for line in response.aiter_lines():
+                total += len(line)
+                if total > _MAX_RESPONSE_BYTES:
+                    raise AppError(ErrorCode.UPSTREAM_ERROR, "中转站返回的内容过大")
+                line = line.strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if not data or data == "[DONE]":
+                    continue
+                try:
+                    obj = json.loads(data)
+                except ValueError:
+                    continue
+                if isinstance(obj, dict):
+                    if obj.get("type") == "error" or (
+                        target.protocol == "openai" and isinstance(obj.get("error"), dict)
+                    ):
+                        raise AppError(ErrorCode.UPSTREAM_ERROR, _short_reason(200, data.encode()))
+                    delta = _stream_delta(target, obj)
+                    if delta:
+                        yield delta
 
 
 async def test_target(target: RelayTarget) -> dict[str, Any]:

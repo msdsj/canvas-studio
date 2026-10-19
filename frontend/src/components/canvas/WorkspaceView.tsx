@@ -21,6 +21,16 @@ import { CanvasDropZone } from './stage/CanvasDropZone'
 import { EmptyCanvas } from './stage/EmptyCanvas'
 import { useCanvasHistory } from './stage/use-canvas-history'
 import { focusAgentComposer } from './stage/composer-bridge'
+import { ImageActionBar } from './stage/ImageActionBar'
+import { CompareDialog } from './stage/CompareDialog'
+import {
+  findParent,
+  readLineage,
+  versionOf,
+  withLineage,
+  type Lineage,
+  type LineageOp,
+} from './stage/lineage'
 import './stage/stage.css'
 import { StudioSidebar } from '@/components/studio/StudioSidebar'
 import { AgentPanelHeader, CanvasTopBar } from '@/components/workspace/WorkspaceChrome'
@@ -79,7 +89,7 @@ interface WorkspaceViewProps {
   taskId?: string
 }
 
-/** 编辑目标：画布上被单击选中的图片。 */
+/** 编辑目标：进入框选修改的那张图片。 */
 interface EditTarget {
   elementId: string
   dataUrl: string
@@ -93,8 +103,18 @@ interface EditTarget {
   draftKey: string
 }
 
-const CLICK_MOVE_TOLERANCE = 5
-const CLICK_MAX_MS = 700
+/** 整张图作为一个选区（归一化坐标）：一键操作作用于全图 */
+const FULL_IMAGE_REGION = { x: 0, y: 0, w: 1, h: 1 }
+
+/**
+ * 一键操作交给图像模型的指令（模型侧文本，不是界面文案，所以不走 i18n）。
+ * 后端能力注册表里 enhance / cutout 各自还有一段强约束前缀，这里只补「对象是整张图」。
+ */
+const QUICK_OP_PROMPT: Record<'enhance' | 'cutout', string> = {
+  enhance: '对整张图片做高清增强：提升清晰度、细节与质感，构图、内容、配色与风格保持完全一致。',
+  cutout: '把画面的主体完整分离出来，输出透明背景的 PNG 素材，主体本身保持与原图完全一致。',
+}
+
 /** 结果落画布时的单张最大边长 / 最小边长 / 相邻间距（多产出横向排布）。 */
 const RESULT_MAX_SIDE = 320
 const RESULT_MIN_SIDE = 80
@@ -111,7 +131,8 @@ async function placeTaskResults(
   api: ExcalidrawApiLike,
   task: { prompt: string; result_urls: string[] },
   origin: { x: number; y: number },
-  canvasId?: string | null
+  canvasId?: string | null,
+  lineage?: Lineage
 ): Promise<number> {
   // 逐张去重：一次任务可能产出「1 张整图 + N 张素材」。若中途某张拉取失败，
   // 下一轮轮询会重来——不按 url 去重就会把已经落过的图重复叠到画布上。
@@ -122,7 +143,7 @@ async function placeTaskResults(
     const scale = Math.min(1, RESULT_MAX_SIDE / Math.max(size.width, size.height, 1))
     const width = Math.max(RESULT_MIN_SIDE, Math.round(size.width * scale))
     const height = Math.max(RESULT_MIN_SIDE, Math.round(size.height * scale))
-    await addImageToCanvas(api, {
+    const element = await addImageToCanvas(api, {
       url,
       assetId: await materializeResultAsset(url),
       name: task.prompt.slice(0, 20),
@@ -131,6 +152,14 @@ async function placeTaskResults(
       x: cursorX,
       y: origin.y,
     })
+    // 记下「这张是从哪张改出来的」：版本号与前后对比都靠它
+    if (lineage) {
+      api.updateScene({
+        elements: api
+          .getSceneElements()
+          .map((el) => (el.id === element.id ? withLineage(el as CanvasElement, lineage) : el)),
+      })
+    }
     // 落一张登记一张：这样中途失败后的重试只补没落的，不会重复
     markUrlPlaced(url, canvasId)
     cursorX += width + RESULT_GAP
@@ -330,6 +359,8 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
       screenH: number
       /** 提交时间：占位卡据此显示用时、估算阶段、判断是否超时 */
       startedAt: number
+      /** 来源图与改法：结果落图时写进 customData，形成版本谱系 */
+      lineage?: Lineage
     }>
   >([])
   const placeholdersRef = useRef<typeof placeholders>([])
@@ -342,7 +373,6 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   const selectedImageRef = useRef<CanvasElement | null>(null)
   const editTargetRef = useRef<EditTarget | null>(null)
   editTargetRef.current = editTarget
-  const clickStartRef = useRef<{ x: number; y: number; time: number } | null>(null)
   /** 上一次同步到 state 的场景签名 / 选中签名（防止 onChange 无限回灌） */
   const sceneSigRef = useRef('')
   const selectionSigRef = useRef('')
@@ -417,6 +447,19 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     setStoreSelectedIds(selectedIds)
   }, [selectedIds, setStoreSelectedIds])
 
+  /** 视口版本号：平移 / 缩放时自增（rAF 节流），驱动操作条跟随 */
+  const [viewTick, setViewTick] = useState(0)
+  const viewTickRaf = useRef(0)
+  /** 正在拖动 / 缩放 / 旋转元素：此时操作条让开，免得挡住手上的动作 */
+  const [interacting, setInteracting] = useState(false)
+  /** 正在提交的一键操作（按钮转圈，防连点重复扣费） */
+  const [quickBusy, setQuickBusy] = useState<LineageOp | null>(null)
+  /** 版本对比：两张图的 dataUrl 与版本号 */
+  const [compare, setCompare] = useState<{
+    before: { url: string; version: number }
+    after: { url: string; version: number }
+    op: LineageOp
+  } | null>(null)
   const [selectedImageInfo, setSelectedImageInfo] = useState<{
     dataUrl: string
     width: number
@@ -621,6 +664,17 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
         }
       }
       if (placeholdersRef.current.length > 0) refreshPhRef.current()
+
+      const busy = Boolean(
+        appState.selectedElementsAreBeingDragged || appState.isResizing || appState.isRotating
+      )
+      setInteracting((prev) => (prev === busy ? prev : busy))
+      if (image && !viewTickRaf.current) {
+        viewTickRaf.current = requestAnimationFrame(() => {
+          viewTickRaf.current = 0
+          setViewTick((value) => value + 1)
+        })
+      }
     },
     [autosave, exitEdit]
   )
@@ -788,40 +842,14 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     []
   )
 
-  /**
-   * 单击（无拖拽位移）选中图片 → 进入编辑模式，并把这张图作为 @ 引用送进输入框。
-   *
-   * 为什么点击就引用：本产品里「点中一张图」的意图几乎总是「我要在这张图上做事」，
-   * 而输入框正是下指令的地方。把它带进输入框 = 省掉「先选中、再说明是哪张」这一句，
-   * 也让后续指令天然带上底图。引用是可移除的 chip，不会静默改写提示词。
-   *
-   * ⚠️ 这里的判定**只看这一笔是不是拖拽**，不看当时是否已经存在选区：
-   * 拖拽（框选）在 pointerup 时位移必然超过容差，本来就会被下面那条 early return 拦掉。
-   * 旧实现另加了一道「有选区就整笔跳过」的判断，属于重复条件，而且会顺手吞掉
-   * 「编辑层已开、用户又点了另一张图」这类本该走引用路径的点击。
+  /*
+   * 点图片的交互（2026-10 改版）：
+   * - 单击只「选中」，图片上方出现操作条（ImageActionBar），由用户决定下一步；
+   * - 框选修改 = 操作条按钮 / 双击图片 / E 键；
+   * - 引用到对话 = 操作条「更多」里的显式动作。
+   * 旧版单击直接进编辑层并自动 @ 引用：想挪一下、缩放一下图片都会被编辑层抢走，
+   * 输入框里也会堆满并非本意的引用。
    */
-  const handlePointerDownCapture = (e: React.PointerEvent<HTMLDivElement>) => {
-    clickStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() }
-  }
-
-  const handlePointerUpCapture = (e: React.PointerEvent<HTMLDivElement>) => {
-    const start = clickStartRef.current
-    clickStartRef.current = null
-    if (!start) return
-    // 移动超过容差 / 按住过久 = 画布操作（拖拽、框选、平移），绝不是「点中」
-    if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > CLICK_MOVE_TOLERANCE) return
-    if (Date.now() - start.time > CLICK_MAX_MS) return
-    // 点在编辑层自己的 UI 上（选区手柄、气泡、涂鸦工具）不算点图
-    if (e.target instanceof Element && e.target.closest('[data-edit-layer-ui]')) return
-    // 等 Excalidraw 完成选中态更新后再判断
-    window.setTimeout(() => {
-      const element = selectedImageRef.current
-      if (!element) return
-      void referenceCanvasImage(element)
-      if (editTargetRef.current?.elementId === element.id) return
-      void enterEdit(element)
-    }, 0)
-  }
 
   /**
    * 把画布上的一张图作为 @ 引用插进输入框。
@@ -987,6 +1015,137 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   }
 
   /** 下载当前选中图片（PNG / JPG）。 */
+  /* ------------------------------------------------------------------ */
+  /* 选中图片的操作条                                                      */
+  /* ------------------------------------------------------------------ */
+
+  /** 操作条只在「恰好选中一张图、没在框选修改、没在拖动」时出现 */
+  const barTarget =
+    selectedIds.length === 1 && selectedImage && !editTarget && !interacting ? selectedImage : null
+
+  const barRect = useMemo(() => {
+    if (!barTarget) return null
+    // 拖动后 elements 里的坐标可能还是旧的：直接向画布要最新的那一份
+    const fresh =
+      (apiRef.current?.getSceneElements().find((el) => el.id === barTarget.id) as
+        | CanvasElement
+        | undefined) ?? barTarget
+    const rect = elementScreenRect(apiRef.current, fresh)
+    // 缩得太小（缩略图那么大）时不弹操作条：按钮会比图片还大
+    if (!rect || rect.w < 28 || rect.h < 28) return null
+    return rect
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barTarget, viewTick])
+
+  const barParent = useMemo(
+    () => (barTarget ? findParent(elements, barTarget) : null),
+    [elements, barTarget]
+  )
+  const barVersion = useMemo(
+    () => (barTarget ? versionOf(elements, barTarget) : 1),
+    [elements, barTarget]
+  )
+
+  /** 画布上的图片 → File（一键操作与变体都要把像素交出去） */
+  const elementFile = async (element: CanvasElement): Promise<File | null> => {
+    const dataUrl = elementImageDataUrl(apiRef.current, element)
+    if (!dataUrl) return null
+    const blob = await (await fetch(dataUrl)).blob()
+    return new File([blob], 'canvas-image.png', { type: blob.type || 'image/png' })
+  }
+
+  /** 一键整图操作（高清放大 / 去背景）：结果落在原图右侧，并记下版本谱系。 */
+  const runQuickOp = async (op: 'enhance' | 'cutout') => {
+    const element = barTarget
+    if (!element || quickBusy) return
+    if (!canAfford(prices.edit)) {
+      setQuotaModalOpen(true)
+      return
+    }
+    const label = t(`stage:ops.${op}`)
+    setQuickBusy(op)
+    try {
+      const file = await elementFile(element)
+      if (!file) {
+        toast.error(t('stage:quick.failed', { op: label }))
+        return
+      }
+      const prompt = QUICK_OP_PROMPT[op]
+      const task = await generateApi.edit(
+        {
+          prompt,
+          session_id: sessionId || undefined,
+          canvas_id: canvasId ?? undefined,
+          file,
+          ops: [{ region: FULL_IMAGE_REGION, handler: op, prompt, intensity: 'fine' }],
+        },
+        newIdempotencyKey()
+      )
+      pushPlaceholder(
+        task.id,
+        { x: element.x ?? 0, y: element.y ?? 0, w: element.width ?? 320, h: element.height ?? 320 },
+        { parentId: element.id, op }
+      )
+      events.emit('tasks:changed')
+      events.emit('quota:changed')
+      toast.success(t('stage:quick.started', { op: label }), t('stage:quick.started_hint'))
+    } catch (error) {
+      toast.error(t('stage:quick.failed', { op: label }), errorMessage(error, te))
+    } finally {
+      setQuickBusy(null)
+    }
+  }
+
+  /**
+   * 再来一版：把这张图作为参考交给 Agent（走完整的分析 → 出图链路），
+   * 而不是盲目重抽一次——Agent 会读图、沿用风格，结果出现在对话里。
+   */
+  const runVariation = async () => {
+    const element = barTarget
+    if (!element || quickBusy) return
+    setQuickBusy('variation')
+    try {
+      const file = await elementFile(element)
+      if (!file) return
+      const ui = useUIStore.getState()
+      ui.setAgentPanelOpen(true)
+      if (!window.matchMedia('(min-width: 768px)').matches) ui.setMobileSegment('chat')
+      useComposerHandoff.getState().stage(t('stage:quick.variation_prompt'), [file])
+    } catch (error) {
+      toast.error(t('stage:quick.failed', { op: t('stage:ops.variation') }), errorMessage(error, te))
+    } finally {
+      setQuickBusy(null)
+    }
+  }
+
+  const openCompare = () => {
+    if (!barTarget || !barParent) return
+    const after = elementImageDataUrl(apiRef.current, barTarget)
+    const before = elementImageDataUrl(apiRef.current, barParent)
+    if (!after || !before) return
+    setCompare({
+      before: { url: before, version: Math.max(1, barVersion - 1) },
+      after: { url: after, version: barVersion },
+      op: readLineage(barTarget)?.op ?? 'region',
+    })
+  }
+
+  // E 键 = 框选修改（选中图片时）。抢在 Excalidraw 之前：它的 E 是橡皮擦，
+  // 而「选中一张图再按 E」的意图几乎总是编辑这张图
+  useEffect(() => {
+    if (!barTarget) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'e' || event.metaKey || event.ctrlKey || event.altKey) return
+      const el = event.target as HTMLElement | null
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      void enterEdit(barTarget)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [barTarget, enterEdit])
+
   const handleDownloadSelected = async (format: 'png' | 'jpg') => {
     const dataUrl = selectedImageInfo?.dataUrl
     if (!dataUrl) {
@@ -1191,7 +1350,11 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   refreshPhRef.current = refreshPlaceholderPositions
 
   /** 任务提交后：在当前图片右侧占位（结果将渲染在该位置）。 */
-  const pushPlaceholder = (taskId: string, base: { x: number; y: number; w: number; h: number }) => {
+  const pushPlaceholder = (
+    taskId: string,
+    base: { x: number; y: number; w: number; h: number },
+    lineage?: Lineage
+  ) => {
     if (!api) return
     const appState = api.getAppState() as { zoom?: { value?: number }; scrollX?: number; scrollY?: number }
     const zoom = appState.zoom?.value ?? 1
@@ -1214,6 +1377,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
         screenW: sceneW * zoom,
         screenH: sceneH * zoom,
         startedAt: Date.now(),
+        lineage,
       },
     ])
   }
@@ -1234,7 +1398,13 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
             // 骨架并如实告知——否则会在画布上永远留一块「生成中…」的假象。
             let placed = 0
             try {
-              placed = await placeTaskResults(api, task, { x: ph.sceneX, y: ph.sceneY }, canvasId)
+              placed = await placeTaskResults(
+                api,
+                task,
+                { x: ph.sceneX, y: ph.sceneY },
+                canvasId,
+                ph.lineage
+              )
             } catch {
               const attempts = (placeFailuresRef.current[ph.taskId] ?? 0) + 1
               placeFailuresRef.current[ph.taskId] = attempts
@@ -1319,12 +1489,16 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
 
       const element = apiRef.current?.getSceneElements().find((el) => el.id === target.elementId)
       if (element) {
-        pushPlaceholder(task.id, {
-          x: element.x ?? 0,
-          y: element.y ?? 0,
-          w: element.width ?? 320,
-          h: element.height ?? 320,
-        })
+        pushPlaceholder(
+          task.id,
+          {
+            x: element.x ?? 0,
+            y: element.y ?? 0,
+            w: element.width ?? 320,
+            h: element.height ?? 320,
+          },
+          { parentId: target.elementId, op: 'region' }
+        )
       }
       // 任务已建：这张图的草稿使命完成，必须清掉——
       // 否则用户再点回原图会看到「已经提交过的那一版选区」又冒出来
@@ -1441,12 +1615,13 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
               // 本平台的图片编辑统一由单击进入编辑层，避免两个冲突的图片编辑入口
               selectedImage && 'cs-has-image-selected'
             )}
-            onPointerDownCapture={handlePointerDownCapture}
-            onPointerUpCapture={handlePointerUpCapture}
             onDoubleClickCapture={(e) => {
-              if (!selectedImageRef.current) return
+              const element = selectedImageRef.current
+              if (!element) return
+              // 双击图片 = 进入框选修改（顺手拦掉 Excalidraw 原生的双击裁剪，避免两个编辑入口）
               e.preventDefault()
               e.stopPropagation()
+              if (editTargetRef.current?.elementId !== element.id) void enterEdit(element)
             }}
           >
             {initialData !== undefined ? (
@@ -1482,9 +1657,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
                     // 这里手动同步选中态，保证图层面板 ↔ 画布双向一致
                     selectionSigRef.current = element.id
                     setSelectedIds([element.id])
-                    if (element.type === 'image' && editTargetRef.current?.elementId !== element.id) {
-                      void enterEdit(element)
-                    }
+                    if (element.type === 'image') selectedImageRef.current = element
                   }}
                   collapsed={false}
                 />
@@ -1501,6 +1674,35 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
 
             {/* 结果落画布的「显影」动效（纯视觉层，不拦截指针） */}
             <RevealLayer ref={revealRef} api={api} />
+
+            {/* 选中图片的浮动操作条：框选修改 / 高清 / 去背景 / 再来一版 / 对比 / 下载 */}
+            {barTarget && barRect && (
+              <ImageActionBar
+                rect={barRect}
+                targetKey={barTarget.id}
+                naturalSize={
+                  selectedImageInfo
+                    ? { width: selectedImageInfo.width, height: selectedImageInfo.height }
+                    : null
+                }
+                version={barVersion}
+                canCompare={Boolean(barParent)}
+                busy={quickBusy}
+                cost={prices.edit}
+                onEdit={() => void enterEdit(barTarget)}
+                onEnhance={() => void runQuickOp('enhance')}
+                onCutout={() => void runQuickOp('cutout')}
+                onVariation={() => void runVariation()}
+                onCompare={openCompare}
+                onDownload={(format) => void handleDownloadSelected(format)}
+                onReference={() => {
+                  void referenceCanvasImage(barTarget)
+                  focusAgentComposer()
+                }}
+                onCopy={() => void handleCopySelected()}
+                onDelete={() => handleDeleteElement(barTarget.id)}
+              />
+            )}
 
             {/* 右下角导航器：选中图信息卡 / 全景 · 胶片 / 缩放条 */}
             {api && (
@@ -1587,6 +1789,15 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
         </div>
 
       </div>
+
+      {compare && (
+        <CompareDialog
+          before={compare.before}
+          after={compare.after}
+          opLabel={t(`stage:ops.${compare.op}`)}
+          onClose={() => setCompare(null)}
+        />
+      )}
 
       <Modal
         open={assetPickerOpen}

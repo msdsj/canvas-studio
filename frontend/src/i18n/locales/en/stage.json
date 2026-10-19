@@ -111,5 +111,46 @@
         "prompt": "3D cartoon-style avatar, rounded shapes, soft materials, solid background, front-facing bust"
       }
     ]
+  },
+  "bar": {
+    "label": "Image actions",
+    "edit": "Edit region",
+    "edit_hint": "Box the area to change and describe it (double-click or press E)",
+    "enhance": "Upscale",
+    "enhance_hint": "Sharpen the whole image; the result lands to the right",
+    "cutout": "Remove BG",
+    "cutout_hint": "Cut the subject out on a transparent background; original untouched",
+    "variation": "Variation",
+    "variation_hint": "Ask the agent for a new take in the same style",
+    "compare": "Compare",
+    "compare_hint": "Overlay with the previous version and drag to compare",
+    "download": "Download",
+    "download_hint": "Download PNG",
+    "download_jpg": "Download JPG",
+    "more": "More",
+    "reference": "Reference",
+    "copy": "Copy image",
+    "delete": "Delete",
+    "cost": "Costs {{cost}} credits",
+    "reference_hint": "Bring this image into the chat, then describe the change"
+  },
+  "quick": {
+    "started": "{{op}} started",
+    "started_hint": "The result will appear to the right in ~30–60s",
+    "failed": "Couldn't start {{op}}",
+    "variation_prompt": "Use this image as reference; keep the subject and overall style, and make a new version with a different composition or details"
+  },
+  "ops": {
+    "region": "Region edit",
+    "enhance": "Upscale",
+    "cutout": "Remove BG",
+    "variation": "Variation"
+  },
+  "compare": {
+    "title": "Compare versions",
+    "close": "Close",
+    "before": "V{{v}} before",
+    "after": "V{{v}} now",
+    "hint": "Drag the divider or use ← →"
   }
 }

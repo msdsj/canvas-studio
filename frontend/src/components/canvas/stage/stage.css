@@ -118,3 +118,15 @@
     animation: none;
   }
 }
+
+/* 透明底棋盘格：去背景结果的透明区域要「看得见是透明」，而不是一片黑/白 */
+.cs-checker {
+  background-color: #f2f0ea;
+  background-image:
+    linear-gradient(45deg, #dedad0 25%, transparent 25%),
+    linear-gradient(-45deg, #dedad0 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #dedad0 75%),
+    linear-gradient(-45deg, transparent 75%, #dedad0 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}

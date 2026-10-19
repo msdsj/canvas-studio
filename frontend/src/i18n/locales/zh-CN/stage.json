@@ -111,5 +111,46 @@
         "prompt": "3D 卡通风格头像，圆润造型，柔和材质，纯色背景，正面半身"
       }
     ]
+  },
+  "bar": {
+    "label": "图片操作",
+    "edit": "框选修改",
+    "edit_hint": "框出要改的地方，写一句改法（双击图片或按 E 也能进入）",
+    "enhance": "高清放大",
+    "enhance_hint": "整张图提升清晰度与细节，结果放在原图右侧",
+    "cutout": "去背景",
+    "cutout_hint": "把主体抠成透明背景素材，原图不动",
+    "variation": "再来一版",
+    "variation_hint": "以这张图为参考，让 Agent 出一版相似风格的新图",
+    "compare": "对比",
+    "compare_hint": "和上一版叠在一起拖动对比",
+    "download": "下载",
+    "download_hint": "下载 PNG",
+    "download_jpg": "下载 JPG",
+    "more": "更多",
+    "reference": "引用",
+    "copy": "复制图片",
+    "delete": "删除",
+    "cost": "消耗 {{cost}} 额度",
+    "reference_hint": "把这张图带进对话，接着说要怎么改"
+  },
+  "quick": {
+    "started": "已开始{{op}}",
+    "started_hint": "结果会出现在原图右侧，约 30–60 秒",
+    "failed": "{{op}}没能开始",
+    "variation_prompt": "参考这张图，保持主体与整体风格，换一种构图或细节再出一版"
+  },
+  "ops": {
+    "region": "框选修改",
+    "enhance": "高清放大",
+    "cutout": "去背景",
+    "variation": "变体"
+  },
+  "compare": {
+    "title": "版本对比",
+    "close": "关闭对比",
+    "before": "V{{v}} 之前",
+    "after": "V{{v}} 现在",
+    "hint": "拖动分割线，或用 ← → 键"
   }
 }

@@ -46,6 +46,11 @@ def ok(content: str = '{"ok": true}') -> dict[str, Any]:
     return {"kind": "ok", "content": content}
 
 
+def sse(*pieces: str) -> dict[str, Any]:
+    """一次 OpenAI 兼容的流式响应：每段正文一条 `data:` 事件，末尾 `[DONE]`。"""
+    return {"kind": "sse", "pieces": list(pieces)}
+
+
 def status(code: int, message: str = "boom") -> dict[str, Any]:
     """一次错误状态码响应。"""
     return {"kind": "status", "code": code, "message": message}
@@ -104,6 +109,15 @@ def _render(behavior: dict[str, Any]) -> tuple[int, str, bytes]:
         return 200, "application/json", b"[1, 2, 3]"
     if kind == "raw":
         return 200, "text/plain; charset=utf-8", bytes(behavior.get("body") or b"")
+    if kind == "sse":
+        lines = [
+            # 思考型模型的草稿片段：流式回复必须跳过它
+            "data: " + json.dumps({"choices": [{"delta": {"reasoning_content": "草稿"}}]}),
+        ]
+        for piece in behavior.get("pieces") or []:
+            lines.append("data: " + json.dumps({"choices": [{"delta": {"content": piece}}]}, ensure_ascii=False))
+        lines.append("data: [DONE]")
+        return 200, "text/event-stream", ("\n\n".join(lines) + "\n\n").encode("utf-8")
     if kind == "refused":
         return 200, "application/json", json.dumps({"error": {"message": "refused"}}).encode()
     if kind == "no_content":
