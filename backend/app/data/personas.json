@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "personas": [
+    {
+      "key": "ecommerce",
+      "name": "电商运营",
+      "tagline": "详情页、主图、大促海报",
+      "description": "从首屏到行动号召的完整详情页链路，大促海报、主图与模特图改造。",
+      "icon": "shopping-bag",
+      "recommended": true,
+      "packs": ["ecommerce_detail", "ecommerce_poster", "promo_poster", "photo_edit"],
+      "examples": [
+        "给我一套高端耳机详情页，首屏 3 秒抓住注意力",
+        "618 大促奶粉海报，金色展台 + 立体字 + 满减条幅",
+        "把这张平铺的衣服图改成真人上身的 3D 立体效果"
+      ]
+    },
+    {
+      "key": "marketing",
+      "name": "市场 / 社媒",
+      "tagline": "海报、封面、节气营销",
+      "description": "商业促销、节气节庆、自媒体封面，覆盖投放素材与社媒内容。",
+      "icon": "megaphone",
+      "recommended": false,
+      "packs": ["social_cover", "promo_poster", "festival_poster", "ecommerce_poster"],
+      "examples": [
+        "小红书封面：大字标题 + 撕纸拼贴，主题是秋日露营",
+        "冬至节气海报，暖色食物特写 + 中式排版",
+        "门店开业促销海报，价格锚点要突出"
+      ]
+    },
+    {
+      "key": "ui_designer",
+      "name": "UI / 视觉设计",
+      "tagline": "界面稿、图标、字体字效",
+      "description": "界面与组件视觉、图标风格、字体字效，落在产品与设计规范里。",
+      "icon": "layout",
+      "recommended": false,
+      "packs": ["dev_ui", "font_effect", "brand_vi"],
+      "examples": [
+        "设计一个深色模式的 SaaS 后台仪表盘界面",
+        "3D 立体字效主视觉，主标题「新品上线」",
+        "一套线性图标的风格规范图"
+      ]
+    },
+    {
+      "key": "developer",
+      "name": "开发",
+      "tagline": "架构图、流程图、技术插图",
+      "description": "架构图、流程图、时序图与技术博客插图，用于文档与分享。",
+      "icon": "code",
+      "recommended": false,
+      "packs": ["dev_ui", "general_design"],
+      "examples": [
+        "画一张微服务架构图，包含网关、服务、数据库三层",
+        "AI 生成任务的状态机流程图",
+        "技术博客头图，极简等距风格"
+      ]
+    },
+    {
+      "key": "brand",
+      "name": "品牌 / 包装",
+      "tagline": "LOGO、VI、包装结构",
+      "description": "品牌视觉、LOGO 与包装设计，含国潮文创与工艺表现。",
+      "icon": "palette",
+      "recommended": false,
+      "packs": ["brand_vi", "packaging", "font_effect"],
+      "examples": [
+        "新中式茶饮品牌的 LOGO，篆刻感线条",
+        "产品包装草图，含结构线与材质标注",
+        "品牌主视觉：留白 + 单色 + 大字标题"
+      ]
+    },
+    {
+      "key": "content",
+      "name": "内容 / 插画",
+      "tagline": "创意玩法、封面、插画",
+      "description": "像素风、鱼眼、壁纸与创意海报，偏社交传播与个人表达。",
+      "icon": "sparkles",
+      "recommended": false,
+      "packs": ["creative_play", "social_cover", "general_design"],
+      "examples": [
+        "像素风城市夜景，8-bit 配色",
+        "鱼眼自拍视角的街头照片，广角畸变",
+        "手机壁纸：祈运主题，红金配色"
+      ]
+    },
+    {
+      "key": "general",
+      "name": "通用创作",
+      "tagline": "什么都能画一点",
+      "description": "没有明确行业归属时选这个：通用设计技能 + P 图反推。",
+      "icon": "circle-dot",
+      "recommended": false,
+      "packs": ["general_design", "photo_edit"],
+      "examples": [
+        "帮我反推这张图的提示词，我要复现同样的风格",
+        "一张干净的产品图，白底 + 柔和阴影",
+        "把这张照片改成胶片质感"
+      ]
+    }
+  ]
+}

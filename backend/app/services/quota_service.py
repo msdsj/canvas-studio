@@ -4,6 +4,12 @@
 - 余额不为负（条件 UPDATE 原子扣减，防并发超扣）；
 - `(ref_id,type)` 唯一，回滚幂等（同一 ref 只回滚一次）；
 - 预扣(processing) → 成功确认(success) / 未完成回滚(refunded)。
+
+团队共享额度池
+--------------
+`team` 参数非空**且** `team.shared_quota()` 为真时，扣减/回滚发生在 `teams.balance` 上，
+流水行同时记录 `team_id`（动的是谁的池）与 `user_id`（谁花的）。回滚时按流水行上的
+`team_id` 反查，因此同一条流水无论从哪个入口回滚，账都不会串到个人余额上。
 """
 from __future__ import annotations
 
@@ -11,6 +17,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.quota import QuotaTransaction
+from app.models.team import Team
 from app.models.user import User
 from app.services import config_service
 from app.utils.errors import AppError, ErrorCode
@@ -25,8 +32,25 @@ async def _balance(db: AsyncSession, user_id: str) -> int:
     return int(result.scalar_one())
 
 
-async def get_account(db: AsyncSession, user: User) -> dict:
-    """返回额度账户视图。"""
+async def _team_balance(db: AsyncSession, team_id: str) -> int:
+    """读取团队共享池余额。"""
+    result = await db.execute(select(Team.balance).where(Team.id == team_id))
+    return int(result.scalar_one())
+
+
+def _pool_team(team: Team | None) -> Team | None:
+    """只有开启共享池的团队才接管扣费，否则沿用成员个人余额。"""
+    if team is None or not team.shared_quota():
+        return None
+    return team
+
+
+async def get_account(db: AsyncSession, user: User, team: Team | None = None) -> dict:
+    """返回额度账户视图。
+
+    `team` 传入且启用共享池时，`balance` 是团队池余额，并额外给出 `team_id` /
+    `team_balance`，前端据此显示「团队共享额度」而不是个人额度。
+    """
     total_granted = int(
         (
             await db.execute(
@@ -38,11 +62,25 @@ async def get_account(db: AsyncSession, user: User) -> dict:
         ).scalar()
         or 0
     )
+    pool = _pool_team(team)
+    balance = team.balance if pool is not None else user.balance
     return {
-        "balance": user.balance,
+        "balance": balance,
         "threshold_pct": int(await config_service.get_value(db, "QUOTA_WARN_PCT", 20)),
         "total_granted": total_granted,
         "prices": await config_service.prices(db),
+        "pool": (
+            {
+                "scope": "team",
+                "team_id": pool.id,
+                "team_name": pool.name,
+                "team_balance": pool.balance,
+                "personal_balance": user.balance,
+            }
+            if pool is not None
+            else {"scope": "personal", "team_id": None, "team_balance": None,
+                  "personal_balance": user.balance}
+        ),
     }
 
 
@@ -53,22 +91,38 @@ async def pre_deduct(
     cost: int,
     ref_id: str,
     note: str = "",
+    team: Team | None = None,
 ) -> QuotaTransaction:
-    """预扣额度：条件 UPDATE 原子扣减，余额不足抛 QUOTA_INSUFFICIENT。"""
+    """预扣额度：条件 UPDATE 原子扣减，余额不足抛 QUOTA_INSUFFICIENT。
+
+    团队共享池开启时扣团队余额；池余额不足**不**自动回落个人余额——
+    静默换账本会让管理员完全看不懂费用从哪出的，宁可明确报「额度不够」。
+    """
     if cost <= 0:
         raise AppError(ErrorCode.VALIDATION_ERROR, "消耗额度必须大于 0")
-    result = await db.execute(
-        update(User)
-        .where(User.id == user_id, User.balance >= cost)
-        .values(balance=User.balance - cost)
-    )
+    pool = _pool_team(team)
+    if pool is not None:
+        result = await db.execute(
+            update(Team)
+            .where(Team.id == pool.id, Team.balance >= cost)
+            .values(balance=Team.balance - cost)
+        )
+    else:
+        result = await db.execute(
+            update(User)
+            .where(User.id == user_id, User.balance >= cost)
+            .values(balance=User.balance - cost)
+        )
     if result.rowcount == 0:
         await db.rollback()
         raise AppError(ErrorCode.QUOTA_INSUFFICIENT)
-    balance_after = await _balance(db, user_id)
+    balance_after = (
+        await _team_balance(db, pool.id) if pool is not None else await _balance(db, user_id)
+    )
     tx = QuotaTransaction(
         id=new_id(),
         user_id=user_id,
+        team_id=pool.id if pool is not None else None,
         type=tx_type,
         amount=-cost,
         status="processing",
@@ -113,11 +167,18 @@ async def refund(db: AsyncSession, ref_id: str) -> QuotaTransaction | None:
     if tx.status == "success":
         return tx  # 已确认成功，不再回滚（保护）
     refund_amount = -tx.amount
-    await db.execute(
-        update(User).where(User.id == tx.user_id).values(balance=User.balance + refund_amount)
-    )
-    tx.status = "refunded"
-    tx.balance_after = await _balance(db, tx.user_id)
+    if tx.team_id:
+        await db.execute(
+            update(Team).where(Team.id == tx.team_id).values(balance=Team.balance + refund_amount)
+        )
+        tx.status = "refunded"
+        tx.balance_after = await _team_balance(db, tx.team_id)
+    else:
+        await db.execute(
+            update(User).where(User.id == tx.user_id).values(balance=User.balance + refund_amount)
+        )
+        tx.status = "refunded"
+        tx.balance_after = await _balance(db, tx.user_id)
     await db.flush()
     return tx
 
@@ -129,15 +190,27 @@ async def grant(
     note: str = "",
     ref_id: str | None = None,
     tx_type: str = "grant",
+    team: Team | None = None,
 ) -> QuotaTransaction:
-    """发放额度（初始赠送 / 管理员增加）。"""
-    await db.execute(
-        update(User).where(User.id == user_id).values(balance=User.balance + amount)
-    )
-    balance_after = await _balance(db, user_id)
+    """发放额度（初始赠送 / 管理员增加 / 团队充值）。
+
+    `team` 非空即向团队共享池充值（不受 `shared_quota` 开关影响：
+    管理员给团队充值是显式动作，开关只决定「扣费时走哪个池」）。
+    """
+    if team is not None:
+        await db.execute(
+            update(Team).where(Team.id == team.id).values(balance=Team.balance + amount)
+        )
+        balance_after = await _team_balance(db, team.id)
+    else:
+        await db.execute(
+            update(User).where(User.id == user_id).values(balance=User.balance + amount)
+        )
+        balance_after = await _balance(db, user_id)
     tx = QuotaTransaction(
         id=new_id(),
         user_id=user_id,
+        team_id=team.id if team is not None else None,
         type=tx_type,
         amount=amount,
         status="success",

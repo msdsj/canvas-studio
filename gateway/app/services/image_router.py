@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import logging
+from contextlib import asynccontextmanager
 
 import httpx
 
@@ -24,6 +25,30 @@ logger = logging.getLogger(__name__)
 #: 只有「上游根本连不上」才降级成演示占位图。格式异常 / 号池无额度 / 鉴权失败 / 限流
 #: 必须如实失败——把「没画出来」伪装成「画好了」，用户会以为产品在乱画，还白扣一次额度。
 _DEMO_FALLBACK_CODES = {ErrorCode.PROXY_UNREACHABLE}
+
+
+@asynccontextmanager
+async def _image_lease(payload: dict):
+    """Hold one credential for the full request, including retries/fallbacks."""
+    batch_id = str(payload.get("pool_batch_id") or "")
+    task_id = str(payload.get("pool_task_id") or "")
+    try:
+        batch_total = int(payload.get("pool_batch_total") or 1)
+        count = int(payload.get("n") or 1)
+    except (ValueError, TypeError) as exc:
+        raise GatewayError(ErrorCode.VALIDATION_ERROR, "图片批次数量无效") from exc
+    if batch_id and (not task_id or not 1 <= batch_total <= 32 or count != 1):
+        raise GatewayError(ErrorCode.VALIDATION_ERROR, "每个图片批次任务须包含标识且只生成一张图片")
+    if not batch_id and (task_id or batch_total != 1):
+        raise GatewayError(ErrorCode.VALIDATION_ERROR, "缺少图片批次标识")
+    account = await account_pool.acquire_image(
+        batch_id=batch_id, task_id=task_id, batch_total=batch_total
+    )
+    try:
+        yield account
+    finally:
+        if account:
+            await account_pool.release_image(account["id"], batch_id=batch_id, task_id=task_id)
 
 
 async def _to_b64(client: httpx.AsyncClient, item: dict) -> str | None:
@@ -52,7 +77,9 @@ def _normalize(data: dict, images: list[str]) -> dict:
     }
 
 
-async def _generations_once(payload: dict, model: str, *, prompt: str, size: str, n: int) -> dict:
+async def _generations_once(
+    payload: dict, model: str, *, prompt: str, size: str, n: int, account: dict | None = None
+) -> dict:
     """单次生图调用（一个模型 + 一个号池账号）。"""
     body = {
         "prompt": prompt,
@@ -61,7 +88,6 @@ async def _generations_once(payload: dict, model: str, *, prompt: str, size: str
         "size": size,
         "quality": payload.get("quality", "standard"),
     }
-    account = await account_pool.select(kind="image")
     base_url = (account or {}).get("base_url") or None
     api_key = (account or {}).get("access_token") or None
     try:
@@ -88,12 +114,9 @@ async def _generations_once(payload: dict, model: str, *, prompt: str, size: str
             await account_pool.mark_failure(
                 account["id"],
                 error.message,
-                retryable=error.code != ErrorCode.POOL_UNAVAILABLE,
+                retryable=error.retryable,
             )
         raise error
-    finally:
-        if account:
-            await account_pool.release(account["id"])
 
 
 async def image_generations(payload: dict) -> dict:
@@ -104,25 +127,29 @@ async def image_generations(payload: dict) -> dict:
     mode = runtime_config.demo_mode
 
     if mode == "on":
+        if payload.get("pool_batch_id"):
+            raise GatewayError(ErrorCode.UPSTREAM_ERROR, "真实图片任务不能使用演示结果，请关闭演示模式")
         return demo_service.demo_image_result(prompt, size, n)
 
     chain = runtime_config.model_chain("image") or [
         runtime_config.image_model or str(payload.get("model") or "gpt-image-2")
     ]
     try:
-        return await run_with_fallback(
-            chain,
-            lambda model: _generations_once(payload, model, prompt=prompt, size=size, n=n),
-        )
+        async with _image_lease(payload) as account:
+            return await run_with_fallback(
+                chain,
+                lambda model: _generations_once(payload, model, prompt=prompt, size=size, n=n, account=account),
+            )
     except GatewayError as exc:
         logger.warning("生图上游失败: %s %s", exc.code, exc)
-        if mode == "auto" and exc.code in _DEMO_FALLBACK_CODES:
+        if mode == "auto" and not payload.get("pool_batch_id") and exc.code in _DEMO_FALLBACK_CODES:
             return demo_service.demo_image_result(prompt, size, n)
         raise
 
 
 async def _edits_once(
-    files: list[tuple[str, tuple[str, bytes, str]]], form: dict, model: str, *, prompt: str, size: str
+    files: list[tuple[str, tuple[str, bytes, str]]], form: dict, model: str, *, prompt: str, size: str,
+    account: dict | None = None,
 ) -> dict:
     """单次图生图 / 编辑调用（一个模型 + 一个号池账号）。"""
     data = {
@@ -134,7 +161,6 @@ async def _edits_once(
         "response_format": form.get("response_format", "b64_json"),
     }
 
-    account = await account_pool.select(kind="image")
     base_url = (account or {}).get("base_url") or None
     api_key = (account or {}).get("access_token") or None
     try:
@@ -164,12 +190,9 @@ async def _edits_once(
             await account_pool.mark_failure(
                 account["id"],
                 error.message,
-                retryable=error.code != ErrorCode.POOL_UNAVAILABLE,
+                retryable=error.retryable,
             )
         raise error
-    finally:
-        if account:
-            await account_pool.release(account["id"])
 
 
 async def image_edits(
@@ -181,6 +204,8 @@ async def image_edits(
     mode = runtime_config.demo_mode
 
     if mode == "on":
+        if form.get("pool_batch_id"):
+            raise GatewayError(ErrorCode.UPSTREAM_ERROR, "真实图片任务不能使用演示结果，请关闭演示模式")
         return demo_service.demo_image_result(prompt, size, 1)
 
     # 日志：记录实际转发的文件清单（调试多图转发问题）。放在这里而不是单次调用里，
@@ -195,13 +220,14 @@ async def image_edits(
         runtime_config.image_model or str(form.get("model") or "gpt-image-2")
     ]
     try:
-        return await run_with_fallback(
-            chain,
-            lambda model: _edits_once(files, form, model, prompt=prompt, size=size),
-        )
+        async with _image_lease(form) as account:
+            return await run_with_fallback(
+                chain,
+                lambda model: _edits_once(files, form, model, prompt=prompt, size=size, account=account),
+            )
     except GatewayError as exc:
         logger.warning("图片编辑上游失败: %s %s", exc.code, exc)
         # 同生图：只有连不上上游才降级，业务错误（含格式异常）如实失败
-        if mode == "auto" and exc.code in _DEMO_FALLBACK_CODES:
+        if mode == "auto" and not form.get("pool_batch_id") and exc.code in _DEMO_FALLBACK_CODES:
             return demo_service.demo_image_result(prompt, size, 1)
         raise

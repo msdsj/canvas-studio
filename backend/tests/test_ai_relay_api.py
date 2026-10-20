@@ -183,8 +183,8 @@ async def test_guard_url_blocks_metadata_and_self_ports():
 # ---------------------------------------------------------------------------
 # 思考型模型（deepseek-v4.x）：正文为空 ≠ 配置错误
 # ---------------------------------------------------------------------------
-def test_extract_text_falls_back_to_reasoning_content():
-    """content 为空时退回 reasoning_content：至少能拿到「模型在工作」的证据。"""
+def test_extract_text_never_exposes_private_reasoning_content():
+    """私有推理不能作为公开回复的兜底正文。"""
     payload = {
         "choices": [
             {
@@ -194,7 +194,7 @@ def test_extract_text_falls_back_to_reasoning_content():
         ]
     }
     target = build_target_from_draft(base_url="http://127.0.0.1:9/v1", api_key="k", model="m")
-    assert _extract_text(target, payload) == "先想一下"
+    assert _extract_text(target, payload) == ""
     assert _finish_reason(payload) == "length"
 
 

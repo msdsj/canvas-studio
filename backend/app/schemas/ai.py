@@ -73,12 +73,24 @@ class RelayStatusOut(BaseModel):
     """中转站就绪状态：前端据此决定「能不能开始」而不是让用户猜。"""
 
     configured: bool
-    source: str = "none"  # user | global | none
+    # team | user | global | none
+    # `team` = 团队超级管理员统一配置，成员直接用（无需也不能自己配）
+    source: str = "none"
     provider_name: str = ""
     model: str = ""
     kind: str = ""
     reason: str = ""
     skills_count: int = 0
+    # 当前来源是否允许本人修改配置。团队成员看到 False → 配置入口变只读说明。
+    editable: bool = True
+    # 本人是否有权管理「团队统一模型」（= 团队超级管理员）。
+    # `editable=False` 且 `can_manage=True` 时，前端要把提示从「联系管理员」
+    # 换成「去团队设置」，否则超级管理员会被告知去找自己。
+    can_manage: bool = False
+    # 团队来源时的展示信息（成员界面显示「由 xxx 团队统一配置」）
+    team_id: str | None = None
+    team_name: str = ""
+    managed_by: str = ""
     # 用户配置的备用模型原始值（已归一，≤3）
     fallback_models: list[str] = Field(default_factory=list)
     # 实际会遍历的链（含跨 provider 互备的第 4 个）；与 fallback_models 不同的原因见 ADR-3

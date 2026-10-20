@@ -4,6 +4,7 @@ import { AnnouncementBanner } from './AnnouncementBanner'
 import { ResumeGuard } from './ResumeGuard'
 import { QuotaInsufficientModal } from './QuotaInsufficientModal'
 import { ProUpgradeDialog, useProRequiredListener } from '@/components/pro/ProUpgradeDialog'
+import { useTeamBootstrap } from '@/hooks/use-auth'
 
 /**
  * 登录后全局壳：顶栏 + 内容区 + 全局续接/提醒。
@@ -16,6 +17,8 @@ import { ProUpgradeDialog, useProRequiredListener } from '@/components/pro/ProUp
 export function AppShell({ children }: { children: ReactNode }) {
   // 任意请求被判为「需要 Pro」时自动弹升级引导（画布/抠图/对话/润色/图生图都走这条）
   useProRequiredListener()
+  // 团队列表要尽早拉起来：`isPro` 依赖「是否属于团队」，晚一步就会闪一下 free
+  useTeamBootstrap()
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-transparent">

@@ -26,7 +26,7 @@ async def list_projects(
 ) -> dict:
     """分页查询我的项目。"""
     page, size = normalize_page(page, size)
-    items, total = await project_service.list_projects(db, user.id, page, size, q)
+    items, total = await project_service.list_projects(db, user, page, size, q)
     return envelope(paginated(items, total, page, size))
 
 
@@ -39,10 +39,11 @@ async def create_project(
     """新建项目（Pro 用户顺带建默认画布）。"""
     project = await project_service.create_project(
         db,
-        user.id,
+        user,
         payload.name,
         payload.description or "",
         with_default_canvas=is_unlocked(user),
+        share_with_team=payload.share_with_team,
     )
     await db.commit()
     return envelope(
@@ -65,8 +66,8 @@ async def get_project(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """获取项目详情（含画布列表）。"""
-    project = await project_service.get_project(db, user.id, project_id)
-    canvases = await canvas_service.list_by_project(db, user.id, project_id)
+    project = await project_service.get_project(db, user, project_id)
+    canvases = await canvas_service.list_by_project(db, user, project_id)
     return envelope(
         {
             "id": project.id,
@@ -89,7 +90,7 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """重命名项目。"""
-    project = await project_service.update_project(db, user.id, project_id, payload.name)
+    project = await project_service.update_project(db, user, project_id, payload.name)
     await db.commit()
     return envelope(
         {
@@ -109,7 +110,7 @@ async def delete_project(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """软删除项目。"""
-    await project_service.delete_project(db, user.id, project_id)
+    await project_service.delete_project(db, user, project_id)
     await db.commit()
     return envelope({})
 
@@ -121,7 +122,7 @@ async def list_canvases(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """列出项目下画布。"""
-    canvases = await canvas_service.list_by_project(db, user.id, project_id)
+    canvases = await canvas_service.list_by_project(db, user, project_id)
     return envelope([CanvasOut.model_validate(c).model_dump() for c in canvases])
 
 
@@ -133,6 +134,6 @@ async def create_canvas(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """在项目下新建画布（画布属 Pro 能力）。"""
-    canvas = await canvas_service.create_canvas(db, user.id, project_id, payload.name)
+    canvas = await canvas_service.create_canvas(db, user, project_id, payload.name)
     await db.commit()
     return envelope(CanvasOut.model_validate(canvas).model_dump())

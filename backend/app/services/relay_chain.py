@@ -119,7 +119,13 @@ async def _backup_target(
     rows = (
         await db.execute(
             select(AIProvider)
-            .where(AIProvider.user_id == user_id, AIProvider.id != primary.provider_id)
+            .where(
+                AIProvider.user_id == user_id,
+                # 跨 provider 互备只在「个人配置」范围内挑选：
+                # 团队的统一配置是管理员定的，不能被成员自己的备用项顶掉
+                AIProvider.scope == "personal",
+                AIProvider.id != primary.provider_id,
+            )
             .order_by(AIProvider.updated_at.desc())
             .limit(5)
         )

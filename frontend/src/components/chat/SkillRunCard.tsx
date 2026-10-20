@@ -15,13 +15,12 @@ interface SkillRunCardProps {
   onConfirm?: (runId: string, optionId: string, fingerprint: string) => Promise<void>
 }
 
-const KNOWN_RULES = ['explicit_count', 'structure', 'ambiguous', 'needs_image']
+const KNOWN_RULES = ['explicit_count', 'structure', 'ambiguous', 'needs_image', 'model_plan']
 
 /**
  * 选区分析的决策卡：把「产出几张、有多确定、凭什么」摊成一行，并把候选方案交给用户选。
  *
- * 只保留用户需要做判断的信息（结论 / 依据 / 方案）；思考步骤由消息上方的
- * AgentTrace 承担，提示词与编排规则不展示。
+ * 展示结论、依据和独立输出任务；处理步骤由消息上方的 AgentTrace 承担。
  *
  * 交互约束与确认卡一致：点方案只是选中，点主按钮才执行。
  */
@@ -41,6 +40,7 @@ export function SkillRunCard({ run, onConfirm }: SkillRunCardProps) {
   }, [run.rule_hit, t])
 
   const options: SkillOption[] = Array.isArray(run.options) ? run.options : []
+  const jobs = Array.isArray(run.jobs) ? run.jobs : []
   // 只有「当时停下来等确认」且还没执行过、且有方案的记录才允许继续选
   const selectable =
     Boolean(onConfirm) && !done && !voided && run.status === 'confirm' && options.length > 0
@@ -132,6 +132,28 @@ export function SkillRunCard({ run, onConfirm }: SkillRunCardProps) {
         ) : null
       }
     >
+      {jobs.length > 0 && (
+        <div>
+          <p className="text-micro font-medium text-text-secondary">{t('decision.task_breakdown', { count: jobs.length })}</p>
+          <ol className="mt-2 flex flex-col gap-1.5">
+            {jobs.map((job, index) => (
+              <li key={`${job.index}:${index}`} className="rounded-sm bg-bg-subtle/60 px-2.5 py-2">
+                <div className="flex items-start gap-2">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[10px] font-semibold text-accent-ink">{job.index || index + 1}</span>
+                  <p className="min-w-0 flex-1 text-micro font-medium text-text [overflow-wrap:anywhere]">{job.label}</p>
+                  {job.output_kind && <span className="shrink-0 text-[10px] text-text-tertiary">{t(`decision.output_kind.${job.output_kind}`, { defaultValue: job.output_kind })}</span>}
+                </div>
+                {Array.isArray(job.region_indexes) && job.region_indexes.length > 0 && <p className="mt-1 text-micro text-text-tertiary">{t('result.regions', { indexes: job.region_indexes.join(', ') })}</p>}
+                {job.preserve_outside && <p className="mt-0.5 text-micro text-text-tertiary">{t('decision.preserve_outside')}</p>}
+                {job.prompt && <details className="mt-1 text-micro text-text-tertiary">
+                  <summary className="cursor-pointer hover:text-text">{t('decision.job_instruction')}</summary>
+                  <p className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap leading-relaxed text-text-secondary [overflow-wrap:anywhere]">{job.prompt}</p>
+                </details>}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
       {selectable && (
         <DecisionOptions
           options={options}

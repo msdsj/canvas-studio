@@ -2,14 +2,14 @@
 
 和 `skills.stream_analysis` 的分工
 ----------------------------------
-- `skills.stream_analysis`：**画布框选编辑**（有 regions），要按区域拆指令、判定 1/2 张；
+- `skills.stream_analysis`：**画布图片编辑**，结合原图和选区拆解独立产出；
 - 本模块：**从零生成 / 带参考图生成**（侧边栏的主链路），核心是「先想清楚再花钱」。
 
 三条铁律
 --------
 1. **歧义必须停**：需求不明确时只出方案、不建任务、不扣生图额度；
-2. **提示词必须是模型产出的**：建任务用 `final_prompt`，绝不用用户原话顶替
-   （用户原话只作为模型输入）。模型返回不可用时如实失败，不静默降级；
+2. **先分析再执行**：明确需求可按模型确认的原话执行；含糊需求先澄清。
+   模型返回不可用时如实失败，不静默降级；
 3. **可追溯**：每次编排落一行 `skill_runs`，步骤轨迹与最终提示词都存下来，
    刷新页面后仍能看到当时为什么这么画。
 """
@@ -43,7 +43,9 @@ from app.services import (
     prompt_service,
     relay_service,
     relay_types,
+    vision_service,
 )
+from app.services.intent_plan import MAX_OUTPUTS
 from app.utils.errors import AppError, ErrorCode
 from app.utils.ids import new_id, utcnow
 from app.utils.logging import get_logger
@@ -69,8 +71,8 @@ STEPS: tuple[tuple[str, str], ...] = (
     ("schedule", "张数判定与并发调度"),
 )
 
-#: 一次需求最多并发出几张（与 create_image_task 的 n 上限一致）
-MAX_IMAGES = 4
+#: 一次需求最多独立产出数量；每个任务始终 n=1
+MAX_IMAGES = MAX_OUTPUTS
 #: 分析流：首字最长等待 / 整体时长上限（超时回落到非流式的 _call_json）
 ANALYZE_FIRST_TOKEN_TIMEOUT = 20.0
 ANALYZE_TOTAL_TIMEOUT = 75.0
@@ -252,7 +254,7 @@ def _extract_json(text: str) -> dict[str, Any] | None:
     """从模型回复里稳健抽取 JSON（容忍围栏、前后说明）。"""
     if not text:
         return None
-    # 「先写思考、再写 JSON」的输出：只在标记之后找，免得思考里的花括号干扰
+    # 「先写思考、再写 JSON」的输出：只在标记之后找，免得摘要里的花括号干扰
     if JSON_MARKER in text:
         text = text.split(JSON_MARKER, 1)[1]
     fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
@@ -272,7 +274,7 @@ def _extract_json(text: str) -> dict[str, Any] | None:
 
 
 class _Trace:
-    """步骤轨迹：支持 items（推理要点）与 detail（一句话结论）。"""
+    """步骤轨迹：支持 items（公开处理要点）与 detail（一句话结论）。"""
 
     def __init__(self) -> None:
         self.steps: list[dict[str, Any]] = []
@@ -303,7 +305,7 @@ class _Trace:
     ) -> dict[str, Any]:
         """结束一步。
 
-        - `thought`：这一步模型输出的原始推理文字（前端可展开回看）；
+        - `thought`：这一步模型公开输出的分析摘要（前端可展开回看）；
         - `meta`：模型 / 耗时 / 输出量等可量化信息，用来如实展示「算力花在哪」。
         """
         started = self._started.pop(step_id, None)
@@ -569,21 +571,24 @@ async def _call_json(
 
 
 async def _stream_analysis(
-    target: relay_service.RelayTarget,
+    target: relay_service.RelayTarget | None,
     messages: list[dict[str, Any]],
     sink: dict[str, Any],
+    *,
+    text_stream: AsyncIterator[str] | None = None,
+    model: str = "",
 ) -> AsyncIterator[str]:
-    """流式跑需求分析：模型边想边写，思考文字实时推给前端。
+    """流式跑需求分析：模型实时输出公开需求摘要，结构化计划仅报告生成进度。
 
     事件：
-    - `{"event":"thought","text":...}`：思考过程的增量（`<<<JSON>>>` 之前的自然语言）；
+    - `{"event":"thought","text":...}`：分析摘要的增量（`<<<JSON>>>` 之前的自然语言）；
     - `{"event":"thought_progress","chars":N}`：进入 JSON 段后只报字数，不刷原文。
 
-    结束后 `sink` 里放 `analysis`（解析好的 dict）与 `thought`（思考全文）。
+    结束后 `sink` 里放 `analysis`（解析好的 dict）与 `thought`（公开摘要）。
     读不出 JSON / 超时 / 上游报错都抛异常，由调用方回落到非流式的 `_call_json`。
     """
     started = time.perf_counter()
-    stream = relay_service.chat_stream(target, messages, temperature=0.4, max_tokens=1800)
+    stream = text_stream if text_stream is not None else relay_service.chat_stream(target, messages, temperature=0.4, max_tokens=5000)
     iterator = stream.__aiter__()
     raw: list[str] = []
     thought_sent = 0  # 已经推给前端的思考字数
@@ -637,9 +642,9 @@ async def _stream_analysis(
     if thought.startswith(("{", "```")):
         thought = ""
     parsed["_meta"] = {
-        "model": target.model,
-        "provider": target.name,
-        "source": target.source,
+        "model": target.model if target else model,
+        "provider": target.name if target else "意图分析模型",
+        "source": target.source if target else "intent",
         "elapsed_ms": int((time.perf_counter() - started) * 1000),
         "output_chars": len(text),
         "streamed": True,
@@ -659,13 +664,18 @@ def _clamp_count(value: Any, default: int = 1) -> int:
 def resolve_jobs(analysis: dict[str, Any], base_prompt: str) -> list[dict[str, Any]]:
     """把分析结果展开成 N 个独立生图任务（通用：不认任何具体场景）。
 
-    - 张数来自模型的 `image_count`（夹到 1–4），缺省为 1；
+    - 张数来自模型的 `image_count`（1–12），超限明确失败，缺省为 1；
     - 每张的提示词：`images[i].prompt` 有内容（≥8 字）就用它（「不同画面」拆分），
       否则用 `base_prompt`（「同一画面多版本」/ 单张）；
     - 只有 1 张时**永远**用 `base_prompt`：保持原话直用的规则不变。
     """
     base = base_prompt.strip()
-    count = _clamp_count(analysis.get("image_count"), 1)
+    raw_count = analysis.get("image_count", 1)
+    if type(raw_count) is not int:
+        raise AppError(ErrorCode.UPSTREAM_FORMAT_ERROR, "分析结果没有有效的产出数量，请重新分析")
+    count = raw_count
+    if count < 1 or count > MAX_IMAGES:
+        raise AppError(ErrorCode.VALIDATION_ERROR, f"单次最多支持 {MAX_IMAGES} 张图片，请拆分需求后提交")
     raw_images = analysis.get("images") if isinstance(analysis.get("images"), list) else []
     jobs: list[dict[str, Any]] = []
     for index in range(count):
@@ -705,28 +715,26 @@ async def _pool_capacity() -> dict[str, int] | None:
         return None
     if not stats.get("total"):
         return None
-    return {"total": int(stats.get("total") or 0), "normal": int(stats.get("normal") or 0)}
+    return {"total": int(stats.get("routable_total") or 0), "normal": int(stats.get("routable_available") or 0)}
 
 
 async def _schedule_jobs(
     db: AsyncSession, user_id: str, jobs: list[dict[str, Any]], count_reason: str
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """按可用并发槽位裁剪任务数，并给出调度说明（用于「张数判定与并发调度」一步）。"""
+    """保留完整需求清单，展示实际容量；派发前统一校验整批。"""
     wanted = len(jobs)
     free = await _free_slots(db, user_id)
-    # 一个槽位都没有时仍保留 1 个：让 create_or_get 抛出准确的「任务上限」错误
-    allowed = max(1, min(wanted, free))
-    scheduled = jobs[:allowed]
+    scheduled = jobs
     items = [f"需要生成 {wanted} 张" + (f"：{count_reason}" if count_reason else "")]
     for job in scheduled:
         source = "专属描述" if job["custom"] else "原话"
         label = f"「{job['label']}」" if job["label"] else ""
         items.append(f"通道 {job['index']}{label} → 独立账号额度 · 提示词来源：{source}")
-    if allowed < wanted:
-        items.append(f"当前只剩 {allowed} 个并发槽位，先提交 {allowed} 张；其余等这批完成后再发一次即可")
+    if free < wanted:
+        items.append(f"当前可用 {free} 个并发槽位，需要 {wanted} 个；提交前校验整批，避免遗漏产出")
     pool = await _pool_capacity()
     if pool:
-        items.append(f"号池可用账号 {pool['normal']}/{pool['total']}，按最少占用优先分配，避免同号冲突")
+        items.append(f"可独立路由账号 {pool['normal']}/{pool['total']}；以执行时实际预留为准")
     return scheduled, items
 
 
@@ -742,7 +750,7 @@ async def _load_assets(db: AsyncSession, user: User, ids: list[str]) -> list[Any
 
 
 def _describe_context(assets: list[Any], selection: dict[str, Any] | None) -> str:
-    """把参考图 / 选区写成人话喂给模型（不传像素，只传事实）。"""
+    """参考图与选区的文字上下文，像素由vision_service同时附加。"""
     lines: list[str] = []
     if assets:
         lines.append(f"用户提供了 {len(assets)} 张参考图（用于图生图或风格参考）。")
@@ -757,8 +765,33 @@ def _describe_context(assets: list[Any], selection: dict[str, Any] | None) -> st
     return "\n".join(lines)
 
 
+async def _user_skill_block(db: Any, user: User, text: str) -> str:
+    """把用户启用的技能包渲染成提示词片段（失败时静默返回空）。
+
+    技能包注入不能成为主链路的单点故障：读库失败、包文件缺失都只该让这一轮
+    「少一点风格参考」，而不是让整次生成失败。
+    """
+    try:
+        from app.services import skill_packs as skill_pack_service
+
+        items = await skill_pack_service.effective_items(db, user)
+        if not items:
+            return ""
+        picked = skill_pack_service.match_items(items, text)
+        return skill_pack_service.render_for_prompt(picked)
+    except Exception:  # noqa: BLE001 - 技能注入失败不影响主流程
+        logger.warning("技能包注入失败，本轮跳过", exc_info=True)
+        return ""
+
+
 def _skill_block(text: str) -> tuple[str, list[design_skills.DesignSkill]]:
-    """技能清单：初筛命中给完整骨架，未命中给全量目录。"""
+    """技能清单（内置 78 条设计技能）：初筛命中给完整骨架，未命中给全量目录。
+
+    这是**平台内置**的技能层，与用户启用的技能包（`skill_packs`）并行存在：
+    内置层是「设计方法论」（构图/光线/色彩这些通用知识），
+    技能包是「具体风格的提示词骨架」（电商详情、国风海报…）。
+    两者都进提示词，但分开渲染，模型能分辨哪部分是方法论、哪部分是风格参考。
+    """
     hits = shortlist_skills(text)
     if hits:
         detail = "\n\n".join(design_skills.render_detail(skill.id) for skill in hits)
@@ -781,7 +814,6 @@ async def stream_compose(
     canvas_id: str | None = None,
     image_refs: list[str] | None = None,
     selection: dict[str, Any] | None = None,
-    allow_degraded: bool = False,
     model: str | None = None,
 ) -> AsyncIterator[str]:
     """SSE：把全链路思考实时吐给前端，最后给出结论（澄清 / 已提交 / 未配置）。"""
@@ -826,7 +858,7 @@ async def stream_compose(
 
         # ---- 0) 中转站就绪检查：没有就停在这里，不伪造任何 AI 结论 ----
         target = await relay_service.resolve(db, user.id)
-        if target is None and not allow_degraded:
+        if target is None:
             step = trace.start("analyze", STEPS[0][1])
             yield _sse({"event": "step", "step": dict(step)})
             step = trace.finish(
@@ -890,140 +922,124 @@ async def stream_compose(
 
         template = await prompt_service.load(db, "compose_analyze")
         skill_block, shortlisted = _skill_block(text)
+        # 用户启用的技能包（团队包 ∪ 个人包 − 单条禁用），按本次需求粗筛
+        pack_block = await _user_skill_block(db, user, text)
         user_prompt = (
             f"用户原话：{text}\n\n"
             f"{_describe_context(assets, selection)}\n\n"
             f"{skill_block}\n\n"
-            "请按系统要求输出 JSON。"
+            f"{pack_block}\n\n"
+            "请先输出面向用户的分析摘要，再按系统契约输出结构化计划。"
         )
 
-        if target is None:
-            # 用户显式选择「本地模板先试一次」：不调模型，步骤如实标注
-            analysis: dict[str, Any] = {
-                "summary": text[:60],
-                "intent": "img2img" if assets else "text2img",
-                "subject": "",
-                "style": "",
-                "constraints": [],
-                "missing": [],
-                "thinking": ["未接中转站：按用户原话 + 本地技能模板拼装提示词", "不做语义推断，避免替你决定画面"],
-                "ambiguity": {"is_ambiguous": False, "reason": "本地模式不判定歧义", "question": "", "options": []},
-                "_meta": {"model": "本地模板", "provider": "本地模板", "source": "local"},
-            }
-            step = trace.finish(
-                "analyze",
-                status="skipped",
-                detail="本地模板模式（未接中转站，不做语义分析）",
-                items=analysis["thinking"],
-            )
-            yield _sse({"event": "step", "step": dict(step)})
-        else:
-            analyze_messages = [
-                {"role": "system", "content": template},
-                {"role": "user", "content": user_prompt},
-            ]
-            thought_text = ""
+        analyze_messages = [
+            {"role": "system", "content": template},
+            {"role": "user", "content": vision_service.user_content(user_prompt, assets)},
+        ]
+        thought_text = ""
+        try:
+            # 先走流式：公开分析摘要实时可见；流式读不出 JSON 再回落到非流式 + 纠错重试
+            sink: dict[str, Any] = {}
+            streamed_ok = False
             try:
-                # 先走流式：思考过程实时可见；流式读不出 JSON 再回落到非流式 + 纠错重试
-                sink: dict[str, Any] = {}
-                streamed_ok = False
-                try:
-                    async for chunk in _stream_analysis(target, analyze_messages, sink):
-                        yield chunk
-                    streamed_ok = "analysis" in sink
-                except (AppError, asyncio.TimeoutError, OSError) as exc:
-                    logger.warning("流式分析失败，回落非流式：%s", getattr(exc, "message", exc))
-                except Exception:  # noqa: BLE001 - 流式只是体验增强，任何异常都回落
-                    logger.exception("流式分析异常，回落非流式")
-                if streamed_ok:
-                    analysis = sink["analysis"]
-                    thought_text = str(sink.get("thought") or "")
-                else:
-                    yield _sse({"event": "thought_reset"})
-                    analysis, _outcome, _repairs = await _call_json(
-                        db,
-                        user.id,
-                        analyze_messages,
-                        target=target,
-                        stage="analyze",
-                    )
-            except AppError as exc:
-                step = trace.finish("analyze", status="failed", detail=exc.message)
-                yield _sse({"event": "step", "step": dict(step)})
-                message = await _append_message(
-                    db, session.id, user.id, "assistant", exc.message,
-                    attachments=[
-                        {
-                            "type": "compose_run",
-                            "run_id": "",
-                            "status": "failed",
-                            "steps": list(trace.steps),
-                            "reply": exc.message,
-                            "final_prompt": "",
-                            "options": [],
-                            "tasks": [],
-                            "prompt_source": "none",
-                            "degraded": False,
-                        }
-                    ],
+                async for chunk in _stream_analysis(target, analyze_messages, sink):
+                    yield chunk
+                streamed_ok = "analysis" in sink
+            except (AppError, asyncio.TimeoutError, OSError) as exc:
+                logger.warning("流式分析失败，回落非流式：%s", getattr(exc, "message", exc))
+            except Exception:  # noqa: BLE001 - 流式只是体验增强，任何异常都回落
+                logger.exception("流式分析异常，回落非流式")
+            if streamed_ok:
+                analysis = sink["analysis"]
+                thought_text = str(sink.get("thought") or "")
+            else:
+                yield _sse({"event": "thought_reset"})
+                analysis, _outcome, _repairs = await _call_json(
+                    db,
+                    user.id,
+                    analyze_messages,
+                    target=target,
+                    stage="analyze",
                 )
-                await db.commit()
-                yield _sse(
-                    {
-                        "event": "result",
-                        "result": {
-                            "run_id": "",
-                            "message_id": message.id,
-                            "user_message_id": user_message.id,
-                            "status": "failed",
-                            "reply": exc.message,
-                            "steps": list(trace.steps),
-                            "options": [],
-                            "tasks": [],
-                            "final_prompt": "",
-                            "prompt_source": "none",
-                            "degraded": False,
-                            "error_code": exc.code.value,
-                            # R03：结构化错误数据（现象 / 已尝试 / 下一步）随失败帧下发，
-                            # 前端 ErrorCard 据此渲染三段式，不依赖后端自由文本
-                            "error_data": exc.data,
-                        },
-                    }
-                )
-                return
-            # 契约漂移只记录、不阻塞：analyze 还带展示字段（thinking / ambiguity），
-            # 不在 ComposeAnalysis 契约范围内，投影校验只用于发现真漂移（R04 可观测性）
-            drift = plan_validator.validate_analysis(analysis)
-            if not drift.ok:
-                logger.warning(
-                    "analyze 输出不符合契约（仅记录）：%s",
-                    [issue.as_dict() for issue in drift.errors],
-                )
-            thinking = [str(item) for item in (analysis.get("thinking") or []) if str(item).strip()][:5]
-            # 结构化拆解：把模型读出的主体 / 风格 / 约束 / 张数也摆出来，过程才完整
-            facts: list[str] = []
-            if analysis.get("subject"):
-                facts.append(f"主体：{str(analysis.get('subject'))[:60]}")
-            if analysis.get("style"):
-                facts.append(f"风格：{str(analysis.get('style'))[:60]}")
-            constraints = [str(c) for c in (analysis.get("constraints") or []) if str(c).strip()]
-            if constraints:
-                facts.append(f"约束：{'；'.join(constraints[:3])[:80]}")
-            facts.append(f"判定张数：{_clamp_count(analysis.get('image_count'), 1)}")
-            meta_raw = analysis.get("_meta") if isinstance(analysis.get("_meta"), dict) else {}
-            step = trace.finish(
-                "analyze",
-                detail=str(analysis.get("summary") or "已读懂需求")[:160],
-                items=thinking + facts,
-                thought=thought_text,
-                meta={
-                    "model": str(meta_raw.get("model") or target.model),
-                    "elapsed_ms": int(meta_raw.get("elapsed_ms") or 0),
-                    "output_chars": int(meta_raw.get("output_chars") or 0),
-                    "streamed": bool(meta_raw.get("streamed")),
-                },
-            )
+            # Validate counts while still inside the visible analysis error path.
+            resolve_jobs(analysis, text)
+        except AppError as exc:
+            step = trace.finish("analyze", status="failed", detail=exc.message)
             yield _sse({"event": "step", "step": dict(step)})
+            message = await _append_message(
+                db, session.id, user.id, "assistant", exc.message,
+                attachments=[
+                    {
+                        "type": "compose_run",
+                        "run_id": "",
+                        "status": "failed",
+                        "steps": list(trace.steps),
+                        "reply": exc.message,
+                        "final_prompt": "",
+                        "options": [],
+                        "tasks": [],
+                        "prompt_source": "none",
+                        "degraded": False,
+                    }
+                ],
+            )
+            await db.commit()
+            yield _sse(
+                {
+                    "event": "result",
+                    "result": {
+                        "run_id": "",
+                        "message_id": message.id,
+                        "user_message_id": user_message.id,
+                        "status": "failed",
+                        "reply": exc.message,
+                        "steps": list(trace.steps),
+                        "options": [],
+                        "tasks": [],
+                        "final_prompt": "",
+                        "prompt_source": "none",
+                        "degraded": False,
+                        "error_code": exc.code.value,
+                        # R03：结构化错误数据（现象 / 已尝试 / 下一步）随失败帧下发，
+                        # 前端 ErrorCard 据此渲染三段式，不依赖后端自由文本
+                        "error_data": exc.data,
+                    },
+                }
+            )
+            return
+        # 契约漂移只记录、不阻塞：analyze 还带展示字段（thinking / ambiguity），
+        # 不在 ComposeAnalysis 契约范围内，投影校验只用于发现真漂移（R04 可观测性）
+        drift = plan_validator.validate_analysis(analysis)
+        if not drift.ok:
+            logger.warning(
+                "analyze 输出不符合契约（仅记录）：%s",
+                [issue.as_dict() for issue in drift.errors],
+            )
+        thinking = [str(item) for item in (analysis.get("thinking") or []) if str(item).strip()][:5]
+        # 结构化拆解：把模型读出的主体 / 风格 / 约束 / 张数也摆出来，过程才完整
+        facts: list[str] = []
+        if analysis.get("subject"):
+            facts.append(f"主体：{str(analysis.get('subject'))[:60]}")
+        if analysis.get("style"):
+            facts.append(f"风格：{str(analysis.get('style'))[:60]}")
+        constraints = [str(c) for c in (analysis.get("constraints") or []) if str(c).strip()]
+        if constraints:
+            facts.append(f"约束：{'；'.join(constraints[:3])[:80]}")
+        facts.append(f"判定张数：{_clamp_count(analysis.get('image_count'), 1)}")
+        meta_raw = analysis.get("_meta") if isinstance(analysis.get("_meta"), dict) else {}
+        step = trace.finish(
+            "analyze",
+            detail=str(analysis.get("summary") or "已读懂需求")[:160],
+            items=thinking + facts,
+            thought=thought_text,
+            meta={
+                "model": str(meta_raw.get("model") or target.model),
+                "elapsed_ms": int(meta_raw.get("elapsed_ms") or 0),
+                "output_chars": int(meta_raw.get("output_chars") or 0),
+                "streamed": bool(meta_raw.get("streamed")),
+            },
+        )
+        yield _sse({"event": "step", "step": dict(step)})
 
         # ---- 2) 歧义检查 ----
         #
@@ -1037,10 +1053,8 @@ async def stream_compose(
         ambiguity = analysis.get("ambiguity") if isinstance(analysis.get("ambiguity"), dict) else {}
         is_ambiguous = bool(ambiguity.get("is_ambiguous"))
         missing = [str(item) for item in (analysis.get("missing") or []) if str(item).strip()]
-        # 本地模板模式是用户显式确认过的降级（"先试一次"），此时不再用模型口径拦他
-        local_mode = target is None
         actionable = _prompt_is_actionable(analysis, text)
-        needs_choice = is_ambiguous or (not actionable and not local_mode)
+        needs_choice = is_ambiguous or not actionable
 
         if needs_choice:
             question = str(ambiguity.get("question") or "").strip()[:200]
@@ -1128,45 +1142,31 @@ async def stream_compose(
         )
         yield _sse({"event": "step", "step": dict(step)})
 
-        # ---- 3) 方案：原话直用 / 本地兜底 ----
+        # ---- 3) 已分析需求的执行方案 ----
         step = trace.start("reason", STEPS[2][1], "确认画幅与技能骨架")
         yield _sse({"event": "step", "step": dict(step)})
 
-        if local_mode:
-            # 用户已确认的本地兜底：模板拼提示词（唯一一条会"改写"的路径，且是显式确认的）
-            prompt_source = "template"
-            plan_data = _template_plan(text, shortlisted)
-            step = trace.finish(
-                "reason",
-                status="skipped",
-                detail="本地模板：直接套用技能骨架，不做推导",
-                items=[f"套用技能：{plan_data.get('skill_name') or '通用'}"],
-            )
-            yield _sse({"event": "step", "step": dict(step)})
-        else:
-            # **原话直用**：不调模型做提示词改写，也不做模板兜底。
-            prompt_source = "verbatim"
-            plan_data = {
-                "final_prompt": text.strip()[:_MAX_PROMPT],
-                "negative": "",
-                "size": "1024x1024",
-                "title": "按你的原话生成",
-                "reasoning": [
-                    "原话已足够明确，不加字也不减字",
-                    "想换个说法：用输入框右侧的「润色」，或直接在澄清卡里选一个方向",
-                ],
-            }
-            step = trace.finish(
-                "reason",
-                status="skipped",
-                detail="原话直用：不调用模型改写提示词",
-                items=plan_data["reasoning"],
-            )
-            yield _sse({"event": "step", "step": dict(step)})
-        # 契约归一：无论 verbatim 还是本地模板，都收敛成 ComposePlan 形状（R04）。
-        # - verbatim：用户原话直用（长度上限走派发兜底 3800，不受契约 800 约束，C2）
-        # - template：按技能骨架拼装，并补齐 aspect / negative / style_tags（R06）
-        # 归一后仍不合法会**自动退到模板兜底**，不阻塞建任务（R05）
+        # **原话直用**：不调模型做提示词改写，也不做模板兜底。
+        prompt_source = "verbatim"
+        plan_data = {
+            "final_prompt": text.strip()[:_MAX_PROMPT],
+            "negative": "",
+            "size": "1024x1024",
+            "title": "按你的原话生成",
+            "reasoning": [
+                "原话已足够明确，不加字也不减字",
+                "想换个说法：用输入框右侧的「润色」，或直接在澄清卡里选一个方向",
+            ],
+        }
+        step = trace.finish(
+            "reason",
+            status="skipped",
+            detail="原话直用：不调用模型改写提示词",
+            items=plan_data["reasoning"],
+        )
+        yield _sse({"event": "step", "step": dict(step)})
+        # 分析确认可执行的原话归一为 ComposePlan，补齐画幅等执行字段。
+        # 用户提示词保留；不以本地模板替代前置模型分析。
         plan_data = plan_validator.normalize_plan(
             plan_data, shortlisted, prompt_source=prompt_source
         )
@@ -1307,7 +1307,7 @@ async def stream_compose(
                 idempotency_key=_dedupe_key(session.id, text, [asset.id for asset in assets]),
                 model=model,
                 jobs=jobs,
-                keep=(session,),
+                keep=(session, user_message),
             )
         except AppError as exc:
             logger.warning("提交生图失败 run=%s: %s", run.id, exc.message)
@@ -1336,7 +1336,7 @@ async def stream_compose(
                 {
                     "event": "result",
                     "result": _compose_result(
-                        run, message, user_message.id, reply=exc.message, status="failed"
+                        run, message, user_message.id, reply=exc.message, status="failed", error_code=exc.code.value
                     ),
                 }
             )
@@ -1351,9 +1351,6 @@ async def stream_compose(
             + (" · 复用刚提交的任务" if item.get("deduped") else " · 已进入生成队列")
             for i, item in enumerate(tasks)
         ]
-        failed_jobs = len(jobs) - len(tasks)
-        if failed_jobs > 0:
-            dispatch_items.append(f"{failed_jobs} 张未能提交（额度或并发不足），已提交的照常生成")
         step = trace.finish(
             "dispatch",
             detail=f"已并发提交 {len(tasks)} 个生图任务" if len(tasks) > 1 else "已提交 1 个生图任务",
@@ -1463,6 +1460,7 @@ def _compose_result(
     *,
     reply: str,
     status: str,
+    error_code: str | None = None,
 ) -> dict[str, Any]:
     """SSE result 与消息附件共用同一套字段，避免前后端两套结构。"""
     plan = run.plan or {}
@@ -1472,6 +1470,7 @@ def _compose_result(
         "message_id": message.id,
         "user_message_id": user_message_id,
         "status": status,
+        "error_code": error_code,
         "reply": reply,
         "steps": list(run.steps or []),
         "options": list(run.options or []),
@@ -1548,16 +1547,18 @@ async def _dispatch(
 
     - 有参考图 → 图生图（以第一张为底图）；没有 → 文生图；
     - 每张一个任务（n=1）：每个任务各自走一次网关，网关按「最少占用」为每次调用
-      选一个号池账号，N 个任务就落到 N 个账号上，互不抢同一个账号的并发额度；
+      原子预留独立账号，容量不足明确失败，不复用同一账号；
     - `negative` 折进提示词尾部（上游 gpt-image 系列没有独立负向参数）；
-    - 第 2 张起失败（额度 / 并发不足）不连坐已提交的任务：返回成功的部分；
-      **一张都没提交成功**才抛错。
+    - 任一创建失败则回退整批预扣，所有任务建好以后才开始执行。
 
     拼装走 `plan_validator.assemble_dispatch_prompt()`（唯一来源），与
     `assert_dispatchable()` 校验的是同一段文本，避免「校验的和派发的不是一份」。
     """
     jobs = jobs or [{"index": 1, "label": "", "prompt": final_prompt, "custom": False}]
     batch = len(jobs) > 1
+    from app.services import batch_service
+    unit_cost = await generate_service.resolve_cost(db, "edit" if refs else "generate")
+    await batch_service.preflight(db, user.id, len(jobs), unit_cost * len(jobs))
     base_asset = await asset_service.get_asset(db, user, refs[0]) if refs else None
     base_url = base_asset.url if base_asset else None
     # 先把 run 落盘：pre_deduct 余额不足会 rollback 整个会话，不能把 run 一起卷走
@@ -1568,7 +1569,7 @@ async def _dispatch(
     for job in jobs:
         prompt = plan_validator.assemble_dispatch_prompt(str(job["prompt"]), negative)
         key = f"{idempotency_key}:{job['index']}" if batch else idempotency_key
-        extra: dict[str, Any] = {"compose_run_id": run.id, "negative": negative}
+        extra: dict[str, Any] = {"compose_run_id": run.id, "negative": negative, "pool_batch_id": run.id, "pool_task_id": str(job["index"]), "pool_batch_total": len(jobs)}
         if batch:
             extra.update({"batch_index": job["index"], "batch_total": len(jobs), "batch_label": job["label"]})
         try:
@@ -1626,8 +1627,18 @@ async def _dispatch(
             }
         )
 
+    if first_error:
+        from app.services import task_service
+        for item in payload:
+            if item["_new"]:
+                refunded = await task_service.fail_and_refund(db, item["id"], first_error.code.value, "本批次未能完整提交，额度已退回")
+                if refunded is not None and refunded.status == "failed":
+                    # 退款任务未曾启动；释放原键，让同一方案重试能完整重建批次。
+                    refunded.idempotency_key = f"refunded:{refunded.id}"
+                    await db.commit()
+        raise first_error
     if not payload:
-        raise first_error or AppError(ErrorCode.UPSTREAM_ERROR, "没能提交生图任务")
+        raise AppError(ErrorCode.UPSTREAM_ERROR, "没能提交生图任务")
     # 全部建好后一起起跑：N 个任务同时进网关，才是真正的并发
     for item in payload:
         if item.pop("_new"):
@@ -1658,6 +1669,8 @@ async def confirm_compose(
         raise AppError(ErrorCode.VALIDATION_ERROR, "这条记录不是生图需求，请从对应入口操作")
     if run.status == "completed" and run.task_ids:
         return {"run_id": run.id, "status": run.status, "task_ids": run.task_ids, "tasks": []}
+    if run.status == "dispatching":
+        raise AppError(ErrorCode.TASK_STATE_CONFLICT, "这份计划正在提交，请稍后查看")
     if run.status != "clarify":
         # voided（被新需求作废）/ failed / dispatching 都不允许再确认
         raise AppError(
@@ -1697,19 +1710,22 @@ async def confirm_compose(
     )
     plan_validator.assert_dispatchable(plan, assembled_prompt)
 
-    run.plan = plan
-    run.status = "dispatching"
-    run.updated_at = utcnow()
-    await db.flush()
-
     # 张数：选中的方向自带的 image_count（澄清时已按分析结果写入），同一提示词出 N 版
     jobs = resolve_jobs(
         {"image_count": chosen.get("image_count") or 1}, str(plan.get("final_prompt") or "")
     )
     jobs, _ = await _schedule_jobs(db, user.id, jobs, "")
     plan["image_count"] = len(jobs)
+    claim = await db.execute(
+        update(SkillRun)
+        .where(SkillRun.id == run.id, SkillRun.status == "clarify")
+        .values(status="dispatching", updated_at=utcnow())
+    )
+    if claim.rowcount != 1:
+        raise AppError(ErrorCode.TASK_STATE_CONFLICT, "这份计划正在提交或已失效，请刷新查看")
     run.plan = plan
     run.image_count = len(jobs)
+    await db.commit()
     try:
         tasks = await _dispatch(
             db,

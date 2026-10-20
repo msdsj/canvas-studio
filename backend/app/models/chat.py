@@ -23,6 +23,11 @@ class ChatSession(Base):
     canvas_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("canvases.id"), index=True, nullable=True
     )
+    # 团队对话：team_id 非空 + visibility='team' 时，团队内可见（协作评审场景）
+    team_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("teams.id"), index=True, nullable=True
+    )
+    visibility: Mapped[str] = mapped_column(String(16), default="private", index=True)
     title: Mapped[str] = mapped_column(String(255), default="新对话")
     # 分享：token 唯一；分享出去的是「这段对话 + 关联画布」的只读快照视图
     share_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)

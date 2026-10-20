@@ -10,6 +10,8 @@ import { Pagination } from '@/components/ui/pagination'
 import { AssetGrid } from '@/components/assets/AssetGrid'
 import { AssetPreviewModal } from '@/components/assets/AssetPreviewModal'
 import { assetsApi } from '@/lib/api/assets'
+import { useAuth } from '@/hooks/use-auth'
+import { useTeamScopeKey } from '@/hooks/use-team-scope'
 import { useToast } from '@/hooks/use-toast'
 import { errorMessage } from '@/lib/errors'
 import { events } from '@/lib/events'
@@ -20,16 +22,20 @@ export const Route = createFileRoute('/assets')({
 })
 
 type Filter = 'all' | 'generated' | 'uploaded'
+/** 归属范围：团队里才有意义，个人空间下不显示 */
+type Scope = 'all' | 'mine' | 'team'
 
 function AssetsPage() {
   const { t } = useTranslation('assets')
   const { t: te } = useTranslation()
+  const { inTeamSpace } = useAuth()
   const toast = useToast()
   const [assets, setAssets] = useState<Asset[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [size, setSize] = useState(20)
   const [filter, setFilter] = useState<Filter>('all')
+  const [scope, setScope] = useState<Scope>('all')
   const [loading, setLoading] = useState(true)
   const [preview, setPreview] = useState<Asset | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -37,7 +43,12 @@ function AssetsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await assetsApi.list({ page, size, kind: filter === 'all' ? undefined : filter })
+      const result = await assetsApi.list({
+        page,
+        size,
+        kind: filter === 'all' ? undefined : filter,
+        scope,
+      })
       setAssets(result.items)
       setTotal(result.total)
     } catch (error) {
@@ -46,11 +57,13 @@ function AssetsPage() {
       setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, size, filter])
+  }, [page, size, filter, scope])
 
+  // 切工作空间后重拉：两套素材的可见范围不同
+  const scopeKey = useTeamScopeKey()
   useEffect(() => {
     void load()
-  }, [load])
+  }, [load, scopeKey])
 
   const handleUpload = async (file: File) => {
     try {
@@ -79,6 +92,29 @@ function AssetsPage() {
             title={t('title')}
             actions={
               <>
+                {/* 团队空间才需要区分「我的 / 团队共享」：个人空间里两者是同一批 */}
+                {inTeamSpace && (
+                  <div className="flex rounded-full bg-bg-subtle p-1">
+                    {(['all', 'mine', 'team'] as Scope[]).map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => {
+                          setScope(value)
+                          setPage(1)
+                        }}
+                        className={
+                          'rounded-full px-3 py-1 text-caption transition-colors ' +
+                          (scope === value
+                            ? 'bg-surface text-text shadow-xs'
+                            : 'text-text-secondary hover:text-text')
+                        }
+                      >
+                        {value === 'all' ? '全部' : value === 'mine' ? '我的' : '团队共享'}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="flex rounded-full bg-bg-subtle p-1">
                   {(['all', 'generated', 'uploaded'] as Filter[]).map((f) => (
                     <button

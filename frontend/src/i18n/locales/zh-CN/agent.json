@@ -1,13 +1,13 @@
 {
   "name": "zleap Agent",
   "trace": {
-    "live_title": "Agent 正在思考",
-    "done_title": "已完成分析",
+    "live_title": "正在分析需求与图片",
+    "done_title": "需求分析与执行计划",
     "failed_title": "分析中断",
     "elapsed": "用时 {{seconds}}s",
     "steps": "{{count}} 步",
-    "expand": "查看分析过程",
-    "collapse": "收起分析过程",
+    "expand": "查看处理过程",
+    "collapse": "收起处理过程",
     "placeholder": {
       "understand": "读懂你想要什么",
       "plan": "构思画面方向",
@@ -22,13 +22,19 @@
       "blocked": "需要你确认",
       "failed": "失败"
     },
-    "thought_live": "实时推理",
-    "thought_stats": "{{chars}} 字 · {{speed}} 字/秒",
+    "thought_live": "实时分析摘要",
+    "thought_stats": "已接收 {{chars}} 字",
     "structuring": "正在写出结构化结果 · 已输出 {{chars}} 字",
     "output_chars": "输出 {{chars}} 字",
     "streamed": "流式",
-    "show_thought": "查看模型推理原文",
-    "hide_thought": "收起推理原文"
+    "show_thought": "展开分析摘要",
+    "hide_thought": "收起分析摘要",
+    "blocked_title": "分析完成 · 等待确认",
+    "stopped_title": "分析已停止",
+    "stopped": "用户已停止本次分析",
+    "completed_steps": "已完成 {{completed}} / {{total}} 步",
+    "waiting": "等待下一阶段返回",
+    "connecting": "正在连接分析模型，等待实际处理状态…"
   },
   "skill": {
     "using": "使用技能",
@@ -62,12 +68,20 @@
       "explicit_count": "按你指定的数量",
       "structure": "按选区结构判定",
       "ambiguous": "表述不唯一",
-      "needs_image": "缺少底图"
+      "needs_image": "缺少底图",
+      "model_plan": "AI 按需求拆分"
     },
     "custom_open": "都不是，我想…",
     "custom_placeholder": "说说你想要的方向，比如：更活泼一点，用蓝色调",
     "custom_send": "按这个方向重新分析",
-    "custom_hint": "回车发送，我会结合你最初的需求重新理解"
+    "custom_hint": "回车发送，我会结合你最初的需求重新理解",
+    "task_breakdown": "需求拆解 · {{count}} 个独立输出",
+    "preserve_outside": "保留选区外的原图内容",
+    "job_instruction": "查看本项执行指令",
+    "output_kind": {
+      "sprite": "独立素材",
+      "composite": "完整图片"
+    }
   },
   "feedback": {
     "copy": "复制",
@@ -87,7 +101,11 @@
     "try": "试试这样说"
   },
   "result": {
-    "generating": "正在生成画面"
+    "generating": "正在生成画面",
+    "model_running": "图像模型正在执行任务",
+    "execution_details": "查看任务指令与执行参数",
+    "task_cost": "任务额度 {{cost}}",
+    "regions": "对应选区 {{indexes}}"
   },
   "wait": {
     "analysis_slow": "模型这次回得比平时慢，我还在处理，不用重发。",
@@ -132,7 +150,6 @@
     "relay_title": "先把中转站接上",
     "relay_desc": "填好地址和 Key，再把这句话发一次就行",
     "relay_go": "去配置",
-    "relay_template": "先用本地模板试一次",
     "need_image_title": "先在画布上选一张图",
     "need_image_desc": "这句话是要改某张图的。在画布上选中它，点操作条里的「引用」，再说一次就开始。",
     "need_image_canvas": "去画布选图",

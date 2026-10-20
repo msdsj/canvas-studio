@@ -29,6 +29,8 @@ class SkillRun(Base):
     session_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
     canvas_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # 团队审计：团队内谁在什么场景下跑了哪条编排
+    team_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
 
     skill_id: Mapped[str] = mapped_column(String(64), default="image_edit_intent")
     # completed / awaiting_confirmation / needs_image / failed / cancelled

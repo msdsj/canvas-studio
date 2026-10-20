@@ -5,7 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { gsap } from '@/lib/gsap'
 import { shouldReduceMotion } from '@/lib/motion'
 import { cn } from '@/lib/utils'
-import { CanvasMinimap } from '../CanvasMinimap'
+import { CanvasMinimap, MINIMAP_HEIGHT, MINIMAP_WIDTH } from '../CanvasMinimap'
 import {
   fitContentAnimated,
   focusSceneBox,
@@ -55,7 +55,7 @@ function NavButton({
           aria-pressed={active}
           onClick={onClick}
           className={cn(
-            'flex h-8 min-w-8 items-center justify-center rounded-[10px] px-1.5 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring',
+            'flex h-7 min-w-7 items-center justify-center rounded-[8px] px-1 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring',
             active && 'bg-accent-soft text-accent-ink hover:bg-accent-soft hover:text-accent-ink',
             className
           )}
@@ -158,11 +158,11 @@ export function CanvasNavigator({ api, elements, selectionCard }: CanvasNavigato
   }
 
   return (
-    <div className="pointer-events-none absolute bottom-[calc(max(12px,env(safe-area-inset-bottom))+52px)] right-3 z-20 @4xl:bottom-[max(12px,env(safe-area-inset-bottom))] flex flex-col items-end gap-2">
+    <div className="pointer-events-none absolute bottom-[calc(max(10px,env(safe-area-inset-bottom))+52px)] right-2.5 z-20 @4xl:bottom-[max(10px,env(safe-area-inset-bottom))] flex flex-col items-end gap-1.5">
       {selectionCard && (
         <div
           ref={cardRef}
-          className="pointer-events-auto w-[232px] max-w-[calc(100vw-48px)] rounded-[12px] bg-surface-raised/95 p-2.5 shadow-float ring-1 ring-inset ring-border-faint backdrop-blur-md"
+          className="pointer-events-auto w-[200px] max-w-[calc(100vw-48px)] rounded-[10px] bg-surface-raised/85 p-2 shadow-sheet ring-1 ring-inset ring-border-faint backdrop-blur-md"
         >
           {selectionCard}
         </div>
@@ -170,7 +170,7 @@ export function CanvasNavigator({ api, elements, selectionCard }: CanvasNavigato
 
       <div
         ref={panelRef}
-        className="pointer-events-auto overflow-hidden rounded-[12px] bg-surface-raised/95 shadow-float ring-1 ring-inset ring-border-faint backdrop-blur-md"
+        className="pointer-events-auto overflow-hidden rounded-[10px] bg-surface-raised/85 shadow-sheet ring-1 ring-inset ring-border-faint backdrop-blur-md"
       >
         <div className="p-1">
           {view === 'film' ? (
@@ -184,7 +184,7 @@ export function CanvasNavigator({ api, elements, selectionCard }: CanvasNavigato
       <div
         role="toolbar"
         aria-label={t('nav.label')}
-        className="pointer-events-auto flex items-center gap-0.5 rounded-[14px] bg-surface-raised/95 p-1 shadow-float ring-1 ring-inset ring-border-faint backdrop-blur-md"
+        className="pointer-events-auto flex items-center gap-px rounded-[11px] bg-surface-raised/85 p-[3px] shadow-sheet ring-1 ring-inset ring-border-faint backdrop-blur-md"
       >
         <NavButton label={t('nav.map')} active={view === 'map'} onClick={() => choose('map')}>
           <MapIcon size={15} />
@@ -197,7 +197,7 @@ export function CanvasNavigator({ api, elements, selectionCard }: CanvasNavigato
           <Minus size={15} />
         </NavButton>
         <NavButton label={t('nav.zoom_reset')} onClick={() => zoomViewportTo(api, 1)}>
-          <span ref={zoomTextRef} className="w-10 text-center text-micro font-semibold tabular-nums text-text">
+          <span ref={zoomTextRef} className="w-8 text-center text-[11px] font-semibold tabular-nums text-text">
             100%
           </span>
         </NavButton>
@@ -254,19 +254,19 @@ function Filmstrip({ api, elements }: { api: ExcalidrawApiLike | null; elements:
 
   if (images.length === 0) {
     return (
-      <p className="flex h-[92px] w-[144px] items-center justify-center px-3 text-center text-micro leading-snug text-text-tertiary">
+      <p style={{ width: MINIMAP_WIDTH, height: MINIMAP_HEIGHT }} className="flex items-center justify-center px-3 text-center text-micro leading-snug text-text-tertiary">
         {t('nav.film_empty')}
       </p>
     )
   }
 
   return (
-    <div className="w-[144px]">
+    <div style={{ width: MINIMAP_WIDTH }}>
       <p className="mb-1 flex items-center justify-between px-0.5 text-micro text-text-tertiary">
         <span>{t('nav.film')}</span>
         <span className="tabular-nums">{images.length}</span>
       </p>
-      <div ref={listRef} className="grid max-h-[138px] grid-cols-3 gap-1 overflow-y-auto pr-0.5">
+      <div ref={listRef} className="grid max-h-[114px] grid-cols-3 gap-1 overflow-y-auto pr-0.5">
         {images.map(({ el, url }) => (
           <button
             key={el.id}

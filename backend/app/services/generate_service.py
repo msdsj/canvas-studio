@@ -1,16 +1,16 @@
 """生成编排服务：生图 / 编辑任务的创建与后台执行。
 
 - 幂等去重、并发上限、预扣→上游→确认/回滚统一在此收口；
-- 上游由网关负责（含 Demo 降级）；结果落资产库；
-- 编辑任务按「AI 意图分析 + gpt-image-2 逐任务处理」编排：
-  所有图片处理（包括抠图）都由 gpt-image-2 完成，后端不做本地图片处理。
+- 上游由网关负责，真实规划任务禁止 Demo 降级，结果落资产库；
+- 编辑任务按「AI 意图分析 + gpt-image-2 逐任务处理」编排；
+- 平台用实际选区掩码恢复原图外部像素，并以模型 alpha 提取原始素材。
 
 新流程（skill: image-edit-flow）
 ------------------------------
 1. 用户标记 → 涂鸦 + 框选 + 填写需求
 2. 对话分析 → 完善提示词，判断需要几张图
 3. gpt-image-2 → 逐任务调用，所有处理都由 GPT 完成
-4. 返回结果 → 不做任何本地后处理
+4. 校验并合成结果 → 保存资产、确认额度；失败则退款
 """
 from __future__ import annotations
 
@@ -63,6 +63,24 @@ async def resolve_cost(db: AsyncSession, task_type: str, quality: str = "standar
     return int(prices["image_standard"])
 
 
+_EXECUTION_PARAMS = frozenset({
+    "model", "size", "quality", "n", "base_image_url", "mask_url", "ops",
+    "region", "outputs", "edit_mode", "edit_intensity", "optimized_prompt",
+})
+
+
+def _task_metadata(extra: dict[str, Any] | None) -> dict[str, Any]:
+    """追踪字段可扩展，计费和执行参数只由规范化后的显式输入决定。"""
+    return {key: value for key, value in (extra or {}).items() if key not in _EXECUTION_PARAMS}
+
+
+def _image_count(value: Any) -> int:
+    try:
+        return max(1, min(int(value or 1), 4))
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "图片数量必须为有效整数") from exc
+
+
 async def create_image_task(
     db: AsyncSession,
     user_id: str,
@@ -76,16 +94,30 @@ async def create_image_task(
     canvas_id: str | None,
     idempotency_key: str,
     extra: dict[str, Any] | None = None,
+    team: Any | None = None,
 ) -> tuple[GenerationTask, bool]:
-    """创建文生图任务（幂等）。"""
-    # 一次出 N 张就按 N 张计费：只按质量档计价会让「一次要 4 张」变成白送。
-    unit = await resolve_cost(db, "generate", quality)
-    cost = unit * max(1, min(int(n or 1), 4))
-    params = {"model": model, "size": size, "quality": quality, "n": n}
-    if extra:
-        params.update(extra)
+    """创建文生图任务（幂等）。`team` 非空时扣团队共享额度池。"""
+    count = _image_count(n)
+    normalized_quality = str(quality).strip().lower()
+    if normalized_quality not in {"standard", "hd"}:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "不支持的图片质量，请选择标准或高清")
+    # 计价与上游执行使用同一份参数，params/extra 无法覆盖已计费的数量或质量。
+    params = {
+        **_task_metadata(extra),
+        "model": model, "size": size, "quality": normalized_quality, "n": count,
+    }
+    cost = await resolve_cost(db, "generate", params["quality"]) * params["n"]
     return await task_service.create_or_get(
-        db, user_id, idempotency_key, "generate", prompt, params, cost, session_id, canvas_id
+        db,
+        user_id,
+        idempotency_key,
+        "generate",
+        prompt,
+        params,
+        cost,
+        session_id,
+        canvas_id,
+        team=team,
     )
 
 
@@ -106,12 +138,13 @@ async def create_edit_task(
     edit_mode: str | None = None,
     edit_intensity: str | None = None,
     extra: dict[str, Any] | None = None,
+    team: Any | None = None,
 ) -> tuple[GenerationTask, bool]:
     """创建编辑任务（幂等）。
 
-    计费规则：**所有编辑操作都走上游图像模型（gpt-image-2）并按编辑单价计费**，
-    包括抠图与透明化。平台只做选区计算与文件封装，不做任何本地像素处理。
-    一次提交只调用一次上游（多区域合并为一条带编号的指令），因此只计一次编辑单价。
+    所有编辑先调用图像模型，按实际产出和版本数计费。
+    平台用选区掩码恢复外部像素，用模型alpha提取原图素材，保证来源保真。
+    经LLM规划的每项独立产出为一个n=1任务；保留旧版多操作接口。
 
     :param edit_ops: 结构化编辑操作（能力注册表驱动的 Intent DSL）
     :param edit_region: 旧版纯几何选区（向后兼容，等价于全部按兜底能力处理）
@@ -123,24 +156,26 @@ async def create_edit_task(
     # 自由选区（套索/画笔）的多边形要在**入参这一步**就补回到操作上，
     # 否则落库的 params["ops"] 只剩包围盒，执行时无论如何都还原不出真实轮廓。
     _attach_paths(normalized_ops, edit_ops)
-    # 计费 = 编辑单价 × 上游调用次数 × 每张的版本数。
-    # variants（用户要「两张」时走这条路）会真的让上游出 N 张，
-    # 只按调用次数收钱等于平台自己贴一次成本。
+    # 兼容旧接口通过 extra 传版本数，但在合并前归一化，并以同一值执行和计价。
+    variants = _image_count((extra or {}).get("n"))
+    # 整图编辑按版本数生成，素材执行器每区域只出一份独立素材。
     sprite_count = sum(
         1
         for op in normalized_ops
         if resolve_handler(handlers, op.handler).output == OUTPUT_SPRITE
     )
     composite_count = len(normalized_ops) - sprite_count
-    calls = (1 if composite_count > 0 else 0) + sprite_count
-    variants = max(1, min(int((extra or {}).get("n") or 1), 4))
-    cost = await resolve_cost(db, "edit") * max(1, calls) * variants
+    outputs = (variants if composite_count > 0 else 0) + sprite_count
+    if not normalized_ops:
+        outputs = variants
+    cost = await resolve_cost(db, "edit") * outputs
 
     params: dict[str, Any] = {
+        **_task_metadata(extra),
         "model": model,
         "size": size,
         "quality": "standard",
-        "n": 1,
+        "n": variants,
         "base_image_url": base_image_url,
     }
     if mask_url:
@@ -155,10 +190,17 @@ async def create_edit_task(
         params["edit_mode"] = edit_mode
     if edit_intensity:
         params["edit_intensity"] = edit_intensity
-    if extra:
-        params.update(extra)
     return await task_service.create_or_get(
-        db, user_id, idempotency_key, "edit", prompt, params, cost, session_id, canvas_id
+        db,
+        user_id,
+        idempotency_key,
+        "edit",
+        prompt,
+        params,
+        cost,
+        session_id,
+        canvas_id,
+        team=team,
     )
 
 
@@ -232,6 +274,9 @@ async def run_task(task_id: str) -> None:
             return
 
         demo = bool(result.get("demo"))
+        if demo and task.params.get("pool_batch_id"):
+            await task_service.fail_and_refund(db, task_id, ErrorCode.UPSTREAM_ERROR.value, "这次只返回了演示结果，未扣除生成额度，请连接真实图像服务后重试")
+            return
         images: list[bytes] = result.get("images") or []
         if not images:
             await task_service.fail_and_refund(
@@ -311,7 +356,7 @@ async def _run_edit_task(db: AsyncSession, task: GenerationTask) -> dict[str, An
         result = await _call_whole_image(task, base_bytes, global_prompt, variants)
         thinking.append("生成完成，正在整理结果…")
         await _push_thinking(db, task, thinking)
-        return {"images": _result_bytes(result), "demo": bool(result.get("demo"))}
+        return {"images": _result_bytes(result)[:variants], "demo": bool(result.get("demo"))}
 
     composite_ops = [
         op
@@ -342,8 +387,10 @@ async def _run_edit_task(db: AsyncSession, task: GenerationTask) -> dict[str, An
                 task, base_bytes, composite_ops, prompt, variants=variants
             )
             demo = demo or bool(result.get("demo"))
-            images.extend(_result_bytes(result)[:variants])
+            images.extend(_composite_with_mask(base_bytes, raw, task, composite_ops) for raw in _result_bytes(result)[:variants])
             thinking.append("整图修改完成")
+        except AppError:
+            raise
         except Exception:  # noqa: BLE001 - 单段失败不拖垮其它区域
             logger.exception("整图修改调用失败 task=%s", task.id)
             failures.extend(op.index for op in composite_ops)
@@ -375,7 +422,27 @@ async def _run_edit_task(db: AsyncSession, task: GenerationTask) -> dict[str, An
                         task, base_bytes, [op], prompt, variants=1, use_uploaded_mask=False
                     )
                     found = _result_bytes(result)
-                    return op.index, (found[0] if found else None), bool(result.get("demo"))
+                    if not found:
+                        raise AppError(ErrorCode.UPSTREAM_ERROR, "未返回素材图片")
+                    with Image.open(io.BytesIO(base_bytes)) as source:
+                        target_size = source.size
+                    if not _has_transparency(found[0]):
+                        raise AppError(ErrorCode.UPSTREAM_ERROR, "图像服务未返回透明素材，额度已退回，请重试")
+                    with Image.open(io.BytesIO(base_bytes)) as original:
+                        original_rgba = original.convert("RGBA")
+                    with Image.open(io.BytesIO(found[0])) as provider:
+                        provider_alpha = provider.convert("RGBA").getchannel("A").resize(target_size, Image.Resampling.LANCZOS)
+                    mask_bytes, _ = _resolve_mask_bytes(task, base_bytes, [op])
+                    with Image.open(io.BytesIO(mask_bytes)) as mask:
+                        selected_alpha = ImageChops.invert(mask.convert("RGBA").getchannel("A"))
+                    provider_alpha = ImageChops.multiply(provider_alpha, selected_alpha)
+                    original_rgba.putalpha(ImageChops.multiply(original_rgba.getchannel("A"), provider_alpha))
+                    buffer = io.BytesIO()
+                    original_rgba.save(buffer, format="PNG")
+                    sprite = _crop_to_region(buffer.getvalue(), op.region, target_size=target_size)
+                    return op.index, sprite, bool(result.get("demo"))
+                except AppError:
+                    raise
                 except Exception:  # noqa: BLE001 - 单区域失败不影响其它区域
                     logger.exception("素材区域 %s 调用失败 task=%s", op.index, task.id)
                     return op.index, None, False
@@ -402,12 +469,34 @@ async def _run_edit_task(db: AsyncSession, task: GenerationTask) -> dict[str, An
     return {"images": images, "demo": demo}
 
 
+def _composite_with_mask(base_bytes, edited_bytes, task, ops):
+    """Keep every pixel outside the actual rectangle/lasso/brush mask unchanged."""
+    mask_bytes, _ = _resolve_mask_bytes(task, base_bytes, ops)
+    with Image.open(io.BytesIO(base_bytes)) as source:
+        base = source.convert("RGBA")
+    with Image.open(io.BytesIO(edited_bytes)) as source:
+        edited = source.convert("RGBA").resize(base.size, Image.Resampling.LANCZOS)
+    with Image.open(io.BytesIO(mask_bytes)) as source:
+        edit_mask = ImageChops.invert(source.convert("RGBA").getchannel("A"))
+    if edit_mask.size != base.size:
+        edit_mask = edit_mask.resize(base.size, Image.Resampling.NEAREST)
+    result = Image.composite(edited, base, edit_mask)
+    buffer = io.BytesIO()
+    result.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _pool_metadata(task):
+    return {key: task.params[key] for key in ("pool_batch_id", "pool_task_id", "pool_batch_total") if key in task.params}
+
+
 def _compose_prompt(global_prompt: str, instruction: str, *, sprite: bool) -> str:
     """拼装单次调用的上游指令：全局约束 + 本次区域指令 + 执行注意。"""
     head = "\n".join(part for part in (global_prompt, instruction) if part).strip()
     if sprite:
         tail = (
-            "只输出红框/选区内的主体，纯透明背景（alpha 通道），"
+            "输出与第一张原图完全相同尺寸、相同坐标的PNG，选区外全部透明；不要缩放、居中、裁剪或移动主体。"
+            "只保留选区内的主体，纯透明背景（alpha 通道），"
             "主体内容、细节、颜色、光影与原图完全一致；不重绘、不美化、不加背景或阴影；"
             "不要画出红框、编号或任何标注。"
         )
@@ -428,6 +517,7 @@ async def _call_whole_image(
         ("image", ("base.png", base_bytes, "image/png")),
     ]
     form = {
+        **_pool_metadata(task),
         "prompt": prompt or "按照描述修改这张图片",
         "model": task.params.get("model", "gpt-image-2"),
         "size": task.params.get("size", "1024x1024"),
@@ -467,6 +557,7 @@ async def _call_edit_ops(
         ("mask", ("mask.png", mask_bytes, "image/png")),
     ]
     form = {
+        **_pool_metadata(task),
         "prompt": prompt,
         "model": task.params.get("model", "gpt-image-2"),
         "size": task.params.get("size", "1024x1024"),
@@ -498,6 +589,16 @@ def _resolve_mask_bytes(
         if mask_url:
             uploaded = _load_uploaded_mask(str(mask_url), base_bytes)
             if uploaded is not None:
+                if task.params.get("planned_output") and ops:
+                    generated = _render_ops_mask(base_bytes, ops)
+                    with Image.open(io.BytesIO(uploaded)) as source:
+                        mask = source.convert("RGBA")
+                    with Image.open(io.BytesIO(generated)) as source:
+                        own_alpha = source.convert("RGBA").getchannel("A")
+                    mask.putalpha(ImageChops.lighter(mask.getchannel("A"), own_alpha))
+                    buffer = io.BytesIO()
+                    mask.save(buffer, format="PNG")
+                    return buffer.getvalue(), "uploaded_intersection"
                 return uploaded, "uploaded"
     return _render_ops_mask(base_bytes, ops), "generated"
 
@@ -633,37 +734,6 @@ async def _push_thinking(
         await db.rollback()
 
 
-async def _analyze_edit_intent(
-    task: GenerationTask,
-    ops: list[ops_module.EditOp],
-    handlers: dict[str, EditHandler],
-    global_prompt: str,
-    concurrency: int,
-) -> dict[int, tuple[bytes | None, bool]]:
-    """并发调用上游：每个区域一次独立请求（各自带该区域的 inpainting 掩码）。
-
-    单区域失败不影响其它区域（该项返回 None），是否整体失败由调用方判定。
-    并发数由 ``EDIT_CONCURRENCY`` 控制并夹取到 1~6，避免打爆上游号池。
-    """
-    if not ops:
-        return {}
-    limit = max(1, min(int(concurrency or 1), 6))
-    semaphore = asyncio.Semaphore(limit)
-
-    async def run_one(op: ops_module.EditOp) -> tuple[int, bytes | None, bool]:
-        async with semaphore:
-            try:
-                result = await _call_edit_region(task, op, handlers, global_prompt)
-                raw_images = _result_bytes(result)
-                return op.index, (raw_images[0] if raw_images else None), bool(result.get("demo"))
-            except Exception:  # noqa: BLE001 - 单区域失败不拖垮整单
-                logger.exception("区域 %s 上游调用失败", op.index)
-                return op.index, None, False
-
-    outcomes = await asyncio.gather(*(run_one(op) for op in ops))
-    return {index: (raw, demo) for index, raw, demo in outcomes}
-
-
 async def _call_edit_region(
     task: GenerationTask,
     op: ops_module.EditOp,
@@ -720,6 +790,7 @@ def _result_bytes(result: dict[str, Any]) -> list[bytes]:
 async def _call_generate(task: GenerationTask) -> dict[str, Any]:
     """调用网关文生图。"""
     payload = {
+        **_pool_metadata(task),
         "prompt": task.prompt,
         "model": task.params.get("model", "gpt-image-2"),
         "n": int(task.params.get("n", 1)),
@@ -728,97 +799,6 @@ async def _call_generate(task: GenerationTask) -> dict[str, Any]:
         "response_format": "b64_json",
     }
     return await gw_module.gateway_client.image_generations(payload)
-
-
-async def _analyze_edit_intent(
-    db: AsyncSession,
-    task: GenerationTask,
-    ops: list[ops_module.EditOp],
-    handlers: dict[str, EditHandler],
-) -> dict[str, Any]:
-    """调用对话中转站分析用户的编辑意图。
-
-    输入：用户标记的多个区域及其需求描述
-    输出：结构化的任务列表，每个任务包含完善后的提示词和区域索引
-
-    返回格式：
-    {
-        "tasks": [
-            {
-                "type": "edit" | "cutout",
-                "prompt": "完善后的详细提示词",
-                "region_index": 1,
-                "description": "简短说明"
-            }
-        ],
-        "total_images": 2
-    }
-    """
-    # 构建用户需求描述
-    regions_desc = []
-    for index, op in enumerate(ops, start=1):
-        handler = resolve_handler(handlers, op.handler)
-        regions_desc.append(
-            f"区域{index}（{handler.label}）：{op.prompt.strip() or '（未描述）'}"
-        )
-
-    user_message = "用户在一张图片上标记了以下区域并描述了需求：\n\n" + "\n".join(regions_desc)
-
-    system_prompt = """你是图片编辑需求分析专家。用户在一张图片上标记了多个区域并描述了需求。
-
-你的任务：
-1. 分析每个区域的真实需求
-2. 为每个需求生成详细的、适合 gpt-image-2 的提示词
-3. 判断需要生成几张独立的图片
-
-注意：
-- 抠图需求：提示词应该是"精确抠出红色框选和涂鸦标记的区域，生成透明背景的PNG图片"
-- 修改需求：提示词应该保持原图布局，只修改指定区域，其他地方不变
-- 换背景、改文字、改颜色都属于 edit 类型
-- 提取、抠图、去背景属于 cutout 类型
-
-返回 JSON 格式：
-{
-  "tasks": [
-    {
-      "type": "edit" | "cutout",
-      "prompt": "详细提示词",
-      "region_index": 区域编号（从1开始）,
-      "description": "简短说明"
-    }
-  ],
-  "total_images": 数量
-}"""
-
-    try:
-        result = await gw_module.gateway_client.llm_completions({
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
-            ],
-            "response_format": {"type": "json_object"}
-        })
-
-        content = result["choices"][0]["message"]["content"]
-        analysis = json.loads(content)
-        logger.info("对话分析完成：%d 个任务", len(analysis.get("tasks", [])))
-        return analysis
-
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("对话分析失败: %s，降级为用户原始提示词", exc)
-        # 降级：为每个 op 生成一个简单任务
-        return {
-            "tasks": [
-                {
-                    "type": "cutout" if resolve_handler(handlers, op.handler).output == OUTPUT_SPRITE else "edit",
-                    "prompt": op.prompt.strip() or f"处理区域{index}",
-                    "region_index": index,
-                    "description": op.prompt.strip() or "用户需求"
-                }
-                for index, op in enumerate(ops, start=1)
-            ],
-            "total_images": len(ops)
-        }
 
 
 async def _call_edit_with_mask(
@@ -1086,15 +1066,14 @@ def _paste_region(
 def _has_transparency(image_bytes: bytes) -> bool:
     """判断图片是否真的带透明像素。
 
-    很多第三方中转站会把上游返回的 PNG 重新编码，**丢掉 alpha 通道**，
-    于是「抠图」拿到的是带背景的不透明图。这里据此决定是否本地兜底。
+    不透明图片或全透明空图都不符合独立素材的返回契约。
     """
     try:
         with Image.open(io.BytesIO(image_bytes)) as img:
             if img.mode not in ("RGBA", "LA", "P"):
                 return False
-            low, _high = img.convert("RGBA").getchannel("A").getextrema()
-            return low < 250
+            low, high = img.convert("RGBA").getchannel("A").getextrema()
+            return low < 250 and high > 8
     except Exception:  # noqa: BLE001 - 读不出来就当作没有透明
         return False
 
@@ -1118,12 +1097,10 @@ def _crop_to_region(
     width, height = image.size
     x, y, w, h = cutout_service.region_to_pixels(region, width, height)
     crop = image.crop((x, y, x + w, y + h))
-    # Preserve provider alpha and trim only transparent borders. A flattened
-    # response remains a bounded crop until the explicit fallback policy runs.
-    if image.getchannel("A").getextrema() != (255, 255):
-        bbox = crop.getchannel("A").point(lambda value: 255 if value > 8 else 0).getbbox()
-        if bbox:
-            crop = crop.crop(bbox)
+    bbox = crop.getchannel("A").point(lambda value: 255 if value > 8 else 0).getbbox()
+    if bbox is None:
+        raise AppError(ErrorCode.UPSTREAM_ERROR, "图像服务未在选区内返回有效主体，额度已退回，请重试")
+    crop = crop.crop(bbox)
     buffer = io.BytesIO()
     crop.save(buffer, format="PNG")
     return buffer.getvalue()

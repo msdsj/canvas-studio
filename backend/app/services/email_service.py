@@ -74,3 +74,19 @@ async def send_reset_email(to: str, token: str) -> None:
 def mail_dir() -> str:
     """返回邮件日志所在目录（供测试/排查）。"""
     return os.path.dirname(os.path.abspath(settings.mail_log_path))
+
+
+async def send_team_invite_email(to: str, team_name: str, inviter: str, token: str, role: str) -> None:
+    """发送团队邀请邮件。
+
+    邀请链接指向前端 `/team/join?token=...`：被邀请人登录后即可接受，
+    若邮箱尚未注册，会先走注册再自动加入（令牌与邮箱绑定，不能转给他人）。
+    """
+    link = f"{settings.frontend_base_url}/team/join?token={token}"
+    role_label = {"owner": "超级管理员", "admin": "管理员", "member": "成员"}.get(role, "成员")
+    body = (
+        f"{inviter} 邀请你加入团队「{team_name}」，身份：{role_label}。\n\n"
+        f"点击链接接受邀请（7 天内有效）：\n{link}\n\n"
+        "如果这不是给你的邀请，忽略本邮件即可。\n"
+    )
+    await _send(f"[Canvas Studio] 加入团队「{team_name}」", to, body)

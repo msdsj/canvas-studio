@@ -18,7 +18,7 @@ export interface TraceStep {
   status: 'pending' | 'running' | 'done' | 'skipped' | 'blocked' | 'failed'
   elapsed_ms: number
   items?: string[]
-  /** 这一步模型输出的推理原文（可展开回看） */
+  /** 模型面向用户公开返回的分析摘要（可展开回看） */
   thought?: string
   /** 模型 / 耗时 / 输出量 */
   meta?: { model?: string; elapsed_ms?: number; output_chars?: number; streamed?: boolean }
@@ -36,7 +36,7 @@ interface AgentTraceProps {
   onRetry?: () => void
   /** 网络断开：等待条改为「已断网，恢复后自动续上」 */
   offline?: boolean
-  /** 实时模式：模型正在写出的推理文字 */
+  /** 实时模式：模型正在写出的分析摘要 */
   thought?: string
   /** 实时模式：进入结构化输出后已写出的字数 */
   thoughtChars?: number
@@ -48,13 +48,11 @@ interface AgentTraceProps {
 /** 需求分析的等待节奏（秒）：通常 8–15s；25s 起提示偏慢，90s 交给用户决定 */
 const ANALYSIS_TIMING = { expectedSeconds: 12, softSeconds: 25, hardSeconds: 90 }
 
-const PLACEHOLDER_KEYS = ['understand', 'skill', 'plan', 'prepare'] as const
-
 /**
- * Agent 思考轨迹。
+ * Agent 公开处理轨迹。
  *
- * 只展示「每一步在做什么、得出了哪些要点」——步骤标题 / 一句说明 / 推理要点；
- * 最终提示词属中间产物，不在这里出现（产品规则）。
+ * 展示实际返回的步骤、分析摘要、需求约束和决策依据。
+ * 每个任务实际使用的指令由任务卡展示。
  *
  * 动效分工：
  * - 新到达的步骤与要点由 GSAP 逐条升起（按 id 记账，已出现过的不重播）；
@@ -86,12 +84,17 @@ export function AgentTrace({
   const liveSeconds = timer.elapsed
 
   useEffect(() => {
-    if (live) setOpen(true)
-  }, [live])
+    if (live || defaultOpen) setOpen(true)
+  }, [live, defaultOpen])
 
   const totalMs = steps.reduce((sum, step) => sum + (Number(step.elapsed_ms) || 0), 0)
-  const seconds = live ? liveSeconds : Math.max(1, Math.round(totalMs / 1000))
+  const seconds = live ? liveSeconds : Math.round(totalMs / 1000)
   const failed = steps.some((step) => step.status === 'failed')
+  const blocked = steps.some((step) => step.status === 'blocked')
+  const stopped = !live && !failed && steps.some((step) => step.status === 'skipped' && step.detail === t('trace.stopped'))
+  const completed = steps.filter((step) => step.status === 'done').length
+  const currentStep = steps.find((step) => step.status === 'running')
+  const model = [...steps].reverse().find((step) => step.meta?.model)?.meta?.model
 
   // 实时模式：新步骤 / 新要点逐条升起（按 key 记账，已出现过的不重播）
   useLayoutEffect(() => {
@@ -154,7 +157,7 @@ export function AgentTrace({
 
   const showPlaceholder = live && steps.length === 0
 
-  const title = live ? t('trace.live_title') : failed ? t('trace.failed_title') : t('trace.done_title')
+  const title = live ? t('trace.live_title') : failed ? t('trace.failed_title') : blocked ? t('trace.blocked_title') : stopped ? t('trace.stopped_title') : t('trace.done_title')
 
   const header = (
     <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1">
@@ -166,11 +169,10 @@ export function AgentTrace({
       >
         {title}
       </span>
-      {/* 实时模式的计时在下方等待条里，这里不重复 */}
-      {!live && (
+      {steps.length > 0 && (
         <span className="text-micro tabular-nums text-text-tertiary">
-          {steps.length > 0 && <>{t('trace.steps', { count: steps.length })} · </>}
-          {t('trace.elapsed', { seconds })}
+          {live ? t('trace.completed_steps', { completed, total: steps.length }) : t('trace.steps', { count: steps.length })}
+          {!live && totalMs > 0 && <> · {t('trace.elapsed', { seconds: seconds || (totalMs / 1000).toFixed(1) })}</>}
         </span>
       )}
     </span>
@@ -187,15 +189,11 @@ export function AgentTrace({
             timer={timer}
             offline={offline}
             label={
-              steps.find((step) => step.status === 'running')?.title ??
-              t(`trace.placeholder.${PLACEHOLDER_KEYS[Math.min(3, Math.floor(liveSeconds / 4))]}`)
+              currentStep?.title ?? t('trace.waiting')
             }
             onStop={onStop}
             onRetry={onRetry}
           />
-          {(thought || thoughtChars > 0) && (
-            <ThoughtStream text={thought} chars={thoughtChars} seconds={liveSeconds} />
-          )}
         </>
       ) : (
         <button
@@ -231,29 +229,14 @@ export function AgentTrace({
       )}
 
       <div ref={bodyRef} className={cn(!live && 'overflow-hidden')}>
+        {(thought || thoughtChars > 0) && (live || !steps.some((step) => step.thought === thought)) && (
+          <ThoughtStream text={thought} chars={thoughtChars} active={live} model={model} />
+        )}
         {showPlaceholder ? (
-          <ol className="mt-2 flex flex-col gap-2.5 pl-0.5" aria-busy>
-            {PLACEHOLDER_KEYS.map((key, index) => (
-              <li key={key} className="flex items-center gap-2.5">
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                  {index === 0 ? (
-                    <Loader2 size={13} className="animate-spin text-accent-ink" />
-                  ) : (
-                    <span className="h-1.5 w-1.5 rounded-full bg-border-strong" />
-                  )}
-                </span>
-                <span
-                  className={cn(
-                    'text-caption',
-                    index === 0 ? 'text-text-secondary' : 'text-text-faint'
-                  )}
-                >
-                  {t(`trace.placeholder.${key}`)}
-                </span>
-                {index === 0 && <span className="cs-agent-bar h-1 w-12 shrink-0" />}
-              </li>
-            ))}
-          </ol>
+          <div className="mt-2 flex items-center gap-2 rounded-sm bg-bg-subtle/60 px-2.5 py-2 text-micro text-text-tertiary" aria-busy>
+            <Loader2 size={13} className="shrink-0 animate-spin text-accent-ink" />
+            <span>{t('trace.connecting')}</span>
+          </div>
         ) : (
           <ol ref={listRef} className="relative mt-2 flex flex-col pl-0.5">
             {steps.map((step, index) => (
@@ -335,8 +318,8 @@ function TraceRow({
           >
             {step.title}
           </p>
-          <span className="sr-only">{statusLabel}</span>
-          {seconds && step.status === 'done' && (
+          <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[10px]', running ? 'bg-accent-soft text-accent-ink' : step.status === 'failed' ? 'bg-danger-subtle text-danger' : 'bg-bg-subtle text-text-tertiary')}>{statusLabel}</span>
+          {seconds && step.status !== 'running' && (
             <span className="shrink-0 text-micro tabular-nums text-text-faint">{seconds}s</span>
           )}
         </div>
@@ -345,7 +328,7 @@ function TraceRow({
             {step.detail}
           </p>
         )}
-        {step.meta?.model && <StepMeta meta={step.meta} />}
+        {step.meta && <StepMeta meta={step.meta} />}
         {step.thought && <StepThought text={step.thought} />}
         {items.length > 0 && (
           <ul className="mt-1.5 flex flex-col gap-1 rounded-xs bg-bg-subtle/60 px-2.5 py-2">
@@ -367,10 +350,10 @@ function TraceRow({
 }
 
 /**
- * 实时推理流：模型「边想边写」的原文逐字出现，自动滚到底；
- * 进入结构化输出阶段后显示已写出的字数与速度，让等待有可感知的进度。
+ * 展示模型公开返回的分析摘要与真实接收的输出量。
+ * 进入结构化输出阶段后保留摘要，仅更新已接收的字符数。
  */
-function ThoughtStream({ text, chars, seconds }: { text: string; chars: number; seconds: number }) {
+function ThoughtStream({ text, chars, active, model }: { text: string; chars: number; active: boolean; model?: string }) {
   const { t } = useTranslation('agent')
   const boxRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
@@ -378,28 +361,28 @@ function ThoughtStream({ text, chars, seconds }: { text: string; chars: number; 
     if (box) box.scrollTop = box.scrollHeight
   }, [text])
   const total = text.length + chars
-  const speed = seconds > 0 ? Math.round(total / seconds) : 0
   return (
     <div className="mt-2 overflow-hidden rounded-xs ring-1 ring-inset ring-border-faint" aria-live="polite">
       <div className="flex items-center gap-1.5 bg-bg-subtle/70 px-2.5 py-1.5 text-micro text-text-tertiary">
         <Brain size={12} className="text-accent-ink" />
         <span className="font-medium text-text-secondary">{t('trace.thought_live')}</span>
         <span className="ml-auto tabular-nums">
-          {t('trace.thought_stats', { chars: total, speed })}
+          {model && <span className="mr-1.5">{model}</span>}
+          {t('trace.output_chars', { chars: total })}
         </span>
       </div>
       {text && (
         <div
           ref={boxRef}
-          className="max-h-[132px] overflow-y-auto whitespace-pre-wrap px-2.5 py-2 text-micro leading-relaxed text-text-secondary [overflow-wrap:anywhere]"
+          className="max-h-[240px] overflow-y-auto whitespace-pre-wrap px-2.5 py-2 text-micro leading-relaxed text-text-secondary [overflow-wrap:anywhere]"
         >
           {text}
-          {chars === 0 && (
+          {active && chars === 0 && (
             <span className="cs-caret ml-0.5 inline-block h-[1em] w-[2px] rounded-full bg-accent-strong align-[-0.15em]" />
           )}
         </div>
       )}
-      {chars > 0 && (
+      {active && chars > 0 && (
         <div className="flex items-center gap-1.5 border-t border-border-faint px-2.5 py-1.5 text-micro text-text-tertiary">
           <Loader2 size={11} className="animate-spin text-accent-ink" />
           <span className="tabular-nums">{t('trace.structuring', { chars })}</span>
@@ -424,10 +407,10 @@ function StepMeta({ meta }: { meta: NonNullable<TraceStep['meta']> }) {
   )
 }
 
-/** 推理原文：默认收起一行预览，点开看全文。 */
+/** 面向用户的分析摘要：默认完整展示，支持收起。 */
 function StepThought({ text }: { text: string }) {
   const { t } = useTranslation('agent')
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   return (
     <div className="mt-1.5 rounded-xs bg-bg-subtle/60 px-2.5 py-1.5">
       <button

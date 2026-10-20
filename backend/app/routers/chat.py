@@ -39,7 +39,7 @@ async def list_sessions(
     canvas_id: str | None = Query(default=None),
 ) -> dict:
     """列出会话。"""
-    sessions = await chat_service.list_sessions(db, user.id, canvas_id)
+    sessions = await chat_service.list_sessions(db, user, canvas_id)
     return envelope([ChatSessionOut.model_validate(s).model_dump() for s in sessions])
 
 
@@ -51,7 +51,7 @@ async def create_session(
 ) -> dict:
     """新建会话（可选同时开一张干净画布）。"""
     session = await chat_service.create_session(
-        db, user.id, payload.canvas_id, payload.title, new_canvas=payload.new_canvas
+        db, user, payload.canvas_id, payload.title, new_canvas=payload.new_canvas
     )
     await db.commit()
     return envelope(ChatSessionOut.model_validate(session).model_dump())
@@ -64,7 +64,7 @@ async def get_session(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """获取会话（含绑定的画布 id，前端据此加载对应画布）。"""
-    session = await chat_service.get_session(db, user.id, session_id)
+    session = await chat_service.get_session(db, user, session_id)
     return envelope(ChatSessionOut.model_validate(session).model_dump())
 
 
@@ -77,7 +77,7 @@ async def update_session(
 ) -> dict:
     """重命名会话 / 重新绑定画布。"""
     session = await chat_service.update_session(
-        db, user.id, session_id, payload.title, payload.canvas_id
+        db, user, session_id, payload.title, payload.canvas_id
     )
     await db.commit()
     return envelope(ChatSessionOut.model_validate(session).model_dump())
@@ -90,7 +90,7 @@ async def delete_session(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """删除会话。"""
-    await chat_service.delete_session(db, user.id, session_id)
+    await chat_service.delete_session(db, user, session_id)
     await db.commit()
     return envelope({})
 
@@ -105,7 +105,7 @@ async def list_messages(
 ) -> dict:
     """分页查询会话消息。"""
     page, size = normalize_page(page, size)
-    rows, total = await chat_service.list_messages(db, user.id, session_id, page, size)
+    rows, total = await chat_service.list_messages(db, user, session_id, page, size)
     items = [ChatMessageOut.model_validate(r).model_dump() for r in rows]
     return envelope(paginated(items, total, page, size))
 
@@ -146,7 +146,7 @@ async def analyze(
     - `{"event":"step","step":{...}}` 每一步的状态（running / done / skipped）
     - `{"event":"result","result":{...}}` 最终结论（run_id / 产出数量 / 任务 / 待选方案）
     """
-    await chat_service.get_session(db, user.id, payload.session_id)  # 先校验归属
+    await chat_service.get_session(db, user, payload.session_id)  # 先校验归属
     selection = payload.selection.model_dump() if payload.selection else None
     return StreamingResponse(
         skills.stream_analysis(
@@ -175,7 +175,7 @@ async def compose(
     - `{"event":"result","result":{status,reply,final_prompt,options,tasks,...}}`
       status ∈ direct / clarify / unconfigured / failed
     """
-    await chat_service.get_session(db, user.id, payload.session_id)
+    await chat_service.get_session(db, user, payload.session_id)
     selection = payload.selection.model_dump() if payload.selection else None
     return StreamingResponse(
         compose_service.stream_compose(
@@ -186,7 +186,6 @@ async def compose(
             image_refs=payload.image_refs,
             selection=selection,
             model=payload.model,
-            allow_degraded=payload.allow_degraded,
         ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
@@ -232,9 +231,9 @@ async def send_message(
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """发送消息 → SSE 流式回复（经网关；demo 时模拟）。"""
-    session = await chat_service.get_session(db, user.id, payload.session_id)
+    session = await chat_service.get_session(db, user, payload.session_id)
     _, ref_id, cost = await chat_service.prepare_turn(
-        db, user.id, session, payload.content, payload.image_refs
+        db, user, session, payload.content, payload.image_refs
     )
     gateway_payload = await chat_service.build_payload(db, session.id, payload.content)
     return StreamingResponse(

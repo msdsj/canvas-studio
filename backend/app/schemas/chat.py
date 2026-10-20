@@ -73,8 +73,6 @@ class ChatComposeRequest(BaseModel):
     # 参考图资产 id（上传 / 粘贴进来的图片）
     image_refs: list[str] = Field(default_factory=list)
     selection: ChatSelection | None = None
-    # 用户显式同意「未配置中转站时用本地模板先试一次」
-    allow_degraded: bool = False
     # 生图模型：gpt-image-2（2.0）/ gpt-image-2.5（2.5）
     model: str | None = None
 

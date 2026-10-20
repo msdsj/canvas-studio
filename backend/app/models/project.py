@@ -19,6 +19,12 @@ class CanvasProject(Base):
     owner_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("users.id"), index=True, nullable=False
     )
+    # 团队项目：team_id 非空即属于团队资源；NULL = 个人项目（历史数据全部落在这里）
+    team_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("teams.id"), index=True, nullable=True
+    )
+    # private | team：team 表示团队内所有成员可见
+    visibility: Mapped[str] = mapped_column(String(16), default="private", index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(String(1024), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

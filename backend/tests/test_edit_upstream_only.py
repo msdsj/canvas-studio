@@ -1,7 +1,7 @@
 """产品口径（2026-10-17）：所有编辑操作一律提交上游 gpt-image-2，并按编辑单价计费。
 
 这里锁死三条用户可见承诺：
-1. 抠图 / 透明化 / 改样式都只走一次上游调用，平台不做本地像素处理；
+1. 每项抠图 / 透明化 / 改样式都先调用上游，后处理仅做原像素保真、alpha 合成与裁剪；
 2. 发出去的提示词必须包含区域编号与能力内置说明（否则上游不知道要干什么）；
 3. 任何编辑操作都产生费用，不再有「本地免费」路径。
 """
@@ -12,7 +12,7 @@ import io
 
 import pytest
 import pytest_asyncio
-from PIL import Image
+from PIL import Image, ImageChops, ImageDraw
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal, Base, engine
@@ -68,21 +68,35 @@ async def _make_asset(uid: str) -> str:
         return asset.url
 
 
-def _png_b64(color: tuple[int, int, int] = (200, 40, 40)) -> str:
+def _png_b64(color: tuple[int, int, int] = (200, 40, 40), *, alpha: Image.Image | None = None) -> str:
     buf = io.BytesIO()
-    Image.new("RGB", (64, 64), color).save(buf, format="PNG")
+    image = Image.new("RGB", (64, 64), color)
+    if alpha is not None:
+        image.putalpha(alpha)
+    image.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode()
 
 
 class _Recorder:
-    """记录上游调用；返回一张合法 PNG。"""
+    """记录上游调用；素材按该次 mask 返回保留原坐标的透明主体。"""
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
     async def __call__(self, files, form):
         self.calls.append({"files": files, "form": form})
-        return {"data": [{"b64_json": _png_b64()}], "demo": False}
+        alpha = None
+        if "只保留选区内的主体" in form["prompt"]:
+            mask_bytes = next(payload[1] for field, payload in files if field == "mask")
+            with Image.open(io.BytesIO(mask_bytes)) as mask:
+                editable = ImageChops.invert(mask.convert("RGBA").getchannel("A"))
+            alpha = Image.new("L", (64, 64), 0)
+            bounds = editable.getbbox()
+            assert bounds, "素材请求必须包含可处理的区域"
+            left, top, right, bottom = bounds
+            ImageDraw.Draw(alpha).ellipse((left + 1, top + 1, right - 2, bottom - 2), fill=255)
+            alpha = ImageChops.multiply(alpha, editable)
+        return {"data": [{"b64_json": _png_b64(alpha=alpha)}], "demo": False}
 
 
 async def _create(uid: str, ops: list[dict], prompt: str) -> tuple[int, str]:
@@ -131,10 +145,10 @@ async def test_cutout_calls_upstream_and_is_billed(monkeypatch):
     assert "透明背景" in sent_prompt
     assert done.status == "succeeded", done.error_message
     assert len(done.result_urls) == 1
-    # 思考过程必须落库，前端据此在左侧展示
+    # 执行记录必须落库，前端据此在左侧展示
     thinking = (done.params or {}).get("thinking") or []
     assert len(thinking) >= 3
-    # 只断言「关键词出现过」而不是钉死整句：思考文案会随产品口径微调，
+    # 只断言「关键词出现过」而不是钉死整句：过程文案会随产品口径微调，
     # 但「这次是当成独立素材处理的」这个信息必须始终可见。
     assert any("素材" in step for step in thinking), thinking
 
@@ -183,7 +197,7 @@ async def test_mixed_ops_use_composite_plus_per_sprite_call(monkeypatch):
 
 
 async def test_transparent_calls_upstream(monkeypatch):
-    """就地透明化同样提交上游，不再本地处理。"""
+    """就地透明化同样先提交上游，再按选区合成并保留外部原像素。"""
     rec = _Recorder()
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
 

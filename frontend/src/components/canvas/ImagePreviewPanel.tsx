@@ -27,7 +27,7 @@ interface ImagePreviewPanelProps {
 }
 
 const ACTION =
-  'flex h-8 w-8 items-center justify-center rounded-[9px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring'
+  'flex h-7 w-7 items-center justify-center rounded-[7px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring'
 
 /**
  * 选中图片的信息卡（右下角导航器的上层）。
@@ -91,15 +91,15 @@ export function ImagePreviewPanel({
     ) : null
 
   return (
-    <div className={cn('flex flex-col gap-2', className)}>
-      <div className="flex items-center gap-2.5">
+    <div className={cn('flex flex-col gap-1.5', className)}>
+      <div className="flex items-center gap-2">
         {/* 相纸缩略图：白衬边 + 近直角，与画布上的图片同一种物件感 */}
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[4px] bg-mat p-[2px] shadow-sheet">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-[4px] bg-mat p-[2px] shadow-sheet">
           <img src={imageUrl} alt={t('preview.alt')} className="max-h-full max-w-full rounded-[2px] object-contain" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate whitespace-nowrap text-caption font-semibold text-text">{t('preview.title')}</p>
-          <p className="truncate whitespace-nowrap font-mono text-micro tabular-nums text-text-tertiary">
+          <p className="truncate whitespace-nowrap text-[11px] font-semibold text-text">{t('preview.title')}</p>
+          <p className="truncate whitespace-nowrap font-mono text-[10px] tabular-nums text-text-tertiary">
             {measured ? `${measured.w} × ${measured.h}` : t('preview.reading')}
           </p>
         </div>
@@ -107,13 +107,13 @@ export function ImagePreviewPanel({
           <button
             type="button"
             onClick={onEdit}
-            className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-brand px-3 text-caption font-semibold text-text-inverse shadow-sheet transition-[filter] hover:brightness-110"
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full bg-brand px-2 text-[11px] font-semibold text-text-inverse shadow-sheet transition-[filter] hover:brightness-110"
           >
             <Pencil size={13} /> {t('preview.edit')}
           </button>
         )}
       </div>
-      <div className="flex items-center gap-0.5 border-t border-border-faint pt-1.5">
+      <div className="flex items-center gap-0.5 border-t border-border-faint pt-1">
         {action(t('preview.send_to_chat'), <MessageSquarePlus size={15} />, onSendToChat)}
         {action(t('preview.copy'), <Copy size={15} />, onCopy)}
         {onDownload && (

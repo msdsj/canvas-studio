@@ -1,4 +1,9 @@
-"""画布服务：CRUD、自动保存、分享、导出。"""
+"""画布服务：CRUD、自动保存、分享、导出。
+
+归属校验统一走 `app.services.access`：团队版之后「是不是属主」不再是唯一判断
+依据（团队成员、显式协作者、公开分享都能读），所以这里只负责业务动作，
+不再自己写 `owner_id != user.id`。
+"""
 from __future__ import annotations
 
 import io
@@ -12,38 +17,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.canvas import Canvas
 from app.models.chat import ChatMessage, ChatSession
-from app.models.project import CanvasProject
+from app.models.user import User
 from app.security import generate_token
+from app.services import access
 from app.utils.errors import AppError, ErrorCode
 from app.utils.ids import new_id, utcnow
 
 EMPTY_STATE: dict[str, Any] = {"elements": [], "appState": {}, "files": {}}
 
 
-async def _get_project_or_403(db: AsyncSession, owner_id: str, project_id: str) -> CanvasProject:
-    """获取项目并校验归属。"""
-    result = await db.execute(
-        select(CanvasProject).where(
-            CanvasProject.id == project_id, CanvasProject.deleted_at.is_(None)
-        )
-    )
-    project = result.scalar_one_or_none()
-    if project is None:
-        raise AppError(ErrorCode.NOT_FOUND, "项目不存在")
-    if project.owner_id != owner_id:
-        raise AppError(ErrorCode.FORBIDDEN, "无权访问该项目")
-    return project
-
-
 async def create_canvas(
-    db: AsyncSession, owner_id: str, project_id: str, name: str = "未命名画布"
+    db: AsyncSession, user: User, project_id: str, name: str = "未命名画布"
 ) -> Canvas:
-    """在项目下新建画布。"""
-    await _get_project_or_403(db, owner_id, project_id)
+    """在项目下新建画布。
+
+    画布继承项目的团队归属与可见性：项目是团队共享的、画布却私有，同事点进去
+    只会看到「无权访问」，这在协作场景里非常反直觉。
+    """
+    project = await access.get_project_for(db, user, project_id, "write")
     canvas = Canvas(
         id=new_id(),
         project_id=project_id,
-        owner_id=owner_id,
+        owner_id=user.id,
+        team_id=project.team_id,
+        visibility=project.visibility,
         name=name,
         state=dict(EMPTY_STATE),
     )
@@ -52,57 +49,66 @@ async def create_canvas(
     return canvas
 
 
-async def list_by_project(db: AsyncSession, owner_id: str, project_id: str) -> list[Canvas]:
-    """列出项目下所有画布。"""
-    await _get_project_or_403(db, owner_id, project_id)
+async def list_by_project(db: AsyncSession, user: User, project_id: str) -> list[Canvas]:
+    """列出项目下所有画布（只看得到自己有读权限的）。"""
+    await access.get_project_for(db, user, project_id, "read")
+    ctx = await access.current_context(db, user)
     result = await db.execute(
-        select(Canvas).where(Canvas.project_id == project_id).order_by(Canvas.created_at.asc())
+        select(Canvas)
+        .where(Canvas.project_id == project_id, access.canvas_scope_clause(user, ctx))
+        .order_by(Canvas.created_at.asc())
     )
     return list(result.scalars().all())
 
 
-async def get_canvas(db: AsyncSession, owner_id: str, canvas_id: str) -> Canvas:
-    """获取画布并校验归属。"""
-    result = await db.execute(select(Canvas).where(Canvas.id == canvas_id))
-    canvas = result.scalar_one_or_none()
-    if canvas is None:
-        raise AppError(ErrorCode.NOT_FOUND, "画布不存在")
-    if canvas.owner_id != owner_id:
-        raise AppError(ErrorCode.FORBIDDEN, "无权访问该画布")
-    return canvas
+async def get_canvas(
+    db: AsyncSession, user: User, canvas_id: str, permission: str = "read"
+) -> Canvas:
+    """获取画布并按访问级别校验（不可访问抛 404，不泄漏存在性）。"""
+    return await access.get_canvas_for(db, user, canvas_id, permission)  # type: ignore[arg-type]
 
 
 async def update_canvas(
     db: AsyncSession,
-    owner_id: str,
+    user: User,
     canvas_id: str,
     name: str | None = None,
     state: dict[str, Any] | None = None,
     thumbnail: str | None = None,
 ) -> Canvas:
-    """自动保存画布（名称 / 场景 / 缩略图）。"""
-    canvas = await get_canvas(db, owner_id, canvas_id)
+    """自动保存画布（名称 / 场景 / 缩略图）。
+
+    整场景覆盖写只允许属主：协作时整份覆盖会互相抹掉对方的改动，
+    共享画布必须走 `collab_service` 的增量 patch 通道。
+    """
+    canvas = await get_canvas(db, user, canvas_id, "write")
+    if canvas.owner_id != user.id:
+        raise AppError(
+            ErrorCode.FORBIDDEN, "这块画布由其他人创建，请通过协作通道同步修改"
+        )
     if name is not None:
         canvas.name = name
     if state is not None:
         canvas.state = state
+        canvas.version = int(canvas.version or 0) + 1
     if thumbnail is not None:
         canvas.thumbnail_url = thumbnail
+    canvas.updated_by = user.id
     canvas.updated_at = utcnow()
     await db.flush()
     return canvas
 
 
-async def delete_canvas(db: AsyncSession, owner_id: str, canvas_id: str) -> None:
-    """删除画布。"""
-    canvas = await get_canvas(db, owner_id, canvas_id)
+async def delete_canvas(db: AsyncSession, user: User, canvas_id: str) -> None:
+    """删除画布（属主或团队管理角色）。"""
+    canvas = await get_canvas(db, user, canvas_id, "manage")
     await db.delete(canvas)
     await db.flush()
 
 
-async def share_canvas(db: AsyncSession, owner_id: str, canvas_id: str) -> tuple[str, str]:
+async def share_canvas(db: AsyncSession, user: User, canvas_id: str) -> tuple[str, str]:
     """开启分享，返回 (share_token, url)。"""
-    canvas = await get_canvas(db, owner_id, canvas_id)
+    canvas = await get_canvas(db, user, canvas_id, "manage")
     if not canvas.share_token:
         canvas.share_token = generate_token(16)
     canvas.is_public = True
@@ -111,9 +117,9 @@ async def share_canvas(db: AsyncSession, owner_id: str, canvas_id: str) -> tuple
     return canvas.share_token, url
 
 
-async def unshare_canvas(db: AsyncSession, owner_id: str, canvas_id: str) -> None:
+async def unshare_canvas(db: AsyncSession, user: User, canvas_id: str) -> None:
     """关闭分享。"""
-    canvas = await get_canvas(db, owner_id, canvas_id)
+    canvas = await get_canvas(db, user, canvas_id, "manage")
     canvas.is_public = False
     canvas.share_token = None
     await db.flush()
@@ -130,18 +136,16 @@ async def get_shared(db: AsyncSession, token: str) -> Canvas:
     return canvas
 
 
-async def share_session(db: AsyncSession, owner_id: str, session_id: str) -> tuple[str, str]:
+async def share_session(db: AsyncSession, user: User, session_id: str) -> tuple[str, str]:
     """开启「整段对话」分享，返回 (token, url)。
 
     分享出去的是**对话只读视图**：消息、提示词、生成结果链接、关联画布快照。
     访问者可以看、可以「基于它继续创作」——继续创作会复制一份到自己的账号下，
     不会污染原作者的对话（见 `fork_shared_session`）。
     """
-    session = (
-        await db.execute(select(ChatSession).where(ChatSession.id == session_id))
-    ).scalar_one_or_none()
-    if session is None or session.user_id != owner_id or session.deleted_at is not None:
-        raise AppError(ErrorCode.NOT_FOUND, "这段对话不存在")
+    session = await access.get_session_for(db, user, session_id, "read")
+    if session.user_id != user.id:
+        raise AppError(ErrorCode.FORBIDDEN, "只能分享自己创建的对话")
     if not session.share_token:
         session.share_token = generate_token(16)
     session.is_public = True
@@ -150,13 +154,11 @@ async def share_session(db: AsyncSession, owner_id: str, session_id: str) -> tup
     return session.share_token, url
 
 
-async def unshare_session(db: AsyncSession, owner_id: str, session_id: str) -> None:
+async def unshare_session(db: AsyncSession, user: User, session_id: str) -> None:
     """关闭对话分享（旧链接立即失效，重开会签发新 token）。"""
-    session = (
-        await db.execute(select(ChatSession).where(ChatSession.id == session_id))
-    ).scalar_one_or_none()
-    if session is None or session.user_id != owner_id:
-        raise AppError(ErrorCode.NOT_FOUND, "这段对话不存在")
+    session = await access.get_session_for(db, user, session_id, "read")
+    if session.user_id != user.id:
+        raise AppError(ErrorCode.FORBIDDEN, "只能关闭自己创建的对话分享")
     session.is_public = False
     session.share_token = None
     await db.flush()
@@ -188,7 +190,7 @@ async def get_shared_session(db: AsyncSession, token: str) -> tuple[ChatSession,
 
 
 async def fork_shared_session(
-    db: AsyncSession, viewer_id: str, token: str
+    db: AsyncSession, viewer: User, token: str
 ) -> ChatSession:
     """「基于这段对话继续创作」：把共享对话复制一份到访问者账号下。
 
@@ -200,11 +202,11 @@ async def fork_shared_session(
     from app.services import chat_service
 
     canvas_id = await chat_service._create_conversation_canvas(
-        db, viewer_id, f"{source.title or '对话'}（来自分享）"
+        db, viewer, f"{source.title or '对话'}（来自分享）"
     )
     clone = ChatSession(
         id=new_id(),
-        user_id=viewer_id,
+        user_id=viewer.id,
         canvas_id=canvas_id,
         title=f"{source.title or '对话'}（来自分享）"[:255],
     )
@@ -224,7 +226,7 @@ async def fork_shared_session(
             ChatMessage(
                 id=new_id(),
                 session_id=clone.id,
-                user_id=viewer_id,
+                user_id=viewer.id,
                 role=message.role,
                 content=message.content,
                 attachments=attachments,
@@ -246,10 +248,10 @@ def _render_placeholder_png(canvas: Canvas) -> bytes:
 
 
 async def export_canvas(
-    db: AsyncSession, owner_id: str, canvas_id: str, fmt: str
+    db: AsyncSession, user: User, canvas_id: str, fmt: str
 ) -> tuple[bytes, str, str]:
     """导出画布：返回 (content, media_type, filename)。"""
-    canvas = await get_canvas(db, owner_id, canvas_id)
+    canvas = await get_canvas(db, user, canvas_id, "read")
     if fmt == "json":
         content = json.dumps(
             {"id": canvas.id, "name": canvas.name, "state": canvas.state}, ensure_ascii=False

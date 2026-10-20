@@ -14,10 +14,13 @@ import { Route as SplatRouteImport } from './routes/$'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AssetsRouteImport } from './routes/assets'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SkillsRouteImport } from './routes/skills'
 import { Route as TasksRouteImport } from './routes/tasks'
+import { Route as TeamRouteImport } from './routes/team'
 import { Route as UsageRouteImport } from './routes/usage'
 import { Route as VerifyEmailRouteImport } from './routes/verify-email'
 import { Route as WorkspaceRouteImport } from './routes/workspace'
@@ -31,6 +34,11 @@ import { Route as AdminProCodesRouteImport } from './routes/admin.pro-codes'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as CanvasIdRouteImport } from './routes/canvas.$id'
 import { Route as ShareTokenRouteImport } from './routes/share.$token'
+import { Route as TeamIndexRouteImport } from './routes/team.index'
+import { Route as TeamAuditRouteImport } from './routes/team.audit'
+import { Route as TeamMembersRouteImport } from './routes/team.members'
+import { Route as TeamSettingsRouteImport } from './routes/team.settings'
+import { Route as TeamJoinRouteImport } from './routes/team_.join'
 import { Route as ShareChatTokenRouteImport } from './routes/share.chat.$token'
 
 const IndexRoute = IndexRouteImport.update({
@@ -58,6 +66,11 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectsRoute = ProjectsRouteImport.update({
   id: '/projects',
   path: '/projects',
@@ -73,9 +86,19 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SkillsRoute = SkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TeamRoute = TeamRouteImport.update({
+  id: '/team',
+  path: '/team',
   getParentRoute: () => rootRouteImport,
 } as any)
 const UsageRoute = UsageRouteImport.update({
@@ -143,6 +166,31 @@ const ShareTokenRoute = ShareTokenRouteImport.update({
   path: '/share/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TeamIndexRoute = TeamIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => TeamRoute,
+} as any)
+const TeamAuditRoute = TeamAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => TeamRoute,
+} as any)
+const TeamMembersRoute = TeamMembersRouteImport.update({
+  id: '/members',
+  path: '/members',
+  getParentRoute: () => TeamRoute,
+} as any)
+const TeamSettingsRoute = TeamSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => TeamRoute,
+} as any)
+const TeamJoinRoute = TeamJoinRouteImport.update({
+  id: '/team_/join',
+  path: '/team/join',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ShareChatTokenRoute = ShareChatTokenRouteImport.update({
   id: '/share/chat/$token',
   path: '/share/chat/$token',
@@ -155,10 +203,13 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteWithChildren
   '/assets': typeof AssetsRoute
   '/login': typeof LoginRoute
+  '/onboarding': typeof OnboardingRoute
   '/projects': typeof ProjectsRoute
   '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
+  '/skills': typeof SkillsRoute
   '/tasks': typeof TasksRoute
+  '/team': typeof TeamRouteWithChildren
   '/usage': typeof UsageRoute
   '/verify-email': typeof VerifyEmailRoute
   '/workspace': typeof WorkspaceRoute
@@ -171,7 +222,12 @@ export interface FileRoutesByFullPath {
   '/admin/users': typeof AdminUsersRoute
   '/canvas/$id': typeof CanvasIdRoute
   '/share/$token': typeof ShareTokenRoute
+  '/team/audit': typeof TeamAuditRoute
+  '/team/members': typeof TeamMembersRoute
+  '/team/settings': typeof TeamSettingsRoute
+  '/team/join': typeof TeamJoinRoute
   '/admin/': typeof AdminIndexRoute
+  '/team/': typeof TeamIndexRoute
   '/share/chat/$token': typeof ShareChatTokenRoute
 }
 export interface FileRoutesByTo {
@@ -179,9 +235,11 @@ export interface FileRoutesByTo {
   '/$': typeof SplatRoute
   '/assets': typeof AssetsRoute
   '/login': typeof LoginRoute
+  '/onboarding': typeof OnboardingRoute
   '/projects': typeof ProjectsRoute
   '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
+  '/skills': typeof SkillsRoute
   '/tasks': typeof TasksRoute
   '/usage': typeof UsageRoute
   '/verify-email': typeof VerifyEmailRoute
@@ -195,7 +253,12 @@ export interface FileRoutesByTo {
   '/admin/users': typeof AdminUsersRoute
   '/canvas/$id': typeof CanvasIdRoute
   '/share/$token': typeof ShareTokenRoute
+  '/team/audit': typeof TeamAuditRoute
+  '/team/members': typeof TeamMembersRoute
+  '/team/settings': typeof TeamSettingsRoute
+  '/team/join': typeof TeamJoinRoute
   '/admin': typeof AdminIndexRoute
+  '/team': typeof TeamIndexRoute
   '/share/chat/$token': typeof ShareChatTokenRoute
 }
 export interface FileRoutesById {
@@ -205,10 +268,13 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteWithChildren
   '/assets': typeof AssetsRoute
   '/login': typeof LoginRoute
+  '/onboarding': typeof OnboardingRoute
   '/projects': typeof ProjectsRoute
   '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
+  '/skills': typeof SkillsRoute
   '/tasks': typeof TasksRoute
+  '/team': typeof TeamRouteWithChildren
   '/usage': typeof UsageRoute
   '/verify-email': typeof VerifyEmailRoute
   '/workspace': typeof WorkspaceRoute
@@ -221,7 +287,12 @@ export interface FileRoutesById {
   '/admin/users': typeof AdminUsersRoute
   '/canvas/$id': typeof CanvasIdRoute
   '/share/$token': typeof ShareTokenRoute
+  '/team/audit': typeof TeamAuditRoute
+  '/team/members': typeof TeamMembersRoute
+  '/team/settings': typeof TeamSettingsRoute
+  '/team_/join': typeof TeamJoinRoute
   '/admin/': typeof AdminIndexRoute
+  '/team/': typeof TeamIndexRoute
   '/share/chat/$token': typeof ShareChatTokenRoute
 }
 export interface FileRouteTypes {
@@ -232,10 +303,13 @@ export interface FileRouteTypes {
     | '/admin'
     | '/assets'
     | '/login'
+    | '/onboarding'
     | '/projects'
     | '/reset-password'
     | '/settings'
+    | '/skills'
     | '/tasks'
+    | '/team'
     | '/usage'
     | '/verify-email'
     | '/workspace'
@@ -248,7 +322,12 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/canvas/$id'
     | '/share/$token'
+    | '/team/audit'
+    | '/team/members'
+    | '/team/settings'
+    | '/team/join'
     | '/admin/'
+    | '/team/'
     | '/share/chat/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -256,9 +335,11 @@ export interface FileRouteTypes {
     | '/$'
     | '/assets'
     | '/login'
+    | '/onboarding'
     | '/projects'
     | '/reset-password'
     | '/settings'
+    | '/skills'
     | '/tasks'
     | '/usage'
     | '/verify-email'
@@ -272,7 +353,12 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/canvas/$id'
     | '/share/$token'
+    | '/team/audit'
+    | '/team/members'
+    | '/team/settings'
+    | '/team/join'
     | '/admin'
+    | '/team'
     | '/share/chat/$token'
   id:
     | '__root__'
@@ -281,10 +367,13 @@ export interface FileRouteTypes {
     | '/admin'
     | '/assets'
     | '/login'
+    | '/onboarding'
     | '/projects'
     | '/reset-password'
     | '/settings'
+    | '/skills'
     | '/tasks'
+    | '/team'
     | '/usage'
     | '/verify-email'
     | '/workspace'
@@ -297,7 +386,12 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/canvas/$id'
     | '/share/$token'
+    | '/team/audit'
+    | '/team/members'
+    | '/team/settings'
+    | '/team_/join'
     | '/admin/'
+    | '/team/'
     | '/share/chat/$token'
   fileRoutesById: FileRoutesById
 }
@@ -307,15 +401,19 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRouteWithChildren
   AssetsRoute: typeof AssetsRoute
   LoginRoute: typeof LoginRoute
+  OnboardingRoute: typeof OnboardingRoute
   ProjectsRoute: typeof ProjectsRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   SettingsRoute: typeof SettingsRoute
+  SkillsRoute: typeof SkillsRoute
   TasksRoute: typeof TasksRoute
+  TeamRoute: typeof TeamRouteWithChildren
   UsageRoute: typeof UsageRoute
   VerifyEmailRoute: typeof VerifyEmailRoute
   WorkspaceRoute: typeof WorkspaceRoute
   CanvasIdRoute: typeof CanvasIdRoute
   ShareTokenRoute: typeof ShareTokenRoute
+  TeamJoinRoute: typeof TeamJoinRoute
   ShareChatTokenRoute: typeof ShareChatTokenRoute
 }
 
@@ -356,6 +454,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/projects': {
       id: '/projects'
       path: '/projects'
@@ -377,11 +482,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/skills': {
+      id: '/skills'
+      path: '/skills'
+      fullPath: '/skills'
+      preLoaderRoute: typeof SkillsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/tasks': {
       id: '/tasks'
       path: '/tasks'
       fullPath: '/tasks'
       preLoaderRoute: typeof TasksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/team': {
+      id: '/team'
+      path: '/team'
+      fullPath: '/team'
+      preLoaderRoute: typeof TeamRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/usage': {
@@ -475,6 +594,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShareTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/team/': {
+      id: '/team/'
+      path: '/'
+      fullPath: '/team/'
+      preLoaderRoute: typeof TeamIndexRouteImport
+      parentRoute: typeof TeamRoute
+    }
+    '/team/audit': {
+      id: '/team/audit'
+      path: '/audit'
+      fullPath: '/team/audit'
+      preLoaderRoute: typeof TeamAuditRouteImport
+      parentRoute: typeof TeamRoute
+    }
+    '/team/members': {
+      id: '/team/members'
+      path: '/members'
+      fullPath: '/team/members'
+      preLoaderRoute: typeof TeamMembersRouteImport
+      parentRoute: typeof TeamRoute
+    }
+    '/team/settings': {
+      id: '/team/settings'
+      path: '/settings'
+      fullPath: '/team/settings'
+      preLoaderRoute: typeof TeamSettingsRouteImport
+      parentRoute: typeof TeamRoute
+    }
+    '/team_/join': {
+      id: '/team_/join'
+      path: '/team/join'
+      fullPath: '/team/join'
+      preLoaderRoute: typeof TeamJoinRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/share/chat/$token': {
       id: '/share/chat/$token'
       path: '/share/chat/$token'
@@ -509,21 +663,41 @@ const AdminRouteChildren: AdminRouteChildren = {
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
+interface TeamRouteChildren {
+  TeamAuditRoute: typeof TeamAuditRoute
+  TeamMembersRoute: typeof TeamMembersRoute
+  TeamSettingsRoute: typeof TeamSettingsRoute
+  TeamIndexRoute: typeof TeamIndexRoute
+}
+
+const TeamRouteChildren: TeamRouteChildren = {
+  TeamAuditRoute: TeamAuditRoute,
+  TeamMembersRoute: TeamMembersRoute,
+  TeamSettingsRoute: TeamSettingsRoute,
+  TeamIndexRoute: TeamIndexRoute,
+}
+
+const TeamRouteWithChildren = TeamRoute._addFileChildren(TeamRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SplatRoute: SplatRoute,
   AdminRoute: AdminRouteWithChildren,
   AssetsRoute: AssetsRoute,
   LoginRoute: LoginRoute,
+  OnboardingRoute: OnboardingRoute,
   ProjectsRoute: ProjectsRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   SettingsRoute: SettingsRoute,
+  SkillsRoute: SkillsRoute,
   TasksRoute: TasksRoute,
+  TeamRoute: TeamRouteWithChildren,
   UsageRoute: UsageRoute,
   VerifyEmailRoute: VerifyEmailRoute,
   WorkspaceRoute: WorkspaceRoute,
   CanvasIdRoute: CanvasIdRoute,
   ShareTokenRoute: ShareTokenRoute,
+  TeamJoinRoute: TeamJoinRoute,
   ShareChatTokenRoute: ShareChatTokenRoute,
 }
 export const routeTree = rootRouteImport

@@ -22,7 +22,14 @@ from app.schemas.ai import (
     ProviderUpsertRequest,
     RelayStatusOut,
 )
-from app.services import design_skills, polish_service, relay_chain, relay_service
+from app.services import (
+    access,
+    config_service,
+    design_skills,
+    polish_service,
+    relay_chain,
+    relay_service,
+)
 from app.utils.errors import AppError, ErrorCode, envelope
 from app.utils.ids import utcnow
 from app.utils.logging import get_logger
@@ -77,16 +84,33 @@ def _to_out(row: AIProvider) -> dict:
 
 
 async def _get_row(db: AsyncSession, user: User, provider_id: str) -> AIProvider:
+    """取「我的」中转站配置。
+
+    必须带 `scope == "personal"`：团队配置的 `user_id` 指向创建它的超级管理员，
+    只按 user_id 过滤会让 owner 在个人配置页看到、甚至删掉团队共用的那条。
+    """
     row = (
         await db.execute(
             select(AIProvider).where(
-                AIProvider.id == provider_id, AIProvider.user_id == user.id
+                AIProvider.id == provider_id,
+                AIProvider.user_id == user.id,
+                AIProvider.scope == "personal",
             )
         )
     ).scalar_one_or_none()
     if row is None:
         raise AppError(ErrorCode.NOT_FOUND, "这条中转站配置不存在")
     return row
+
+
+async def _guard_personal_config(db: AsyncSession, user: User) -> None:
+    """团队成员在「团队统一配置」模式下不允许改自己的中转站。
+
+    读接口不受限（成员要能看到「当前用的是哪个模型」），只有写操作会被拦。
+    """
+    ctx = await access.current_context(db, user)
+    if ctx.team is not None and not ctx.team.allow_personal_provider():
+        raise AppError(ErrorCode.MODEL_CONFIG_FORBIDDEN)
 
 
 @router.get("/presets")
@@ -110,7 +134,7 @@ async def list_providers(
     rows = (
         await db.execute(
             select(AIProvider)
-            .where(AIProvider.user_id == user.id)
+            .where(AIProvider.user_id == user.id, AIProvider.scope == "personal")
             .order_by(AIProvider.created_at.asc())
         )
     ).scalars().all()
@@ -124,6 +148,7 @@ async def create_provider(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """新增一条中转站配置（允许全部留空，作为预留配置位）。"""
+    await _guard_personal_config(db, user)
     # 存之前先做静态校验（不解析 DNS：允许离线先把配置填好），
     # 免得用户存了个 file:// 或平台自身端口，等到真正生成时才报错
     if payload.base_url.strip():
@@ -150,7 +175,11 @@ async def create_provider(
 
     # 第一条配置自动激活：否则用户填完还是一直「未配置」，会以为没保存
     existing = (
-        await db.execute(select(AIProvider).where(AIProvider.user_id == user.id))
+        await db.execute(
+            select(AIProvider).where(
+                AIProvider.user_id == user.id, AIProvider.scope == "personal"
+            )
+        )
     ).scalars().all()
     if len(existing) == 1 or payload.is_active:
         for item in existing:
@@ -174,6 +203,7 @@ async def update_provider(
     `api_key` 若传入的是掩码（含 `*`），视为「不改」——否则前端回填掩码再保存，
     真实 Key 会被一串星号覆盖，用户下次生成就会 401。
     """
+    await _guard_personal_config(db, user)
     row = await _get_row(db, user, provider_id)
     if payload.base_url.strip():
         await relay_service.guard_url(payload.base_url.strip(), resolve_dns=False)
@@ -205,7 +235,11 @@ async def update_provider(
 
     if payload.is_active:
         rows = (
-            await db.execute(select(AIProvider).where(AIProvider.user_id == user.id))
+            await db.execute(
+                select(AIProvider).where(
+                    AIProvider.user_id == user.id, AIProvider.scope == "personal"
+                )
+            )
         ).scalars().all()
         for item in rows:
             item.is_active = item.id == row.id
@@ -221,9 +255,14 @@ async def activate_provider(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """切换当前生效的中转站（同一时刻只有一个）。"""
+    await _guard_personal_config(db, user)
     row = await _get_row(db, user, provider_id)
     rows = (
-        await db.execute(select(AIProvider).where(AIProvider.user_id == user.id))
+        await db.execute(
+            select(AIProvider).where(
+                AIProvider.user_id == user.id, AIProvider.scope == "personal"
+            )
+        )
     ).scalars().all()
     for item in rows:
         item.is_active = item.id == row.id
@@ -239,6 +278,7 @@ async def delete_provider(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """删除配置；删掉的如果是激活项，自动把最近更新的一条设为激活。"""
+    await _guard_personal_config(db, user)
     row = await _get_row(db, user, provider_id)
     was_active = row.is_active
     await db.delete(row)
@@ -247,7 +287,9 @@ async def delete_provider(
         rest = (
             await db.execute(
                 select(AIProvider)
-                .where(AIProvider.user_id == user.id)
+                .where(
+                    AIProvider.user_id == user.id, AIProvider.scope == "personal"
+                )
                 .order_by(AIProvider.updated_at.desc())
                 .limit(1)
             )
@@ -266,6 +308,7 @@ async def test_saved_provider(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """测试已保存的配置；请求体可覆盖表单里尚未保存的值。"""
+    await _guard_personal_config(db, user)
     _guard_test_rate(user.id)
     row = await _get_row(db, user, provider_id)
     target = relay_service.build_target_from_draft(
@@ -294,8 +337,10 @@ async def test_saved_provider(
 async def test_draft_provider(
     payload: ProviderTestRequest,
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """未保存也能先测（避免「先存一份错的再改」）。"""
+    await _guard_personal_config(db, user)
     _guard_test_rate(user.id)
     target = relay_service.build_target_from_draft(
         base_url=payload.base_url or "",
@@ -318,14 +363,30 @@ async def relay_status(
     二者不同是刻意的（存 3 试 2 + 跨 provider 追加），配置页据此做「失败时依次尝试」
     的预览，避免用户以为填了 3 个就会试 3 个。
     """
+    ctx = await access.current_context(db, user)
+    team_managed = ctx.team is not None and not ctx.team.allow_personal_provider()
+    team_fields = {
+        "editable": not team_managed,
+        "can_manage": bool(ctx.team is not None and ctx.is_owner),
+        "team_id": ctx.team.id if ctx.team else None,
+        "team_name": ctx.team.name if ctx.team else "",
+        "managed_by": ctx.team.owner_user_id if ctx.team else "",
+    }
+
     target = await relay_service.resolve(db, user.id)
     if target is None:
+        reason = (
+            "团队还没有配置对话模型，请联系团队超级管理员"
+            if team_managed
+            else "还没有可用的中转站：填一个自己的，或让管理员配置平台公共中转"
+        )
         return envelope(
             RelayStatusOut(
                 configured=False,
                 source="none",
-                reason="还没有可用的中转站：填一个自己的，或让管理员配置平台公共中转",
+                reason=reason,
                 skills_count=len(design_skills.SKILLS),
+                **team_fields,
             ).model_dump()
         )
     # 只构造链、不发请求：状态接口不能被上游的 90 秒读超时拖住
@@ -338,10 +399,77 @@ async def relay_status(
             model=target.model,
             kind=target.kind,
             skills_count=len(design_skills.SKILLS),
+            # 团队成员即便「可编辑」，改的也是自己没在用的配置，提示语另算
+            editable=target.source != "team" and team_fields["editable"],
+            can_manage=team_fields["can_manage"],
+            team_id=team_fields["team_id"],
+            team_name=team_fields["team_name"],
+            managed_by=team_fields["managed_by"],
             fallback_models=list(plan.fallback_models),
             chain_preview=list(plan.models),
             backup_provider=plan.backup_provider,
         ).model_dump()
+    )
+
+
+@router.get("/models")
+async def list_models(
+    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """当前生效的模型清单（前端选择器 / 只读展示用）。
+
+    只暴露「用户实际会用到的」：主模型 + 实际会遍历的备用链。团队成员看到的
+    是超级管理员配的那一套，`editable=False` 让前端把选择器渲染成只读文本，
+    而不是让成员点开一个存不进去的弹窗。
+    """
+    ctx = await access.current_context(db, user)
+    team_managed = ctx.team is not None and not ctx.team.allow_personal_provider()
+    # 团队模式下**连 owner 也不能在这里改**：团队模型只有一个真源（`/teams/{id}/model-config`），
+    # 允许 owner 在对话区顺手改会让两处配置打架。但 owner 必须知道「去哪儿改」，
+    # 所以额外给出 `can_manage` —— 前端据此把提示从「联系超级管理员」换成「去团队设置」。
+    can_manage = bool(ctx.team is not None and ctx.is_owner)
+    target = await relay_service.resolve(db, user.id)
+    if target is None:
+        return envelope(
+            {
+                "configured": False,
+                "editable": not team_managed,
+                "can_manage": can_manage,
+                "team_id": ctx.team.id if ctx.team else None,
+                "team_name": ctx.team.name if ctx.team else "",
+                "managed_by": ctx.team.owner_user_id if ctx.team else "",
+                "image": [],
+                "text": [],
+                "default_image": "",
+                "default_text": "",
+            }
+        )
+
+    plan = await relay_chain.build_chain_plan(db, user.id, target)
+    image_models = list(dict.fromkeys(plan.models))
+    text_model = str(await config_service.get_value(db, "TEXT_MODEL", "") or "")
+    text_fallbacks = str(await config_service.get_value(db, "TEXT_MODEL_FALLBACKS", "") or "")
+    text_models = list(
+        dict.fromkeys(
+            [item.strip() for item in [text_model, *text_fallbacks.split(",")] if item.strip()]
+        )
+    )
+    return envelope(
+        {
+            "configured": True,
+            "editable": target.source != "team" and not team_managed,
+            "can_manage": can_manage,
+            "source": target.source,
+            "provider_name": target.name,
+            "team_id": ctx.team.id if ctx.team else None,
+            "team_name": ctx.team.name if ctx.team else "",
+            "managed_by": ctx.team.owner_user_id if ctx.team else "",
+            "image": image_models,
+            "text": text_models,
+            "default_image": image_models[0] if image_models else "",
+            "default_text": text_models[0] if text_models else "",
+            "backup_provider": plan.backup_provider,
+        }
     )
 
 

@@ -1,0 +1,501 @@
+{
+  "key": "ecommerce_detail",
+  "name": "电商详情页",
+  "description": "从首屏到行动号召的完整详情页链路：3C、分子图、文生图/图生图/融图、LOGO 与详情页方法论。",
+  "personas": [
+    "ecommerce"
+  ],
+  "tags": [
+    "电商",
+    "详情页",
+    "主图",
+    "转化"
+  ],
+  "category": "ecommerce",
+  "sources": [
+    "7.AI电商详情设计提示词"
+  ],
+  "count": 60,
+  "items": [
+    {
+      "id": "ecommerce_detail__3d-ca1b6488b4",
+      "title": "将我上传的衣物图转成3D立体效果，…",
+      "summary": "将我上传的衣物图转成3D立体效果，就像真人穿着一样，但里面不要有人也不要任何肢体。3D拍摄立体拍摄。长袖可以插兜，帽子支",
+      "prompt": "将我上传的衣物图转成3D立体效果，就像真人穿着一样，但里面不要有人也不要任何肢体。3D拍摄立体拍摄。长袖可以插兜，帽子支棱起来。背景为纯白，衣物底部有阴影效果，体现3D悬浮的感觉。",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__convert-the-uploa-01583fcf63",
+      "title": "Convert the uploa…",
+      "summary": "Convert the uploaded clothing image into a 3D stereoscopic e",
+      "prompt": "Convert the uploaded clothing image into a 3D stereoscopic effect, just like a real person wearing it, but without anyone or any limbs inside. 3D shooting, stereoscopic shooting. The long sleeves can be in the pockets, and the hat can be erected. The background is pure white, and there is a shadow effect at the bottom of the clothing to reflect the 3D floating feeling.",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__create-a-realisti-ae2b29d4c7",
+      "title": "Create a realisti…",
+      "summary": "Create a realistic 3D rendering effect for this product sket",
+      "prompt": "Create a realistic 3D rendering effect for this product sketch and use studio lighting.",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__extract-the-cup-i-5be9a6c776",
+      "title": "Extract the cup i…",
+      "summary": "Extract the cup in Figure 1, refer to the poster design styl",
+      "prompt": "Extract the cup in Figure 1, refer to the poster design style in Figure 2, and design a brand-new product image for the cup in Figure 1.",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__1-2-cc6406a471",
+      "title": "将图1的衣服穿在图2高级女模特身上…",
+      "summary": "将图1的衣服穿在图2高级女模特身上，你帮我搭配个高跟鞋和萝卜裤型的牛仔裤。专业摄影，成片具有高级感。最终成片需要达到专业",
+      "prompt": "将图1的衣服穿在图2高级女模特身上，你帮我搭配个高跟鞋和萝卜裤型的牛仔裤。专业摄影，成片具有高级感。最终成片需要达到专业影棚的拍摄水准，具有佳能5D相机（Canon 5D）拍摄的高清质感。",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__dress-the-clothes-2605a72bf5",
+      "title": "Dress the clothes…",
+      "summary": "Dress the clothes in Figure 1 on the high - end female model",
+      "prompt": "Dress the clothes in Figure 1 on the high - end female model in Figure 2. Match a pair of high - heeled shoes and jeans in the shape of turnip pants for it. Professional photography to make the final film have a high - end feel. The final film needs to reach the shooting standard of a professional studio and have the high - definition texture shot by a Canon 5D camera.",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-3eb00792e5",
+      "title": "请参考图中的人物面部特征，为我制作…",
+      "summary": "请参考图中的人物面部特征，为我制作一张专业的蓝底证件照。请将照片中的姿态调整为正面朝向镜头，换上深色西装和白衬衫，并保持",
+      "prompt": "请参考图中的人物面部特征，为我制作一张专业的蓝底证件照。请将照片中的姿态调整为正面朝向镜头，换上深色西装和白衬衫，并保持自然微笑。最终成片需要达到专业影棚的拍摄水准，具有佳能5D相机（Canon 5D）拍摄的高清质感。",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__please-refer-to-t-ea05769d53",
+      "title": "Please refer to t…",
+      "summary": "Please refer to the facial features of the person in the pic",
+      "prompt": "Please refer to the facial features of the person in the picture and make a professional ID photo with a blue background for me. Adjust the posture in the photo to face the camera directly, change into a dark suit and a white shirt, and maintain a natural smile. The final film needs to reach the shooting standard of a professional studio and have the high - definition texture shot by a Canon 5D camera.",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__replace-the-chara-998bd66bcf",
+      "title": "Replace the chara…",
+      "summary": "Replace the character with the one in Figure 2, the sofa wit",
+      "prompt": "Replace the character with the one in Figure 2, the sofa with the one in Figure 3, change the color scheme to orange, and replace the text with \"Z\".",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__1-2-830bca2c35",
+      "title": "将图1（埃菲尔铁塔夜景）、图2（卢…",
+      "summary": "将图1（埃菲尔铁塔夜景）、图2（卢浮宫金字塔玻璃结构）、图3（塞纳河与亚历山大三世桥）无缝融合；统一“暮蓝×金灯”胶片色",
+      "prompt": "将图1（埃菲尔铁塔夜景）、图2（卢浮宫金字塔玻璃结构）、图3（塞纳河与亚历山大三世桥）无缝融合；统一“暮蓝×金灯”胶片色，光源方向一致，雨后地面微反射与河面倒影自然；保留铁塔铆钉、玻璃网格折射、桥上雕饰等细节；横幅主KV，比例自适应。",
+      "sub": "",
+      "aspect": "16:9"
+    },
+    {
+      "id": "ecommerce_detail__seamlessly-blend-b2395803a3",
+      "title": "Seamlessly blend …",
+      "summary": "Seamlessly blend Figure 1 (the Eiffel Tower at night), Figur",
+      "prompt": "Seamlessly blend Figure 1 (the Eiffel Tower at night), Figure 2 (the glass structure of the Louvre Pyramid), and Figure 3 (the Seine River and the Pont Alexandre III). Unify the color scheme to a \"dusk - blue × golden - light\" film color, with the light source direction consistent. Ensure that the slight reflection on the ground after rain and the reflection on the river surface are natural. Retain details such as the rivets of the Eiffel Tower, the refraction of the glass grid, and the carvings on the bridge. Create a horizontal main KV with the proportion adapted automatically.",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__1-2-bba59b06b3",
+      "title": "将模特(图1)穿上森林系裙装(图2…",
+      "summary": "将模特(图1)穿上森林系裙装(图2)，右肩添加机械蜂鸟(图3)，地面添加荧光苔藓(图4)；皮肤质感与衣褶细节保持；画面统",
+      "prompt": "将模特(图1)穿上森林系裙装(图2)，右肩添加机械蜂鸟(图3)，地面添加荧光苔藓(图4)；皮肤质感与衣褶细节保持；画面统一冷绿调",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__dress-the-model-i-f27c34d773",
+      "title": "Dress the model i…",
+      "summary": "Dress the model in Figure 1 with the forest - style dress in",
+      "prompt": "Dress the model in Figure 1 with the forest - style dress in Figure 2. Add a mechanical hummingbird on the right shoulder as shown in Figure 3, and add fluorescent moss on the ground as in Figure 4. Preserve the skin texture and the details of the dress folds. Unify the color tone of the image to a cool - green one.",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__renovate-the-room-8c7dd93a67",
+      "title": "Renovate the room…",
+      "summary": "Renovate the room to make it look brand - new without changi",
+      "prompt": "Renovate the room to make it look brand - new without changing the original layout. Replace the existing home furnishings and color schemes. Keep the spatial proportions unchanged and ensure high - definition details.",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-fd0ed7abac",
+      "title": "参考模特保持五官与发型不变",
+      "summary": "参考模特保持五官与发型不变；同款大衣黑/奶白/藏蓝三色；分别呈现站姿/坐姿/走姿；棚拍光；输出三图。",
+      "prompt": "参考模特保持五官与发型不变；同款大衣黑/奶白/藏蓝三色；分别呈现站姿/坐姿/走姿；棚拍光；输出三图。",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__refer-to-the-mode-546537d9f2",
+      "title": "Refer to the mode…",
+      "summary": "Refer to the model and keep the facial features and hairstyl",
+      "prompt": "Refer to the model and keep the facial features and hairstyle unchanged. Present the same style of overcoat in three colors: black, milky white, and navy blue. Show a standing pose, a sitting pose, and a walking pose respectively. Use studio lighting and output three pictures.",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__generate-front-vi-23bbd63431",
+      "title": "Generate front vi…",
+      "summary": "Generate front view, side view, and rear view three - view d",
+      "prompt": "Generate front view, side view, and rear view three - view drawings. Use a white background. Make the highly reflective materials look realistic.",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-69ca218721",
+      "title": "将产品图置入三种场景：北欧客厅/日…",
+      "summary": "将产品图置入三种场景：北欧客厅/日式榻榻米/赛博夜店；自动匹配每个场景的光影与色调；材质反射自然；输出三图。",
+      "prompt": "将产品图置入三种场景：北欧客厅/日式榻榻米/赛博夜店；自动匹配每个场景的光影与色调；材质反射自然；输出三图。",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__place-the-product-46621763bc",
+      "title": "Place the product…",
+      "summary": "Place the product image into three scenes: a Nordic - style ",
+      "prompt": "Place the product image into three scenes: a Nordic - style living room, a Japanese - style tatami room, and a cyber - themed nightclub. Automatically match the lighting, shadows, and color tones of each scene. Ensure natural material reflections. Output three pictures.",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-1ec30ca9da",
+      "title": "生成手部特写，佩戴祖母绿戒指",
+      "summary": "生成手部特写，佩戴祖母绿戒指；耳部特写，佩戴猫眼石耳钉；法式渐变美甲；皮肤纹理与金属反射真实；暗场微光",
+      "prompt": "生成手部特写，佩戴祖母绿戒指；耳部特写，佩戴猫眼石耳钉；法式渐变美甲；皮肤纹理与金属反射真实；暗场微光",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__generate-a-close-f569942c91",
+      "title": "Generate a close …",
+      "summary": "Generate a close - up of the hand wearing an emerald ring, a",
+      "prompt": "Generate a close - up of the hand wearing an emerald ring, and a close - up of the ear wearing opal stud earrings. Add French - style gradient nail art. Make the skin texture and metal reflections look realistic. Use a dark - field with dim light.",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__logo-7677bcdc50",
+      "title": "参考品牌LOGO，生成托特包、水杯…",
+      "summary": "参考品牌LOGO，生成托特包、水杯、吊坠、包装盒等一套周边；统一品牌主色调与材质；将所有的周边放在一张图。",
+      "prompt": "参考品牌LOGO，生成托特包、水杯、吊坠、包装盒等一套周边；统一品牌主色调与材质；将所有的周边放在一张图。",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__refer-to-the-bran-796c6d7eb0",
+      "title": "Refer to the bran…",
+      "summary": "Refer to the brand LOGO and generate a set of peripherals in",
+      "prompt": "Refer to the brand LOGO and generate a set of peripherals including tote bags, water cups, pendants, packaging boxes, etc. Unify the brand's main color and material. Place all the peripherals in one picture.",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__ai-49c6b5d243",
+      "title": "AI一键直出分子图详情页提示词",
+      "summary": "AI一键直出分子图详情页提示词  主体内容:呈现护肤成分(酵母核心成分)的微观结构，以多层透明球体包裹金色活性因子，搭配",
+      "prompt": "AI一键直出分子图详情页提示词\n\n主体内容:呈现护肤成分(酵母核心成分)的微观结构，以多层透明球体包裹金色活性因子，搭配滴管，突出 “渗透性+、抗氧化性+、温和性+、高滋润性+” 四大功效 。标题文案:“源自科学的控油力量 酵母*开启臻护控油新时代”，置于画面上方居中，凸显科技控油主题 。场景设定:电商详情页的成分科技展示场景，聚焦专业、高端的护肤科技感，让消费者直观感知成分优势 。风格参考:科技美妆风，融合微观镜头与精致渲染，参考高端护肤品成分可视化设计，突出成分的活性与科技感 。情感表达:传递专业、可靠的控油信心，展现产品借助科学成分精准控油、养护肌肤的能力，激发消费者对控油护肤的期待 。色彩色调:以深绿为底色，搭配透明球体的清透绿、金色活性因子，营造沉稳又具科技活力的氛围，关键文字用金色/白色提亮 。构图视角:中心聚焦式构图，将核心成分球体置于画面中心，功效文案环绕分布;采用微观特写视角，放大成分细节，强化科技质感。附加细节:为透明球体添加水珠、气泡特效，模拟成分的水润感;在背景点缀简约分子结构装饰，提升科学氛围;功效文案旁标注英文(PER MEABILITY等)，增强专业感",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-fc96aa71ed",
+      "title": "主体内容:以透明微囊包裹红色胶原分…",
+      "summary": "主体内容:以透明微囊包裹红色胶原分子(体现寡肽-1)为核心视觉，搭配“撑起法令纹”“补充胶原蛋白”等功效说明，呈现成分作",
+      "prompt": "主体内容:以透明微囊包裹红色胶原分子(体现寡肽-1)为核心视觉，搭配“撑起法令纹”“补充胶原蛋白”等功效说明，呈现成分作用逻辑，标题文案:“注入元气胶原分子 专利成分*寡肽-1”，置顶突出核心成分与卖点场景设定:电商详情页的成分解析场景，聚焦抗老护肤，用直观视觉讲清成分功效，辅助消费者理解，风格参考:写实科技风，借鉴医美/护肤成分可视化设计，强化微观结构的真实质感与功效关联，情感表达:传递专业、有效的抗老信心，让消费者感知成分对法令纹、胶原补充的针对性作用，激发抗老需求，色彩色调:以浅灰/白为底色(模拟肌肤/科技质感 )，微囊用透明+红色内容物，文字搭配红/黑，突出专业与活力构图视角:中心聚焦构图，微囊置于画面核心，功效文案环绕分布;采用微观特写视角，放大成分细节，增强说服力附加细节:给微囊添加光泽/半透明特效，模拟成分活性;在功效说明旁补充“充盈表皮凹陷”“加强肌底支撑”等具体作用;底部用简约线条/肌理模拟肌肤结构，强化场景关联",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-2c55a646a7",
+      "title": "主体内容:聚焦美妆护肤产品核心科技…",
+      "summary": "主体内容:聚焦美妆护肤产品核心科技，呈现纳米级焕亮抗老相关物质(如金色液态球体等)，搭配肌肤细胞层渗透作用展示，标题文案",
+      "prompt": "主体内容:聚焦美妆护肤产品核心科技，呈现纳米级焕亮抗老相关物质(如金色液态球体等)，搭配肌肤细胞层渗透作用展示，标题文案:“NANO RADIANT TECHNOLOGY 外抗氧内抗糖 双向焕亮抗老 智导M纳米焕亮抗老科技”，突出科技与功效，场景设定:电商护肤品详情页展示场景，侧重产品科技原理可视化呈现，风格参考:高端美妆科技风，用精致特效、质感材质凸显专业与高级，情感表达:传递对抗老、焕亮护肤功效的自信与专业，吸引追求肌肤年轻态的消费者，色彩色调:以黑金为主色调，搭配金色、暖棕等光泽感色彩，营造奢华科技氛围，构图视角:中心放射式构图，核心科技物质置于视觉中心，向四周延展关联肌肤层等元素;结合微观视角展现肌肤渗透细节，附加细节:添加科技感光效、粒子特效强化纳米科技氛围:清晰标注 “外-抗氧褪黑(加速内源性抗,改善暗黄粗糙无光泽 肌肤立现透光白)”“内-抗糖抗老(构建胶原纤维网 淡褪全脸顽固皱纹 全脸紧致不松垮)”等功效说明文字 ，让 AI作图能精准还原这类美妆科技详情页的视觉呈现 。",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__pqq-3c587f977e",
+      "title": "主体内容:呈现含PQQ、肌肽、胶原…",
+      "summary": "主体内容:呈现含PQQ、肌肽、胶原三肽与弹性蛋白的肌底细胞充能配方相关视觉，以立体透明几何容器(如三角玻璃体 )承载绿色",
+      "prompt": "主体内容:呈现含PQQ、肌肽、胶原三肽与弹性蛋白的肌底细胞充能配方相关视觉，以立体透明几何容器(如三角玻璃体 )承载绿色晶莹液态或气泡状成分。",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-422c68f9dd",
+      "title": "附加细节:为成分添加光泽、通透特效…",
+      "summary": "附加细节:为成分添加光泽、通透特效，凸显液态或气泡的质感;在成分旁标注对应功效文案(如PQQ旁标“能量提升",
+      "prompt": "附加细节:为成分添加光泽、通透特效，凸显液态或气泡的质感;在成分旁标注对应功效文案(如PQQ旁标“能量提升",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-a72e44a08c",
+      "title": "创作一张护肤品成分揭秘宣传图，背景…",
+      "summary": "创作一张护肤品成分揭秘宣传图，背景用深邃渐变蓝绿色营造专业科技氛围。顶部标题设为**「修护明星」成分“揭秘”**，配英文",
+      "prompt": "创作一张护肤品成分揭秘宣传图，背景用深邃渐变蓝绿色营造专业科技氛围。顶部标题设为**「修护明星」成分“揭秘”**，配英文“Reveal the secrets of'repair star'”。以5种核心成分分板块展示:1.寡肽-1(0ligopeptide -1):标注“缓解肌肤泛红”，用透明玻璃质感球体(带细腻气泡)呈现，旁标数字“1”。2.寡肽 -3(0ligopeptide -3):标注“有效巩固受损肌肤”，以更大尺寸透明玻璃球体(气泡形态丰富)呈现，旁标数字“2”。3.乙酰基六肽-8(AcetylHexapeptide -8):标注“增强肌肤弹力”，用小巧透明玻璃球体(内部细碎亮点)呈现，旁标数字“3”。4.神经酰胺:标注“深入修复，加强皮肤稳定性、调节肌肤水油平衡”，下方配微观视觉图(排列规整、泛光泽的片状结构 )，旁标数字“4”、5.二裂酵母:标注“强韧肌底，修护舒缓、紧致焕活，使肌肤重回弹力”下方配微观视觉图(分散的胶囊状透明结构 )，旁标数字“5”整体需清晰直观展现成分及功效，传递专业护肤科技感",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__3-5-6927b22007",
+      "title": "主体内容:呈现3种焕白护肤成分(5…",
+      "summary": "主体内容:呈现3种焕白护肤成分(577、烟酰胺、原型VC)，以微观玻璃球包裹形态展示，搭配成分功效文亲标题文案:乘倍焕白",
+      "prompt": "主体内容:呈现3种焕白护肤成分(577、烟酰胺、原型VC)，以微观玻璃球包裹形态展示，搭配成分功效文亲标题文案:乘倍焕白提亮 改善肌肤暗沉场景设定:简约美妆实验室/成分可视化场景，浅灰色背景，营造纯净、专业的护肤科技氛围风格参考:清新科技风美妆成分展示，融合微观视觉简洁排版，参考高端护肤品的功效解析风格情感表达:传递高效、科学、焕亮的护肤理念，让消费者感知产品的美白实力与专业度色彩色调:浅灰色打底，成分玻璃球用透明+清新绿文字黑/灰+浅绿点缀，色调清透高级构图视角:竖版分栏布局，左文案右成分视觉，平视视角展现成分结构，规整且有科技感附加细节:给玻璃球添加细腻光影、通透质感，小绿珠点缀增强灵动性，文案突出“三大焕白成分助力”，适配电商详情页的功效科普板块，强化产品美白卖点",
+      "sub": "",
+      "aspect": "3:4"
+    },
+    {
+      "id": "ecommerce_detail__7-d9d68e1b52",
+      "title": "主体内容:呈现 金字塔式7重分阶修…",
+      "summary": "主体内容:呈现 “金字塔式7重分阶修复”护肤成分体系，以发光粒子、线条构建的科技感球体/分子结构为视觉核心，搭配对应成分",
+      "prompt": "主体内容:呈现 “金字塔式7重分阶修复”护肤成分体系，以发光粒子、线条构建的科技感球体/分子结构为视觉核心，搭配对应成分名称与功效文案(如 “第三代高纯角鲨烷-维持肌肤微生态”等 )。标题文案:“HIGH-RISE 金字塔式7重分阶修复 肌肤屏障更强韧”，置于画面上方，突出核心概念。场景设定:电商详情页的成分解析场景，聚焦专业、科技感，让消费者直观感知产品修护力。风格参考:科技可视化风格，借鉴分子生物学可视化设计，用发光、粒子化效果呈现成分作用，营造前沿护肤科技氛围 。情感表达:传递专业、可靠的抗老修护力，让消费者感受到产品的高阶功效与研发实力，激发信任与尝试欲 。色彩色调:以深邃黑色为底，搭配荧光绿、浅蓝等冷调发光色，凸显科技感与成分活性;关键文字用白色/银色，增强可读性与精致感 。构图视角:对称式布局，左右/上下分布发光成分结构，文案穿插其间，形成视觉平衡;采用微仰视角度，强化 “金字塔式”分层与科技的震撼感 。附加细节:为成分结构添加动态发光效果(如粒子流动、微光闪烁 )，模拟成分作用过程;标注成分的“代际”“倍数” 等差异化优势(如 “第三代”“3倍4”)，强化专业度;在画面边缘融入极细科技感线条装饰，提升精致度",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-d35c4bff9f",
+      "title": "生成一张护肤品成分功效展示图，背景…",
+      "summary": "生成一张护肤品成分功效展示图，背景为渐变绿色营造自然健康氛围。用带荧光效果的透明圆形囊泡承载成分，分别呈现:左上角“4倍",
+      "prompt": "生成一张护肤品成分功效展示图，背景为渐变绿色营造自然健康氛围。用带荧光效果的透明圆形囊泡承载成分，分别呈现:左上角“4倍 XI 高浓缩积雪草”，囊泡内含积雪草叶片，配文“深入修护肌底”;中间偏上“精纯视黄醇”，囊泡内为液体形态，配文 “丰盈嫩滑 紧致肌肤”;右侧大囊泡放入人参实物，标注“高浓度人参多肽”，配文“饱满肌底 平滑细纹”;下方“高纯度烟酰胺”，囊泡内展示分子结构，配文“精纯提取 通透匀亮””。用线条关联成分、囊泡与功效文字，清晰呈现多成分协同护肤，涵盖修护、紧致、提亮的功效体系 。",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__poq-dha-64a77d5bf5",
+      "title": "生成一张聚焦补充 POQ+ DHA…",
+      "summary": "生成一张聚焦补充 POQ+ DHA、守护脑健康的产品宣传图。背景设为深棕色，营造科技、高端神秘氛围。上方用简洁白色字体写",
+      "prompt": "生成一张聚焦补充 POQ+ DHA、守护脑健康的产品宣传图。背景设为深棕色，营造科技、高端神秘氛围。上方用简洁白色字体写大标题 “补充 PQQ+DHA 源头守护脑核芯”。画面主体呈现两个相连、带金色科技光泽的透明囊泡结构。左侧囊泡内做散发金色光芒、类似大脑神经元活动的效果，标注“「POQ」”，下方配文字 “释放大脑活力 加速脑信号传导”;右侧囊泡内设计金色分子结构图案，标注“「DHA」”，旁侧配文字“助力脑力活动 扩充脑容量”，用线条连接成分与说明，直观展现 PO0 和 DHA 对大脑的作用，传递产品守护脑健康价值",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-3faa5ab158",
+      "title": "这是一张美妆护肤类电商详情页的成分…",
+      "summary": "这是一张美妆护肤类电商详情页的成分展示图，整体风格简约、专业。背景为浅灰色，营造出干净、科技感的氛围。标题部分:上方大标",
+      "prompt": "这是一张美妆护肤类电商详情页的成分展示图，整体风格简约、专业。背景为浅灰色，营造出干净、科技感的氛围。标题部分:上方大标题是“三重焕亮保护伞 多维焕亮 嫩里透光\"，字体较大且加粗，突出核心卖点:副标题“淡化肤色 改善肤质”字体稍小，补充说明功效。右上角有英文“Double antioxidant”’，起到装饰和强化专业感的作用。内容布局:以垂直排列的形式，依次展示三种护肤成分，每种成分由“文字说明框+对应玻璃器皿内的成分视觉”组成，左右分布，文字在左、视觉在右。 第一种成分:文字框内是“99.7%'高纯度烟酰胺 阻止黑色素转运”，数字“99.7%1”突出成分纯度，“高纯度烟酰胺”是成分名，“阻止黑色素转运”是功效。右侧玻璃器皿中，呈现出类似蜂窝状的透明液体形态，模拟烟酰胺的微观结构，第二种成分:称，文字框内是“高稳定性VC 加速暗沉代谢，均匀肤色”“高稳定性VC”是成分名称，“加速暗沉代谢，均匀肤色”是功效。右侧玻璃器皿里，是带有金色光泽的液体，液体中间有圆形气泡，展现VC的形态。第三种成分:文字框内是“油橄榄叶提取物 抵御UVA、UVB，加乘抗氧”，“油橄榄叶提取物”是成分名称，“抵御UVA、UVB，加乘抗氧”是功效。右侧玻璃器皿中，放置着浅色液体，搭配油橄榄果实与枝叶，直观呈现成分来源。底部备注:有一行小字“*注:\"指配方中烟酰胺的纯度;?指成分特性，，用于规范说明，增强专业可信度。色彩运用:以浅灰为底色，文字主要为黑色，成基于烟酰胺成分体外测试，与对照组相比\"分视觉部分，烟酰胺呈现透明感、VC是金色调、油橄榄叶提取物搭配绿色果实，色彩简洁且能区分不同成分，突出专业、清晰的视觉效果",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-444fc26c1b",
+      "title": "生成一张电商详情页风格的护肤品成分…",
+      "summary": "生成一张电商详情页风格的护肤品成分解析图，浅白色背景。顶部显示标题“1瓶·修护 细滑润”，下方配小字“晶透精华琥珀管”。",
+      "prompt": "生成一张电商详情页风格的护肤品成分解析图，浅白色背景。顶部显示标题“1瓶·修护 细滑润”，下方配小字“晶透精华琥珀管”。中间用3D效果呈现成分结构:一个透明网状球体，内部及表面分布琥珀色小圆球，标注“89%复合酵母精粹(包含5%二裂酵母)”;下方箭头连接两个成分展示，左侧是半透明琥珀色块状，标注“依克多因+赤芝提取物【GanoEctoin】，右侧是透明球体包裹琥珀色液体，标注“2%烟酰胺”。整体色调以浅白、琥珀金为主，突出纯净、科技感，清晰传达成分信息与修护功效",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__redim-286c8fff47",
+      "title": "(先上传产品图片）我要为Redim…",
+      "summary": "(先上传产品图片）我要为Redim耳机生成一套详情页，你会如何设计这个3c数码耳机电商详情页 要求必须在 3 秒内抓住用",
+      "prompt": "(先上传产品图片）我要为Redim耳机生成一套详情页，你会如何设计这个3c数码耳机电商详情页 要求必须在 3 秒内抓住用户注意力并传达核心价值。针对高端耳机，给我设计一个兼具视觉冲击力、情感共鸣与清晰卖点的耳机电商详情页方案，给我文字即可",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__redmi-999035a338",
+      "title": "Redmi 无线耳机电商首屏，模仿…",
+      "summary": "Redmi 无线耳机电商首屏，模仿 3D 产品渲染风格：充电仓开盖，一只耳机悬浮舱体上方（角度参考图中倾斜感），背景是青",
+      "prompt": "Redmi 无线耳机电商首屏，模仿 3D 产品渲染风格：充电仓开盖，一只耳机悬浮舱体上方（角度参考图中倾斜感），背景是青→灰的渐变雾面质感，用赛博冷光打亮耳机金属外壳，突出磁吸触点的金色细节、舱体的磨砂光泽。文字用未来感字体，大标题“42dB 降噪 | 把喧嚣锁在光年外” ，副标题“Redmi 声学实验室 × 静界革命” ，整体氛围高级、科技，16:9 比例",
+      "sub": "",
+      "aspect": "16:9"
+    },
+    {
+      "id": "ecommerce_detail__redmi-true-wirele-1861664a85",
+      "title": "Redmi true wirele…",
+      "summary": "Redmi true wireless earbuds, half - floating above the charg",
+      "prompt": "Redmi true wireless earbuds, half - floating above the charging case, the case lid slightly open, showing magnetic contacts. Ultra - detailed product photography style, minimalist and high - tech gradient background (light cyan - gray to dark gray). Large bold title \"42dB Noise Cancellation · Wear the 'Quiet Zone' in Your Ears\", smaller subtitle \"Your Exclusive 'Quiet World' Switch in the Noisy City\", a small rounded - rectangle button \"Click to Experience →\". Soft yet sharp lighting, highlighting the earbuds' texture and details, 8K resolution, ultra - realistic, tech - product - poster atmosphere",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__1-42a2f4a21d",
+      "title": "耳机电商详情页提示词1",
+      "summary": "耳机电商详情页提示词1： 基于图中黑色 Redmi 真无线耳机（精准还原外观：椭圆形充电盒、半入耳式耳机形态 ），创作高",
+      "prompt": "耳机电商详情页提示词1：\n基于图中黑色 Redmi 真无线耳机（精准还原外观：椭圆形充电盒、半入耳式耳机形态 ），创作高端电商详情页。首屏用极具科技感的全景画面，以莫兰迪灰蓝为背景，呈现耳机悬浮、开盖微光流转的视觉，搭配文案 Redmi 声学黑科技 3 秒沉浸 万元级音质调校 0 压感佩戴 。接着拆解核心价值： 听觉模块：特写耳机单元 + 动态频谱波纹，文案 格莱美大师级调校 9.2mm 超感单元 × 自适应 EQ 算法，听古典如临演奏厅，追说唱拳拳到肉 ； 佩戴模块：显微耳塞特写 + 人体工学动效，文案 4.3g 无感佩戴 航空级亲肤硅胶 × 180 次耳廓适配模拟，戴到忘记存在，通勤运动追剧 0 负担 ； 智能模块：手势触控动效 + 多设备流转演示，文案 0.2s 智能响应 双击切歌 长按降噪 跨设备秒连，越用越懂你听歌小心思 。 融入情感场景：通勤（地铁人潮中耳机柔光，文案 在嘈杂里偷藏一整片安静 ）、运动（夜跑者戴耳机冲刺，文案 每一步都有专属 BGM 陪你突破极限 ）、独处（深夜听播客，文案 把世界调成静音，听自己的声音 ）。最后用数据墙强化信任：120h 超长续航、IP54 防尘防水、98% 用户好评率 。全程保证产品外观与原图一致，通过强视觉、具象体验文案传递高端音质、舒适佩戴、智能体验，唤起场景共鸣，用硬数据消除顾虑，打造节奏紧凑的详情页，3 秒抓眼球后持续锁客。",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-5248370a22",
+      "title": "根据这个首屏风格和特点继续帮我延续…",
+      "summary": "根据这个首屏风格和特点继续帮我延续电商详情页的设计，要求和这个风格保持一致，突出产品的高级感和科技感，",
+      "prompt": "根据这个首屏风格和特点继续帮我延续电商详情页的设计，要求和这个风格保持一致，突出产品的高级感和科技感，",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__ai-8f288795d9",
+      "title": "以下是为在即梦 AI 中生成延续首…",
+      "summary": "以下是为在即梦 AI 中生成延续首屏风格的 Redmi 耳机电商详情页内容的提示词，用简洁清晰表述让 AI 理解需求，突",
+      "prompt": "以下是为在即梦 AI 中生成延续首屏风格的 Redmi 耳机电商详情页内容的提示词，用简洁清晰表述让 AI 理解需求，突出风格延续与科技高级感：",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__redmi-4824dc6db0",
+      "title": "基于这张 Redmi 耳机首屏图风…",
+      "summary": "基于这张 Redmi 耳机首屏图风格 延续冷调科技光影 悬浮高级感 设计电商详情页 突出降噪 音质 体验三大价值 用场景",
+      "prompt": "基于这张 Redmi 耳机首屏图风格 延续冷调科技光影 悬浮高级感 设计电商详情页 突出降噪 音质 体验三大价值 用场景化拆解和沉浸式交互强化科技质感 让视觉从首屏自然过渡到功能认可",
+      "sub": "一、整体风格延续提示词",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__redmi-e730174502",
+      "title": "Redmi 耳机详情页首屏衔接区 …",
+      "summary": "Redmi 耳机详情页首屏衔接区 冷光流线从首屏延伸 耳机悬浮轨迹连贯 标题写 42dB 降噪结界 重新定义安静 副标题",
+      "prompt": "Redmi 耳机详情页首屏衔接区 冷光流线从首屏延伸 耳机悬浮轨迹连贯 标题写 42dB 降噪结界 重新定义安静 副标题写从这一刻起 声音只听你想听的",
+      "sub": "首屏衔接区",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__redmi-686363f238",
+      "title": "Redmi 耳机降噪模块 左侧做耳…",
+      "summary": "Redmi 耳机降噪模块 左侧做耳机特写加动态降噪声波 地铁办公室噪音波形接触耳机后冻结消散 右侧做 10 秒场景对比视",
+      "prompt": "Redmi 耳机降噪模块 左侧做耳机特写加动态降噪声波 地铁办公室噪音波形接触耳机后冻结消散 右侧做 10 秒场景对比视频 戴耳机前嘈杂戴后安静仅留音乐 文案写 8 麦克风阵列加 ANC 反向消噪 42dB 深度降噪把地铁轰鸣键盘敲击全部静音",
+      "sub": "核心卖点区 - 降噪黑科技",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__redmi-31c4e435a1",
+      "title": "Redmi 耳机音质模块 左侧做耳…",
+      "summary": "Redmi 耳机音质模块 左侧做耳机振膜动态声波展示 高频低频声波对应不同曲风 右侧做小金标认证加音乐频谱图 标注还原录",
+      "prompt": "Redmi 耳机音质模块 左侧做耳机振膜动态声波展示 高频低频声波对应不同曲风 右侧做小金标认证加音乐频谱图 标注还原录音室级音质 文案写 10mm 生物振膜加小金标认证 高音通透低音沉潜 听歌是现场级体验",
+      "sub": "核心卖点区 - 音质天花板",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__redmi-b8b33b2ebc",
+      "title": "Redmi 耳机续航模块 做时间轴…",
+      "summary": "Redmi 耳机续航模块 做时间轴动态图 7 点出门满电到 22 点加班仍有电 电量条随时间流动 加快充能量条动效 充电",
+      "prompt": "Redmi 耳机续航模块 做时间轴动态图 7 点出门满电到 22 点加班仍有电 电量条随时间流动 加快充能量条动效 充电 10 分钟进度条跳转 2 小时续航 文案写 单次 8 小时加充电仓 4 次 32 小时超长待机 碎片时间闪充 音乐不掉线",
+      "sub": "核心卖点区 - 续航 & 快充",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__redmi-71b457341a",
+      "title": "Redmi 耳机佩戴模块 做不同耳…",
+      "summary": "Redmi 耳机佩戴模块 做不同耳型贴合动效 耳机自适应耳道轮廓展示 0 压迫感 加重量对比动态称重动画 单耳 4g 比",
+      "prompt": "Redmi 耳机佩戴模块 做不同耳型贴合动效 耳机自适应耳道轮廓展示 0 压迫感 加重量对比动态称重动画 单耳 4g 比硬币轻 文案写 4g 轻量化加人体工学设计 跑步不掉侧躺不压 戴一整天像空气",
+      "sub": "核心卖点区 - 佩戴无感",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__redmi-c762c1ae9b",
+      "title": "Redmi 耳机场景模块 做四宫格…",
+      "summary": "Redmi 耳机场景模块 做四宫格光影场景 包含通勤地铁冷光穿城安静刷剧 深夜办公耳机微光陪加班 户外慢跑开放聆听 居家",
+      "prompt": "Redmi 耳机场景模块 做四宫格光影场景 包含通勤地铁冷光穿城安静刷剧 深夜办公耳机微光陪加班 户外慢跑开放聆听 居家独处躺沙发听歌 文案写 这不是耳机是安静开关 通勤办公运动独处都值得高级聆听",
+      "sub": "场景共情区",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__redmi-a520d0db51",
+      "title": "Redmi 耳机信任模块 做权威认…",
+      "summary": "Redmi 耳机信任模块 做权威认证矩阵展示 小金标红点奖实验室专利 冷光边框环绕 加用户证言动态轮播 数码博主降噪实测",
+      "prompt": "Redmi 耳机信任模块 做权威认证矩阵展示 小金标红点奖实验室专利 冷光边框环绕 加用户证言动态轮播 数码博主降噪实测 5 星 职场人戴到忘记摘短评 文案写 全球超百万用户选择 专业机构认证加真实口碑 安静值得信赖",
+      "sub": "信任背书区",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__redmi-66be010882",
+      "title": "Redmi 耳机行动模块 做限时优…",
+      "summary": "Redmi 耳机行动模块 做限时优惠倒计时 库存动态数字 如仅剩 37 件 冷光按钮写立即开启安静 文案写 前 200 ",
+      "prompt": "Redmi 耳机行动模块 做限时优惠倒计时 库存动态数字 如仅剩 37 件 冷光按钮写立即开启安静 文案写 前 200 名下单赠定制收纳包加降噪耳塞 3 期免息加两年质保 现在安静不等待",
+      "sub": "行动号召区",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__ai-7b0d66ff7a",
+      "title": "你可根据实际使用的 AI 工具对提…",
+      "summary": "你可根据实际使用的 AI 工具对提示词理解偏好，调整表述长度和细节，让生成的内容更贴合需求 ，若想侧重某部分风格强化，也",
+      "prompt": "你可根据实际使用的 AI 工具对提示词理解偏好，调整表述长度和细节，让生成的内容更贴合需求 ，若想侧重某部分风格强化，也能单独提炼关键词补充 。",
+      "sub": "行动号召区",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-877ed44d18",
+      "title": "场景图生成提示词",
+      "summary": "场景图生成提示词： 请分析这张图片，并生成一个能够指导AI作图工具重新创作类似作品的文生图提示词。提示词中需从主体内容、",
+      "prompt": "场景图生成提示词：\n请分析这张图片，并生成一个能够指导AI作图工具重新创作类似作品的文生图提示词。提示词中需从主体内容、场景设定、风格参考、色调色彩、构图视角、细节补充等这些角度用文字描述图片，并且给我提示词。",
+      "sub": "行动号召区",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-0819ad400e",
+      "title": "现在我要设计电商详情页首屏，要求必…",
+      "summary": "现在我要设计电商详情页首屏，要求必须在3秒内抓住用户注意力并传达核心价值。针对高端狗粮，给我设计一个兼具视觉冲击力、情感",
+      "prompt": "现在我要设计电商详情页首屏，要求必须在3秒内抓住用户注意力并传达核心价值。针对高端狗粮，给我设计一个兼具视觉冲击力、情感共鸣与清晰卖点的首屏方案",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-fe73485437",
+      "title": "再开始设计狗粮详情页第二页，这一页…",
+      "summary": "再开始设计狗粮详情页第二页，这一页主要介绍狗粮的2. 核心价值主张区 - 3-4个最强卖点图标化3. 深度成分解析 - ",
+      "prompt": "再开始设计狗粮详情页第二页，这一页主要介绍狗粮的2. 核心价值主张区 - 3-4个最强卖点图标化3. 深度成分解析 - 建立专业信任4. 科学与研发背书 - 提升权威感5. 真实效果证明 - 消除疑虑6. 精准喂养指南 - 专业与贴心7. 产品规格选择与详情 - 清晰便捷8. 场景化生活展示 - 激发美好想象9. 常见QA - 预先解答疑虑10. 强力行动号召 (CTA) & 保障 - 促成下单11. (加分项) 个性化推荐/智能问卷，给我一段AI生成的提示词，字数不要超过800字，提示词也不要出现特殊符号",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-a50820f937",
+      "title": "设计一款高端成犬狗粮的电商详情页，…",
+      "summary": "设计一款高端成犬狗粮的电商详情页，核心卖点是无谷物配方、添加益生菌助消化、真实鲜肉为主要蛋白来源（鸡肉配方）、兽医推荐，",
+      "prompt": "设计一款高端成犬狗粮的电商详情页，核心卖点是无谷物配方、添加益生菌助消化、真实鲜肉为主要蛋白来源（鸡肉配方）、兽医推荐，目标客户是中大型犬主人。页面结构要求：1.吸引眼球的标题（强调健康消化与活力），2.清晰的产品核心优势图标化展示（无谷物、高蛋白、益生菌、均衡营养），3.详细成分与营养分析（突出鲜肉含量、无人工添加剂），4.喂养指南与适用犬种说明，5.真实的用户好评精选（带宠物照片更佳），6.权威认证或兽医背书展示，7.明确的购买号召与优惠信息（如首单折扣、订阅省），8.配送与售后保障承诺。文案风格：专业可信、温暖贴心，强调爱宠健康，激发购买行动，你先帮我设计一下电商详情页首屏，帮我写一段Ai生成提示词，提示词中不要出现特殊符号，字数在800字以内",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-db5ad32df8",
+      "title": "设计高端成犬狗粮电商详情页首屏 核…",
+      "summary": "设计高端成犬狗粮电商详情页首屏 核心卖点无谷物配方 添加益生菌助消化 真实鲜肉为主要蛋白来源鸡肉配方 兽医推荐 目标客户",
+      "prompt": "设计高端成犬狗粮电商详情页首屏 核心卖点无谷物配方 添加益生菌助消化 真实鲜肉为主要蛋白来源鸡肉配方 兽医推荐 目标客户中大型犬主人页面结构包含以下模块第一模块 主标题与视觉设计生成一句吸引眼球的标题 强调健康消化与活力 不超过15字 示例结构 动词加核心利益点加情感价值 文案风格专业温暖 主视觉图展示活力中大型犬与产品 场景为阳光草地第二模块 核心优势图标化展示设计四个圆形图标配简短文案 图标一主题无谷物 文案无麸质低敏 肠胃0负担 图标二主题高蛋白 文案90动物蛋白 肌肉强健基础 图标三主题益生菌 文案专利益生菌 消化吸收率提升30 图标四主题均衡营养 文案46种营养素 黄金配比科学认证 图标风格简约现代第三模块 关键成分可视化呈现成分表突出两点 鲜肉含量第一位置标注鲜鸡肉占比60 人工添加剂栏位显眼红叉标识 营养分析侧柱状图展示粗蛋白含量36 粗脂肪15 动物蛋白占比90第四模块 喂养指南快速指引中大型犬专属标识 喂食量表按体重分级 例如30kg犬每日建议320克 适用犬种示例图鉴 金毛德牧拉布拉多等第五模块 用户证言精选展示三条带照片评价 第一条用户名为金毛球爸 文字反馈消化改善粪便成型 配金色犬低头进食特写 第二条用户名为德牧护卫队 文字提到毛发变亮运动量增加 配犬奔跑动态图 第三条用户名为兽医张博士 文字强调专业推荐理由第六模块 权威认证展示使用三个徽章图标 兽医营养学会推荐认证 国际安全检测双认证 十年宠物营养研究机构背书第七模块 购买行动区主按钮文案立即订阅省20 副按钮文案首单立减30 优惠信息标注订阅周期配送频率自由调整 首单赠试吃装第八模块 服务保障声明，文字承诺72小时发货 30天无忧退换 含开封包装 正品防伪查询入口",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__item-aab107616a",
+      "title": "视觉构图 (全屏背景图)：背景 (…",
+      "summary": "视觉构图 (全屏背景图)：背景 (100%宽度)： 高清动态场景大片 - 一只活力四射、毛发油亮的狗狗（如拉布拉多、萨摩",
+      "prompt": "视觉构图 (全屏背景图)：背景 (100%宽度)： 高清动态场景大片 - 一只活力四射、毛发油亮的狗狗（如拉布拉多、萨摩耶）在阳光明媚的草原/森林/海滩上尽情奔跑跳跃，姿态舒展，充满快乐能量。镜头稍微仰拍，体现自由与力量感。(场景需开阔、明亮、积极)。前景层 (居中或黄金分割点)： 产品包装优雅悬浮于画面右下角或左下角，包装设计需体现高端感。(产品与场景关联)。文案层 (叠加在背景上方，左侧或居中)：主标题 (有力、有温度的无衬线体)：「喂出来的非凡活力 · 陪伴更长情」或「以顶级营养 · 唤醒生命本真活力」副标题/核心卖点：「专为高能量需求设计 | 关节强健配方 | 28天见证毛发蜕变」行动按钮 (CTA)：位于文案下方，使用充满活力的橙色或绿色：「开启爱犬活力之旅」 或 「立即体验改变」(可选) 用户证言飘带： 在画面一角叠加一个半透明小卡片，展示一句简短有力的用户评价：“贝拉终于又能和我一起爬山了！—— 边牧主人Leo”氛围营造： 积极、健康、自由、长情陪伴。强调产品带来的生活品质提升和情感价值。",
+      "sub": "",
+      "aspect": "3:4"
+    },
+    {
+      "id": "ecommerce_detail__2-3c7d226c6d",
+      "title": "一键直出电商详情图提示词2",
+      "summary": "一键直出电商详情图提示词2： 设计一款高端成犬狗粮的电商详情页文案，核心卖点是无谷物配方、添加益生菌助消化、真实鲜肉为主",
+      "prompt": "一键直出电商详情图提示词2：\n设计一款高端成犬狗粮的电商详情页文案，核心卖点是无谷物配方、添加益生菌助消化、真实鲜肉为主要蛋白来源（鸡肉配方）、兽医推荐，目标客户是中大型犬主人。页面结构要求：1.吸引眼球的标题（强调健康消化与活力），2.清晰的产品核心优势图标化展示（无谷物、高蛋白、益生菌、均衡营养），3.详细成分与营养分析（突出鲜肉含量、无人工添加剂），4.喂养指南与适用犬种说明，5.真实的用户好评精选（带宠物照片更佳），6.权威认证或兽医背书展示，7.明确的购买号召与优惠信息（如首单折扣、订阅省），8.配送与售后保障承诺。文案风格：专业可信、温暖贴心，强调爱宠健康，激发购买行动",
+      "sub": "",
+      "aspect": ""
+    },
+    {
+      "id": "ecommerce_detail__vi-7b3614cdbb",
+      "title": "提示词:时尚牛肉面品牌vi全案的效…",
+      "summary": "提示词:时尚牛肉面品牌vi全案的效果图，全部整齐的有序的摆放在一张平面上，平面是黑色的，面积很大延伸到整个画面,名片面上",
+      "prompt": "提示词:时尚牛肉面品牌vi全案的效果图，全部整齐的有序的摆放在一张平面上，平面是黑色的，面积很大延伸到整个画面,名片面上摆放的物品有手提袋,信纸,工牌,口罩,咖啡纸杯,手机壳背面,方形包装盒,纸巾,所有物品都是白色的，图案和logo是荧光橙色少量黑色作为辅助色主要是橙色和蓝色，将我给的参考图片合适的印在物品上提示词:卡通风格牛肉面品牌V视觉系统,品牌名\"牛鼎记”,整体设计风格为现代卡通插画风格,蓝色+橙色+白色配色体系,橙色为主色调,纯白色台面平铺展示,包装版式丰富现代。展示物品有三层的抽拉式漆盒(打开状)、漆盒的手提袋包装纸袋、茶粉小包、谷物小包、品牌卡片、故事册贴纸、碗勺、品牌日历等。漆盒、漆盒的手提袋、包装纸袋上带有图四的有趣插画，并配有文字“天水浆水小菜+敦煌杏皮茶\"茶粉小包带有茶",
+      "sub": "",
+      "aspect": "1:1"
+    },
+    {
+      "id": "ecommerce_detail__v-90bbf8399d",
+      "title": "提示词:品牌V系列,在一个白色桌面…",
+      "summary": "提示词:品牌V系列,在一个白色桌面，插画和可爱的文字为“你的牛肉本该这么厚”的手提袋,上面有的图二的logo在左上角,打",
+      "prompt": "提示词:品牌V系列,在一个白色桌面，插画和可爱的文字为“你的牛肉本该这么厚”的手提袋,上面有的图二的logo在左上角,打包纸袋,带有插画的杯子、杯套、吸管包装纸、品牌卡片印有图3的纸巾、图二的干贴纸、装着红辣椒的布袋子,规则的排列，在纯自色台面平铺展示，现代卡通插画风格,近景,自然柔和光影,浅灰背景蓝色、咖啡色、白色配色体系,蓝色为主色调,简单排列,扁平线条图形装饰,包装版式丰富现代",
+      "sub": "",
+      "aspect": ""
+    }
+  ]
+}

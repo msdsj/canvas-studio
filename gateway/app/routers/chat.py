@@ -24,4 +24,6 @@ async def chat_completions(payload: ChatCompletionRequest):
 async def llm_completions(payload: ChatCompletionRequest):
     """调用独立的意图分析模型配置；未配置时复用文本 provider。"""
     body = payload.model_dump()
+    if payload.stream:
+        return StreamingResponse(chat_router.stream_llm(body), media_type="text/event-stream")
     return ok(await chat_router.complete_llm(body))

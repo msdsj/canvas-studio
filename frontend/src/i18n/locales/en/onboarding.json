@@ -1,0 +1,55 @@
+{
+  "meta": {
+    "title": "Pick what you do",
+    "subtitle": "We'll load the matching skill packs into your workspace. You can change this anytime.",
+    "step": "Step {{current}} of {{total}}"
+  },
+  "persona": {
+    "heading": "What will you mostly use this for?",
+    "hint": "Pick the closest one — no need to overthink it",
+    "skills_suffix": "{{count}} skills",
+    "examples_label": "You'll be doing"
+  },
+  "team": {
+    "heading": "Want a team space too?",
+    "hint": "Team spaces let colleagues share skill packs, assets and quota. Only you can change the team's model settings.",
+    "placeholder": "Company or team name",
+    "skip": "Not now — just me",
+    "create": "Create team space",
+    "creating": "Creating…"
+  },
+  "preview": {
+    "heading": "Skills we'll turn on",
+    "empty": "Nothing selected yet"
+  },
+  "action": {
+    "continue": "Continue",
+    "back": "Back",
+    "finish": "Enter workspace",
+    "finishing": "Getting ready…",
+    "skip": "Skip and use defaults"
+  },
+  "done": {
+    "title": "You're all set",
+    "description": "{{count}} skills are now in your workspace. Let's get started.",
+    "team_created": "Team \"{{name}}\" is ready — switch spaces from the bottom-left."
+  },
+  "skills": {
+    "title": "My skills",
+    "subtitle": "Skills are prompt references, not fill-in-the-blank templates — we feed the most relevant ones to the model.",
+    "team_packs": "From your team",
+    "personal_packs": "Your picks",
+    "tab_packs": "Packs",
+    "tab_items": "Skills",
+    "pack_enabled": "Enabled",
+    "pack_disabled": "Off",
+    "save": "Save selection",
+    "saved": "Saved",
+    "search_placeholder": "Search skills, e.g. \"detail page\"",
+    "no_results": "No matching skills",
+    "item_off": "Off",
+    "item_on": "On",
+    "from_team": "From team",
+    "count": "{{count}} skills"
+  }
+}

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from '@tanstack/react-router'
 import {
+  Building2,
   Check,
   Languages,
   LogOut,
@@ -10,6 +11,7 @@ import {
   ScrollText,
   Settings,
   Shield,
+  Sparkles,
   Sun,
   User as UserIcon,
   Users,
@@ -91,6 +93,12 @@ export function UserMenu({
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => navigate({ to: '/usage' })}>
           <Wallet size={16} /> {t('nav.usage')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate({ to: '/skills' })}>
+          <Sparkles size={16} /> 我的技能
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate({ to: '/team' })}>
+          <Building2 size={16} /> 团队空间
         </DropdownMenuItem>
         {isAdmin && (
           <>

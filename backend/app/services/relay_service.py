@@ -196,24 +196,66 @@ def safe_model_list(raw: Any) -> list[str]:
     return items
 
 
-async def resolve(db: AsyncSession, user_id: str) -> RelayTarget | None:
-    """解析当前用户可用的中转站；没有则返回 None（调用方必须处理「未配置」）。"""
+async def _team_target(db: AsyncSession, user_id: str) -> tuple[RelayTarget | None, bool]:
+    """团队层解析：返回 (团队中转站, 是否禁止使用个人配置)。
+
+    解析链的第一环。团队上下文来自 `users.active_team_id`，且必须是有效成员，
+    否则视为不在团队里（被移出的用户可以继续用自己的配置，不该被卡死）。
+
+    `blocked_personal=True` 表示「团队已接管、且不允许成员自带配置」：
+    此时**跳过**个人 provider —— 这正是需求里「全员用管理员配置的模型」的落点。
+    如果团队配了 provider 但 base_url 是空的（半填状态），也按未配置处理，
+    继续往下走，避免把用户挡住在一个填错的配置上。
+    """
     from sqlalchemy import select
 
     from app.models.ai_provider import AIProvider
+    from app.models.team import MEMBER_ACTIVE, Team, TeamMember
+    from app.models.user import User
+
+    team_id = (
+        await db.execute(select(User.active_team_id).where(User.id == user_id))
+    ).scalar_one_or_none()
+    if not team_id:
+        return None, False
+    team = (
+        await db.execute(
+            select(Team).where(Team.id == team_id, Team.deleted_at.is_(None))
+        )
+    ).scalar_one_or_none()
+    if team is None:
+        return None, False
+    member = (
+        await db.execute(
+            select(TeamMember.id).where(
+                TeamMember.team_id == team.id,
+                TeamMember.user_id == user_id,
+                TeamMember.status == MEMBER_ACTIVE,
+            )
+        )
+    ).scalar_one_or_none()
+    if member is None:
+        return None, False
+    blocked_personal = not team.allow_personal_provider()
 
     row = (
         await db.execute(
             select(AIProvider)
-            .where(AIProvider.user_id == user_id, AIProvider.is_active.is_(True))
+            .where(
+                AIProvider.scope == "team",
+                AIProvider.team_id == team.id,
+                AIProvider.is_active.is_(True),
+            )
             .order_by(AIProvider.updated_at.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
-    if row is not None and (row.base_url or "").strip():
-        return RelayTarget(
-            source="user",
-            name=row.name or KIND_PRESETS.get(row.kind, {}).get("label", "我的中转站"),
+    if row is None or not (row.base_url or "").strip():
+        return None, blocked_personal
+    return (
+        RelayTarget(
+            source="team",
+            name=row.name or f"{team.name} · 团队模型",
             kind=row.kind or "compatible",
             base_url=row.base_url.strip(),
             api_key=(row.api_key or "").strip(),
@@ -222,10 +264,60 @@ async def resolve(db: AsyncSession, user_id: str) -> RelayTarget | None:
             max_tokens=int(row.max_tokens or 2048),
             extra=dict(row.extra or {}),
             supports_vision=bool(row.supports_vision),
-            # 代码侧防御：兼容 None / 空列表 / 脏数据（旧库补列后可能是字符串）
             fallback_models=safe_model_list(row.fallback_models),
             provider_id=row.id,
-        )
+        ),
+        blocked_personal,
+    )
+
+
+async def resolve(db: AsyncSession, user_id: str) -> RelayTarget | None:
+    """解析当前用户可用的中转站；没有则返回 None（调用方必须处理「未配置」）。
+
+    解析顺序（团队版）：
+    1. **团队模型**：管理员统一配置，成员直接使用；
+    2. **个人模型**：团队不允许自带配置时跳过；
+    3. **平台公共**：`AI_RELAY_ALLOW_GLOBAL` 打开才生效。
+    """
+    from sqlalchemy import select
+
+    from app.models.ai_provider import AIProvider
+
+    team_target, blocked_personal = await _team_target(db, user_id)
+    if team_target is not None:
+        return team_target
+
+    if not blocked_personal:
+        row = (
+            await db.execute(
+                select(AIProvider)
+                .where(
+                    AIProvider.user_id == user_id,
+                    AIProvider.is_active.is_(True),
+                    # 团队配置可能由 owner 创建但 user_id 指向 owner：
+                    # 这里按 scope 排除，避免 owner 的个人视图串到团队配置上
+                    AIProvider.scope == "personal",
+                )
+                .order_by(AIProvider.updated_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if row is not None and (row.base_url or "").strip():
+            return RelayTarget(
+                source="user",
+                name=row.name or KIND_PRESETS.get(row.kind, {}).get("label", "我的中转站"),
+                kind=row.kind or "compatible",
+                base_url=row.base_url.strip(),
+                api_key=(row.api_key or "").strip(),
+                model=(row.model or "").strip(),
+                temperature=float(row.temperature if row.temperature is not None else 0.7),
+                max_tokens=int(row.max_tokens or 2048),
+                extra=dict(row.extra or {}),
+                supports_vision=bool(row.supports_vision),
+                # 代码侧防御：兼容 None / 空列表 / 脏数据（旧库补列后可能是字符串）
+                fallback_models=safe_model_list(row.fallback_models),
+                provider_id=row.id,
+            )
 
     # 全局兜底：系统配置里的文本 provider（管理员配的公共中转）。
     # 默认关闭 —— 否则任何没配中转站的用户都能白嫖平台的模型调用。
@@ -351,6 +443,21 @@ def _openai_body(target: RelayTarget, messages: list[dict[str, Any]], **override
 
 def _anthropic_body(target: RelayTarget, messages: list[dict[str, Any]], **overrides: Any) -> dict[str, Any]:
     system, rest = _split_system(messages)
+    for message in rest:
+        if not isinstance(message.get("content"), list):
+            continue
+        parts = []
+        for part in message["content"]:
+            if part.get("type") == "image_url":
+                url = (part.get("image_url") or {}).get("url", "")
+                if url.startswith("data:") and ";base64," in url:
+                    header, data = url.split(";base64,", 1)
+                    parts.append({"type": "image", "source": {"type": "base64", "media_type": header[5:], "data": data}})
+                else:
+                    parts.append({"type": "image", "source": {"type": "url", "url": url}})
+            else:
+                parts.append(part)
+        message["content"] = parts
     body: dict[str, Any] = {
         "model": overrides.get("model") or target.model,
         "messages": rest,
@@ -369,9 +476,7 @@ def _anthropic_body(target: RelayTarget, messages: list[dict[str, Any]], **overr
 def _extract_text(target: RelayTarget, payload: dict[str, Any]) -> str:
     """从两种协议的响应里取出文本。
 
-    **思考型模型**（deepseek-v4.x / o 系列等）会把过程放在 `reasoning_content`，
-    `content` 可能为空——尤其是 max_tokens 被思考过程吃光时。这里把思考内容作为
-    兜底：至少能拿到「模型确实在工作」的证据，而不是误判成「模型名不支持」。
+    只读取公开content/text；私有reasoning/thinking永远不作为展示正文。
     """
     if target.protocol == "anthropic":
         blocks = payload.get("content")
@@ -383,12 +488,7 @@ def _extract_text(target: RelayTarget, payload: dict[str, Any]) -> str:
             ).strip()
             if text:
                 return text
-            thinking = "".join(
-                str(block.get("thinking") or "")
-                for block in blocks
-                if isinstance(block, dict) and block.get("type") == "thinking"
-            ).strip()
-            return thinking
+            return ""
         return ""
     try:
         choices = payload.get("choices") or []
@@ -401,17 +501,12 @@ def _extract_text(target: RelayTarget, payload: dict[str, Any]) -> str:
             text = "".join(
                 str(part.get("text") or "")
                 for part in content
-                if isinstance(part, dict)
+                if isinstance(part, dict) and part.get("type") in (None, "text", "output_text")
             ).strip()
             if text:
                 return text
         elif content:
             return str(content).strip()
-        # 正文为空：退回思考内容（deepseek 系与部分中转站会放在这里）
-        for key in ("reasoning_content", "reasoning"):
-            value = message.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
         return ""
     except (AttributeError, IndexError, TypeError):
         return ""

@@ -22,6 +22,8 @@ class AuditLog(Base):
     )
     actor_email: Mapped[str] = mapped_column(String(255), default="")
     action: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    # 团队维度审计：企业侧能只看自己团队的成员 / 权限 / 配置变更
+    team_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
     target_type: Mapped[str] = mapped_column(String(64), default="")
     target_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     detail: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)

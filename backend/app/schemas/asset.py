@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from pydantic import BaseModel, Field
+
 from app.schemas.common import ORMModel
 
 
@@ -11,6 +13,8 @@ class AssetOut(ORMModel):
 
     id: str
     owner_id: str
+    team_id: str | None = None
+    visibility: str = "private"
     kind: str
     url: str
     thumb_url: str | None = None
@@ -22,3 +26,10 @@ class AssetOut(ORMModel):
     is_demo: bool = False
     generation_task_id: str | None = None
     created_at: datetime | None = None
+
+
+class AssetVisibilityRequest(BaseModel):
+    """批量设置资产可见性。"""
+
+    ids: list[str] = Field(default_factory=list)
+    visibility: str = Field(default="private", pattern="^(private|team)$")

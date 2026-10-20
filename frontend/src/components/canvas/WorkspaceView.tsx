@@ -52,7 +52,11 @@ import {
   type ExcalidrawApiLike,
   type NormRegion,
 } from './canvas-helpers'
+import { useAuth } from '@/hooks/use-auth'
+import { useTeamScopeKey } from '@/hooks/use-team-scope'
 import { useCanvasAutosave } from './useCanvasAutosave'
+import { useCanvasCollabScene } from './useCanvasCollabScene'
+import { CollabPresence } from './CollabPresence'
 import { MobileSegmented } from '@/components/layout/MobileSegmented'
 import { Modal } from '@/components/ui/modal'
 import { AssetGrid } from '@/components/assets/AssetGrid'
@@ -115,10 +119,20 @@ const QUICK_OP_PROMPT: Record<'enhance' | 'cutout', string> = {
   cutout: '把画面的主体完整分离出来，输出透明背景的 PNG 素材，主体本身保持与原图完全一致。',
 }
 
-/** 结果落画布时的单张最大边长 / 最小边长 / 相邻间距（多产出横向排布）。 */
-const RESULT_MAX_SIDE = 240
-const RESULT_MIN_SIDE = 80
-const RESULT_GAP = 32
+/** 结果默认以较小的画布尺寸呈现，保留足够的空白用于并排比较与继续创作。 */
+const RESULT_MAX_SIDE = 200
+const RESULT_GAP = 28
+
+/** 所有落图入口共享同一尺寸策略，保持原始宽高比，避免窄图被最小边长拉伸。 */
+function resultDisplaySize(size: { width: number; height: number }): { width: number; height: number } {
+  const sourceWidth = Number.isFinite(size.width) && size.width > 0 ? size.width : RESULT_MAX_SIDE
+  const sourceHeight = Number.isFinite(size.height) && size.height > 0 ? size.height : RESULT_MAX_SIDE
+  const scale = Math.min(1, RESULT_MAX_SIDE / Math.max(sourceWidth, sourceHeight))
+  return {
+    width: Math.max(1, Math.round(sourceWidth * scale)),
+    height: Math.max(1, Math.round(sourceHeight * scale)),
+  }
+}
 
 /**
  * 把一次任务的全部产出横向排布到画布上。
@@ -140,9 +154,7 @@ async function placeTaskResults(
   let cursorX = origin.x
   for (const url of todo) {
     const size = await imageSize(url)
-    const scale = Math.min(1, RESULT_MAX_SIDE / Math.max(size.width, size.height, 1))
-    const width = Math.max(RESULT_MIN_SIDE, Math.round(size.width * scale))
-    const height = Math.max(RESULT_MIN_SIDE, Math.round(size.height * scale))
+    const { width, height } = resultDisplaySize(size)
     const element = await addImageToCanvas(api, {
       url,
       assetId: await materializeResultAsset(url),
@@ -182,9 +194,7 @@ async function placeResultSet(
   const created: CanvasElement[] = []
   for (const url of urls) {
     const size = await imageSize(url)
-    const scale = Math.min(1, RESULT_MAX_SIDE / Math.max(size.width, size.height, 1))
-    const width = Math.max(RESULT_MIN_SIDE, Math.round(size.width * scale))
-    const height = Math.max(RESULT_MIN_SIDE, Math.round(size.height * scale))
+    const { width, height } = resultDisplaySize(size)
     const spot = findEmptySpot(api, width, height)
     // 先登记资产（失败也照常落图）：带着 assetId 落进画布，后续 @ 引用 / 编辑免去回传
     const assetId = await materializeResultAsset(url)
@@ -274,6 +284,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   const { t: te } = useTranslation()
   const toast = useToast()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const { resolved } = useTheme()
   const { canAfford, prices } = useQuota()
   const setQuotaModalOpen = useUIStore((s) => s.setQuotaModalOpen)
@@ -315,6 +326,23 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   const handoffRef = useRef(false)
 
   const [canvasId, setCanvasId] = useState<string | null>(initialCanvasId ?? null)
+  /** 场景是否已经灌进 Excalidraw（协作要等这个为真再连，否则快照会冲掉本地状态） */
+  const [sceneReady, setSceneReady] = useState(false)
+  /** 当前画布的元信息（team_id 决定是否启用协作） */
+  const canvasMetaRef = useRef<{ team_id?: string | null } | null>(null)
+  /** 全量重拉场景：协作检测到版本落后时调用 */
+  const reloadSceneRef = useRef<() => Promise<void>>(async () => {})
+  /** 协作 diff 基线重置（applyScene 里调用；hook 在下面才初始化，故用 ref 中转） */
+  const collabResetBaselineRef = useRef<(elements: CanvasElement[]) => void>(() => {})
+  /**
+   * 协作上行与在线态也走 ref。
+   *
+   * 不能放进 `handleChange` 的依赖数组：在线人数（presence）每次变动都会让
+   * 那个对象换新，于是 onChange 每帧重建并一路传进 Excalidraw——
+   * 结果是「有人进来」这种与编辑无关的事件也会让正在拖拽的画布掉帧。
+   */
+  const collabPushRef = useRef<(elements: CanvasElement[]) => boolean>(() => false)
+  const collabLiveRef = useRef(false)
   const [initialData, setInitialData] = useState<ExcalidrawInitialDataState | undefined>(undefined)
   const [api, setApi] = useState<ExcalidrawApiLike | null>(null)
   const [elements, setElements] = useState<CanvasElement[]>([])
@@ -392,6 +420,55 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
 
   const autosave = useCanvasAutosave(canvasId)
   const setAutosaveReady = autosave.setReady
+
+  /*
+   * 实时协作。
+   *
+   * `enabled` 只对「有团队归属」的画布为真：个人画布连一个常驻 WebSocket
+   * 纯属浪费连接，而且不会有第二个人进来。
+   *
+   * 协作不可用（后端没开 WS / 网络受限）时自动落到 `offline`，此时 `isLive`
+   * 为 false，整场景自动保存照旧生效——画布不会因为协作挂了而存不了。
+   */
+  const collabScene = useCanvasCollabScene({
+    canvasId,
+    enabled: Boolean(canvasMetaRef.current?.team_id),
+    ready: sceneReady,
+    api,
+    onRemoteFullSync: () => {
+      // 版本落后太多 / 服务端重启：重拉一次整份场景
+      void reloadSceneRef.current()
+    },
+  })
+  collabResetBaselineRef.current = collabScene.resetBaseline
+  collabPushRef.current = collabScene.pushLocal
+  collabLiveRef.current = collabScene.isLive
+
+  /*
+   * 开发态把画布句柄挂到 window 上。
+   *
+   * 协作链路的验收只能在真浏览器里做（要真连 WS、真要一次 onChange），
+   * 而 Excalidraw 的场景在 canvas 里、DOM 上读不出来。有了这个钩子，
+   * `scripts/ui_smoke_collab_two_tabs.py` 才能问「你现在有几个元素」。
+   * `import.meta.env.DEV` 为 false 时整段被摇掉，不进生产包。
+   */
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    ;(window as unknown as Record<string, unknown>).__csCanvas = {
+      get api() {
+        return apiRef.current
+      },
+      get collab() {
+        return {
+          status: collabScene.status,
+          version: collabScene.version,
+          participants: collabScene.participants,
+        }
+      },
+      elementIds: () =>
+        (apiRef.current?.getSceneElements() ?? []).map((element) => element.id),
+    }
+  }, [collabScene.status, collabScene.version, collabScene.participants])
   /**
    * Excalidraw 挂载后会先报一次「空场景」onChange（initialData 还没并进场景）。
    * 这一次绝不能落盘：它会把刚读出来的内容覆盖成空画布。
@@ -476,6 +553,9 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     // 场景已就位：现在才允许把 onChange 的结果写回后端（见 useCanvasAutosave 的闸门）
     setAutosaveReady(true)
     holdAutosaveRef.current = true
+    setSceneReady(true)
+    // 协作 diff 的基线必须跟着场景走，否则第一次 onChange 会被算成「全量新增」
+    collabResetBaselineRef.current(scene.elements)
   }, [setAutosaveReady])
 
   /** 退出图片编辑：同时清空选区上下文，避免侧栏拿着过期选区继续发消息。 */
@@ -493,6 +573,36 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
    * 新画布 id 生效后才触发而被写进新画布；清空 initialData 让画布回到
    * 「画布加载中…」占位，配合 `<CanvasExcali key={canvasId}>` 的重建清空撤销栈。
    */
+  /**
+   * 全量重拉当前画布的场景。
+   *
+   * 只用于协作「版本落后太多」时的重同步：此时本地的增量已经接不上了，
+   * 唯一安全做法是拉一份完整的回来。刻意不复用 `switchCanvas`——
+   * 那条路径会清空 initialData 并重建 Excalidraw（撤销栈全丢），
+   * 而这里只是把元素换掉，用户的撤销历史还在。
+   */
+  const reloadScene = useCallback(async () => {
+    if (!canvasId) return
+    try {
+      const fresh = await canvasesApi.get(canvasId)
+      const scene = normalizeScene(fresh.state)
+      latestSceneRef.current = scene
+      sceneSigRef.current = sceneSignature(scene.elements)
+      setElements(scene.elements)
+      collabResetBaselineRef.current(scene.elements)
+      // 抑制这次 updateScene 触发的 onChange，否则刚拉回来的内容会被当成新改动再发一遍
+      const instance = apiRef.current
+      if (instance) {
+        instance.updateScene({ elements: scene.elements })
+      } else {
+        setInitialData(scene as unknown as ExcalidrawInitialDataState)
+      }
+    } catch {
+      // 重同步失败不致命：下一次 patch 还会再触发一次重试
+    }
+  }, [canvasId])
+  reloadSceneRef.current = reloadScene
+
   const switchCanvas = useCallback(
     async (targetId: string) => {
       const seq = ++switchSeqRef.current
@@ -502,6 +612,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
       setAutosaveReady(false)
       holdAutosaveRef.current = false
       setInitialData(undefined)
+      setSceneReady(false)
       setElements([])
       setSelectedIds([])
       setPlaceholders([])
@@ -515,11 +626,34 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
       // 快速连点：过期响应直接丢弃，最后一次点击说了算
       if (seq !== switchSeqRef.current) return
       setCanvas(canvas)
+      canvasMetaRef.current = canvas as unknown as { team_id?: string | null }
       setCanvasId(canvas.id)
       applyScene(canvas.state)
     },
     [autosave, applyScene, exitEdit, setCanvas, setAutosaveReady]
   )
+
+  /*
+   * 切换工作空间后重新解析画布。
+   *
+   * 用 `spaceEpoch` 递增来驱动上面那段 `resolve`，而不是 `navigate`：
+   * 用户在 `/workspace`（URL 里没有画布 id）时导航到同一路由是空操作，
+   * 组件不会重挂载，画布也就不会刷新——他会继续看着上一个空间的内容编辑，
+   * 而保存时可能撞 403。递增一个 epoch 则与路由无关，一定生效。
+   *
+   * 只在「当前画布不属于新空间」时才重解析：同一空间内切换（比如只是改了团队名）
+   * 不该把用户正在编辑的画布换掉。
+   */
+  const scopeKey = useTeamScopeKey()
+  const [spaceEpoch, setSpaceEpoch] = useState(0)
+  useEffect(() => {
+    const canvasTeam = canvasMetaRef.current?.team_id ?? null
+    const wantTeam = scopeKey === 'personal' ? null : scopeKey
+    if (canvasTeam === wantTeam) return
+    // 首屏解析还没完成时不要打断它
+    if (!canvasMetaRef.current) return
+    setSpaceEpoch((prev) => prev + 1)
+  }, [scopeKey])
 
   // 解析目标画布：一个会话 = 一块画布（新建会话即空画布，切换会话恢复各自画布）
   useEffect(() => {
@@ -583,7 +717,8 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
       active = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, initialCanvasId])
+  }, [sessionId, initialCanvasId, spaceEpoch])
+
 
   // 内置提示词配置（模板 + 预设）
   useEffect(() => {
@@ -634,7 +769,13 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
         // 加载刚完成的那一次「空场景」事件只同步 state，不写盘
         if (!(hold && nextElements.length === 0)) {
           holdAutosaveRef.current = false
-          autosave.schedule(scene)
+          /*
+           * 先走协作增量通道；连不上时返回 false，再退回整场景自动保存。
+           * 这个顺序不能反：协作在跑的时候若还整份覆盖写盘，
+           * 会把同事刚合进来的元素一起抹掉。
+           */
+          const sent = collabPushRef.current(nextElements)
+          if (!sent && !collabLiveRef.current) autosave.schedule(scene)
         }
       }
       const selected = (appState.selectedElementIds ?? {}) as Record<string, boolean>
@@ -1260,13 +1401,14 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
       return
     }
     try {
+      const { width, height } = resultDisplaySize(await imageSize(url))
       // 落点先找空位：直接放视口中心会盖住用户正在看的图
-      const spot = findEmptySpot(instance, RESULT_MAX_SIDE, RESULT_MAX_SIDE)
+      const spot = findEmptySpot(instance, width, height)
       const created = await addImageToCanvas(instance, {
         url,
         assetId: await materializeResultAsset(url),
-        width: RESULT_MAX_SIDE,
-        height: RESULT_MAX_SIDE,
+        width,
+        height,
         x: spot.x,
         y: spot.y,
       })
@@ -1361,9 +1503,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     const scrollX = appState.scrollX ?? 0
     const scrollY = appState.scrollY ?? 0
     // 占位卡与最终落图同尺寸：结果出来时不跳变
-    const sceneW = RESULT_MAX_SIDE
-    const sceneH =
-      base.w > 0 && base.h > 0 ? Math.round((RESULT_MAX_SIDE * base.h) / base.w) : RESULT_MAX_SIDE
+    const { width: sceneW, height: sceneH } = resultDisplaySize({ width: base.w, height: base.h })
     const sceneX = base.x + base.w + 60
     const sceneY = base.y
     setPlaceholders((prev) => [
@@ -1603,7 +1743,20 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
           )}
         >
           <CanvasTopBar>
-            <CanvasHeader canvasId={canvasId} api={api} hasImageSelected={hasImageSelected} />
+            <CanvasHeader
+              canvasId={canvasId}
+              api={api}
+              hasImageSelected={hasImageSelected}
+              presence={
+                collabScene.status !== 'idle' ? (
+                  <CollabPresence
+                    status={collabScene.status}
+                    participants={collabScene.participants}
+                    selfId={user?.id}
+                  />
+                ) : null
+              }
+            />
           </CanvasTopBar>
           <div
             ref={canvasCardRef}

@@ -29,6 +29,14 @@ class ErrorCode(str, Enum):
     # 上游返回的响应体不是可用的数据（网页 / 空体 / 截断 / 结构不对）。
     # 只新增这一个码：其余 14 个复用既有语义，保证一期错误码行为零变化（ADR-7）。
     UPSTREAM_FORMAT_ERROR = "UPSTREAM_FORMAT_ERROR"
+    # ---- 团队 / 协作（团队版新增）----
+    # 团队成员试图修改「只有超级管理员能改」的模型配置。与 FORBIDDEN 分开：
+    # 前端据这个码显示「由团队管理员统一配置」，而不是一句没权限。
+    MODEL_CONFIG_FORBIDDEN = "MODEL_CONFIG_FORBIDDEN"
+    # 团队席位已满（邀请 / 接受邀请时触发）。
+    SEAT_LIMIT_EXCEEDED = "SEAT_LIMIT_EXCEEDED"
+    # 协作 patch 的 base_version 落后且增量缓冲已淘汰，必须全量重同步。
+    CANVAS_VERSION_CONFLICT = "CANVAS_VERSION_CONFLICT"
 
 
 # 错误码 → HTTP 状态码
@@ -48,6 +56,9 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.INTERNAL_ERROR: 500,
     ErrorCode.UPSTREAM_FORMAT_ERROR: 502,
+    ErrorCode.MODEL_CONFIG_FORBIDDEN: 403,
+    ErrorCode.SEAT_LIMIT_EXCEEDED: 422,
+    ErrorCode.CANVAS_VERSION_CONFLICT: 409,
 }
 
 # 错误码 → 默认中文文案（用户可见，禁止出现「上游 / 网关 / 号池 / 代理 / 服务器」等内部词）
@@ -70,6 +81,9 @@ ERROR_MESSAGES: dict[ErrorCode, str] = {
     # 兜底文案：正常情况下前端按 `data.reason` 渲染 i18n 文案，这句不会上屏。
     # 刻意不含 json / html / HTTP / 异常类名（R01 硬性要求）。
     ErrorCode.UPSTREAM_FORMAT_ERROR: "这次没能拿到可用的结果，换一个模型再试一次",
+    ErrorCode.MODEL_CONFIG_FORBIDDEN: "对话模型由团队超级管理员统一配置，你无需单独设置",
+    ErrorCode.SEAT_LIMIT_EXCEEDED: "团队席位已满，请先释放一个席位或扩容",
+    ErrorCode.CANVAS_VERSION_CONFLICT: "画布有新版本了，正在为你同步最新内容",
 }
 
 

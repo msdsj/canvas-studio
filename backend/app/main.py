@@ -18,13 +18,16 @@ from app.routers import (
     assets,
     auth,
     canvases,
+    collab,
     chat,
     generate,
     health,
     me,
+    onboarding,
     projects,
     quota,
     tasks,
+    teams,
 )
 from app.routers import admin as admin_routers
 from app.seed import run_seed
@@ -124,6 +127,7 @@ app.include_router(auth.router)
 app.include_router(me.router)
 app.include_router(projects.router)
 app.include_router(canvases.router)
+app.include_router(collab.router)
 app.include_router(assets.router)
 app.include_router(chat.router)
 app.include_router(ai.router)
@@ -131,6 +135,9 @@ app.include_router(generate.router)
 app.include_router(tasks.router)
 app.include_router(quota.router)
 app.include_router(announcements.router)
+app.include_router(teams.router)
+app.include_router(onboarding.onboarding_router)
+app.include_router(onboarding.skills_router)
 # 管理后台
 app.include_router(admin_routers.router)
 

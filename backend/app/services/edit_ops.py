@@ -185,10 +185,11 @@ def normalize_ops(
         ops.append(
             EditOp(
                 region=region,
+                path=clean_path(item.get("path")),
                 handler=handler_id,
                 prompt=str(item.get("prompt") or "").strip() or default_prompt,
                 intensity=intensity if intensity in _INTENSITIES else "fine",
-                index=len(ops) + 1,
+                index=int(item.get("index") or len(ops) + 1),
             )
         )
 

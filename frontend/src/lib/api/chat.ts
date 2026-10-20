@@ -1,6 +1,5 @@
-import { api } from './client'
-import { getToken } from './client'
-import type { PageData, PageQuery } from '@/types/api'
+import { api, ApiError, getToken } from './client'
+import type { ErrorCode, PageData, PageQuery } from '@/types/api'
 import type { ChatMessage, ChatSession } from '@/types/models'
 
 export interface ChatStreamHandlers {
@@ -16,6 +15,11 @@ export interface SkillStepState {
   detail: string
   status: 'pending' | 'running' | 'done' | 'skipped' | 'blocked' | 'failed'
   elapsed_ms: number
+  /** 面向用户的需求拆解、约束和执行要点。 */
+  items?: string[]
+  /** 模型公开返回的分析摘要。 */
+  thought?: string
+  meta?: { model?: string; elapsed_ms?: number; output_chars?: number; streamed?: boolean }
 }
 
 /** Skill 声明（步骤 + 编排规则），用于向用户展示 AI 按什么规则执行。 */
@@ -45,8 +49,19 @@ export interface SkillOutputGroup {
   [key: string]: unknown
 }
 
+/** LLM 确认的独立输出任务，用于回看需求拆分和实际执行约束。 */
+export interface ImagePlanJob {
+  index: number
+  label: string
+  prompt: string
+  handler?: string
+  region_indexes?: number[]
+  output_kind?: string
+  preserve_outside?: boolean
+}
+
 /** 分析命中的编排规则（决定「为什么是这个数量」的那一条）。 */
-export type SkillRuleHit = 'explicit_count' | 'structure' | 'ambiguous' | 'needs_image'
+export type SkillRuleHit = 'explicit_count' | 'structure' | 'ambiguous' | 'needs_image' | 'model_plan'
 
 /**
  * 需求分析结果（完整形态）：SSE `result` 事件与消息附件 `skill_run` 是同一套字段。
@@ -78,6 +93,8 @@ export interface AnalyzeResult {
   target_id?: string | null
   canvas_id?: string | null
   task_ids?: string[]
+  jobs?: ImagePlanJob[]
+  error_code?: string
 }
 
 /**
@@ -109,6 +126,7 @@ export interface SkillRunAttachment {
   selection_fingerprint?: string
   target_id?: string | null
   canvas_id?: string | null
+  jobs?: ImagePlanJob[]
 }
 
 /** 从消息附件里挑出 skill_run（非该类型返回 null）。 */
@@ -118,7 +136,13 @@ export function pickSkillRun(attachments: unknown): SkillRunAttachment | null {
     if (!item || typeof item !== 'object') continue
     const candidate = item as { type?: unknown; run_id?: unknown }
     if (candidate.type !== 'skill_run' || typeof candidate.run_id !== 'string') continue
-    return item as SkillRunAttachment
+    const run = item as SkillRunAttachment
+    return {
+      ...run,
+      steps: Array.isArray(run.steps) ? run.steps : [],
+      options: Array.isArray(run.options) ? run.options : [],
+      jobs: Array.isArray(run.jobs) ? run.jobs : [],
+    }
   }
   return null
 }
@@ -143,7 +167,7 @@ export interface ChatSelectionPayload {
 /** 纯生图全链路（compose）：需求分析 → 歧义澄清 → 方案推导 → 提示词 */
 /** ------------------------------------------------------------------ */
 
-/** 一个思考步骤：`items` 是该阶段的推理要点（比一句 detail 更能说明白）。 */
+/** 一个公开处理步骤：`items` 是该阶段的需求与执行要点。 */
 export interface ComposeStep {
   id: string
   title: string
@@ -151,7 +175,7 @@ export interface ComposeStep {
   status: 'pending' | 'running' | 'done' | 'skipped' | 'blocked' | 'failed'
   elapsed_ms: number
   items?: string[]
-  /** 这一步模型输出的原始推理文字（分析步骤才有） */
+  /** 这一步模型公开返回的分析摘要（分析步骤才有） */
   thought?: string
   /** 可量化信息：模型 / 耗时 / 输出字数 / 是否流式 */
   meta?: { model?: string; elapsed_ms?: number; output_chars?: number; streamed?: boolean }
@@ -206,13 +230,13 @@ export interface ComposeResult {
   relay?: { configured: boolean; source?: string; provider?: string; model?: string }
 }
 
-/** assistant 消息附件里的 compose_run 快照（刷新后可还原思考链路）。 */
+/** assistant 消息附件里的 compose_run 快照（刷新后可还原处理过程）。 */
 export interface ComposeRunAttachment {
   type: 'compose_run'
   run_id: string
   status: string
   reply: string
-  /** 用户原话（未配置中转站时「用本地模板先试一次」要原样重发） */
+  /** 用户原话，用于配置完成后重新提交。 */
   content?: string
   steps: ComposeStep[]
   final_prompt: string
@@ -268,6 +292,16 @@ export function pickImages(attachments: unknown): MessageImageAttachment[] {
   )
 }
 
+async function streamResponseError(response: Response, fallback: string): Promise<Error> {
+  try {
+    const body = await response.json() as { code?: string; message?: string }
+    if (body.code) return new ApiError(body.code as ErrorCode, body.message || fallback, response.status)
+  } catch {
+    // 非 JSON 错误响应不向用户透传原始报文。
+  }
+  return new Error(fallback)
+}
+
 export const chatApi = {
   listSessions: (canvasId?: string) =>
     api.get<ChatSession[]>(`/chat/sessions${canvasId ? `?canvas_id=${canvasId}` : ''}`),
@@ -319,8 +353,11 @@ export const chatApi = {
     },
     handlers: {
       onStep: (step: SkillStepState) => void
+      onDelta?: (text: string, reset?: boolean) => void
+      onThought?: (text: string, reset?: boolean) => void
+      onThoughtProgress?: (chars: number) => void
       onResult: (result: AnalyzeResult) => void
-      onError: (message: string) => void
+      onError: (message: string, code?: string) => void
       /**
        * 流正常结束（无论是否收到 result）。
        * 没有这个回调时，服务端中途断开连接（还没发 result 就关流）会让调用方
@@ -344,7 +381,7 @@ export const chatApi = {
           body: JSON.stringify(payload),
           signal: controller.signal,
         })
-        if (!res.ok || !res.body) throw new Error(`分析失败（HTTP ${res.status}）`)
+        if (!res.ok || !res.body) throw await streamResponseError(res, `分析失败（HTTP ${res.status}）`)
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
@@ -364,11 +401,19 @@ export const chatApi = {
             if (dataStr) {
               try {
                 const obj = JSON.parse(dataStr) as {
-                  event?: 'step' | 'result'
+                  event?: 'step' | 'result' | 'delta' | 'delta_reset' | 'thought' | 'thought_reset' | 'thought_progress'
                   step?: SkillStepState
                   result?: AnalyzeResult
+                  text?: string
+                  chars?: number
                 }
                 if (obj.event === 'step' && obj.step) handlers.onStep(obj.step)
+                if (obj.event === 'delta' && obj.text) handlers.onDelta?.(obj.text)
+                if (obj.event === 'delta_reset') handlers.onDelta?.('', true)
+                if (obj.event === 'thought' && obj.text) handlers.onThought?.(obj.text)
+                if (obj.event === 'thought_reset') handlers.onThought?.('', true)
+                if (obj.event === 'thought_progress' && typeof obj.chars === 'number')
+                  handlers.onThoughtProgress?.(obj.chars)
                 if (obj.event === 'result' && obj.result) handlers.onResult(obj.result)
               } catch {
                 /* 忽略半包 */
@@ -381,7 +426,7 @@ export const chatApi = {
       } catch (error) {
         // 取消同样要回调 onClose：否则调用方会停在「分析中」，按钮永久禁用
         if ((error as Error).name === 'AbortError') handlers.onClose?.()
-        else handlers.onError((error as Error).message || '分析失败')
+        else handlers.onError((error as Error).message || '分析失败', error instanceof ApiError ? error.code : undefined)
       }
     }
     void run()
@@ -399,8 +444,6 @@ export const chatApi = {
       canvas_id?: string
       image_refs?: string[]
       selection?: ChatSelectionPayload | null
-      /** 用户显式同意「未配置中转站时用本地模板先试一次」 */
-      allow_degraded?: boolean
       /** 生图模型：gpt-image-2 / gpt-image-2.5 */
       model?: string
     },
@@ -408,12 +451,12 @@ export const chatApi = {
       onStep: (step: ComposeStep) => void
       /** 回复正文的流式增量（结论已定，正在「说成人话」）；`reset` = 清空已收到的半截重来 */
       onDelta?: (text: string, reset?: boolean) => void
-      /** 需求分析的思考过程增量；`reset` = 流式失败已回落，清空重来 */
+      /** 面向用户的分析摘要增量；`reset` = 流式失败已回落，清空重来 */
       onThought?: (text: string, reset?: boolean) => void
       /** 进入结构化输出阶段后只报字数 */
       onThoughtProgress?: (chars: number) => void
       onResult: (result: ComposeResult) => void
-      onError: (message: string) => void
+      onError: (message: string, code?: string) => void
       onClose?: () => void
     }
   ): (() => void) => {
@@ -432,7 +475,7 @@ export const chatApi = {
           body: JSON.stringify(payload),
           signal: controller.signal,
         })
-        if (!res.ok || !res.body) throw new Error(`需求分析失败（HTTP ${res.status}）`)
+        if (!res.ok || !res.body) throw await streamResponseError(res, `需求分析失败（HTTP ${res.status}）`)
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
@@ -478,7 +521,7 @@ export const chatApi = {
         // 用户主动取消（切会话 / 点停止）也要收尾：否则调用方的 composing 永远为 true，
         // 输入框会一直停在「提交中」，表现为发送键永久禁用。
         if ((error as Error).name === 'AbortError') handlers.onClose?.()
-        else handlers.onError((error as Error).message || '需求分析失败')
+        else handlers.onError((error as Error).message || '需求分析失败', error instanceof ApiError ? error.code : undefined)
       }
     }
     void run()

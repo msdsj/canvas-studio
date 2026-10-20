@@ -3,9 +3,19 @@
   "new_session": "New chat",
   "session": {
     "untitled": "New chat",
+    "switch": "Switch conversation",
     "rename": "Rename",
     "delete": "Delete chat",
-    "delete_confirm": "Delete this chat?"
+    "delete_confirm": "Click again to delete",
+    "search_placeholder": "Search chats…",
+    "no_results": "No matching chats",
+    "empty": "No chats yet",
+    "bucket": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "week": "Last 7 days",
+      "older": "Earlier"
+    }
   },
   "input": {
     "placeholder": "Describe the image you want…",
@@ -137,7 +147,8 @@
     "done_count_other": "{{count}} images ready",
     "generating_count_one": "Painting {{count}} image",
     "generating_count_other": "Painting {{count}} images",
-    "failed_hint": "Credits refunded — rephrase it or just retry"
+    "failed_hint": "Credits refunded — rephrase it or just retry",
+    "retrying": "Resubmitted — generating…"
   },
   "edit": {
     "compare": "Edit compare",
@@ -176,6 +187,7 @@
     "active_tasks_one": "{{count}} generating",
     "active_tasks_other": "{{count}} generating",
     "relay_connected": "Relay connected: {{name}}",
-    "relay_configure": "Configure AI relay"
+    "relay_configure": "Configure AI relay",
+    "relay_team_missing": "\"{{team}}\" has no model configured yet — ask your team owner."
   }
 }

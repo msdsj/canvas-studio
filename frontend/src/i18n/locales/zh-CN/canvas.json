@@ -40,5 +40,12 @@
     "title": "开始你的第一个创作",
     "desc": "在右侧对话框输入提示词，或拖入一张图片开始。"
   },
-  "minimap": "导航"
+  "minimap": "导航",
+  "collab": {
+    "online_count": "{{count}} 人正在编辑",
+    "online_alone": "协作已连接",
+    "connecting": "正在连接协作…",
+    "offline": "协作未连接，改动只保存在本地",
+    "offline_short": "离线"
+  }
 }

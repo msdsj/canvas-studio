@@ -19,6 +19,11 @@ class Asset(Base):
     owner_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("users.id"), index=True, nullable=False
     )
+    # 团队素材：team_id 非空 + visibility='team' 时，团队所有成员可见/可复用
+    team_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("teams.id"), index=True, nullable=True
+    )
+    visibility: Mapped[str] = mapped_column(String(16), default="private", index=True)
     kind: Mapped[str] = mapped_column(String(16), index=True, default="generated")
     url: Mapped[str] = mapped_column(String(1024), nullable=False)
     thumb_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)

@@ -21,8 +21,13 @@ async def log(
     target_id: str | None = None,
     detail: dict[str, Any] | None = None,
     ip: str = "",
+    team_id: str | None = None,
 ) -> AuditLog:
-    """写入一条审计日志。"""
+    """写入一条审计日志。
+
+    `team_id` 非空表示这是一条**团队内**的操作记录，团队审计页只查自己团队的，
+    平台审计页则能看到全部——企业客户要能自查「谁动了我的模型配置」。
+    """
     entry = AuditLog(
         actor_id=actor.id if actor else actor_id,
         actor_email=actor.email if actor else actor_email,
@@ -31,6 +36,7 @@ async def log(
         target_id=target_id,
         detail=detail or {},
         ip=ip,
+        team_id=team_id,
     )
     db.add(entry)
     await db.flush()

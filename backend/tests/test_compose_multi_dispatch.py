@@ -2,9 +2,9 @@
 
 覆盖三件事：
 1. 分析流：思考文字实时推出、`<<<JSON>>>` 之后只报进度、最终 JSON 能解析；
-2. 张数解析：通用规则（夹 1–4、单张永远原话、不同画面才用专属描述）；
+2. 张数解析：通用规则（单张保留原话、不同画面用专属描述、超限明确失败）；
 3. 派发：N 张 = N 个独立任务（n=1、幂等键各不相同），全部建好后一起起跑；
-   第 2 张起失败不连坐已提交的任务，一张都没成才抛错。
+   整批完整提交后再执行，任一创建失败须回滚所有新任务。
 """
 from __future__ import annotations
 
@@ -13,10 +13,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services import compose_service
+from app.services import compose_service, relay_service, relay_types, task_service
 from app.services.relay_service import build_target_from_draft
 from app.utils.errors import AppError, ErrorCode
-from tests.mock_relay import FakeUpstream, sse
 
 ANALYSIS = {
     "summary": "四季主题插画",
@@ -35,19 +34,26 @@ def _events(chunks: list[str]) -> list[dict]:
     return [json.loads(chunk[6:].strip()) for chunk in chunks]
 
 
+async def _pieces(*chunks: str):
+    """Inject protocol content without binding a local TCP listener."""
+    for chunk in chunks:
+        yield chunk
+
+
+def _target():
+    return build_target_from_draft(base_url="https://relay.test/v1", api_key="test", model="m")
+
+
 # --------------------------------------------------------------------------- #
 # 1) 流式分析
 # --------------------------------------------------------------------------- #
 async def test_stream_analysis_pushes_thought_then_parses_json():
     body = json.dumps(ANALYSIS, ensure_ascii=False)
-    with FakeUpstream() as upstream:
-        upstream.script(
-            "m",
-            sse("用户要两张不同季节的画面，", "主体明确，可以直接开画。\n<<<", "JSON>>>\n", body[:30], body[30:]),
-        )
-        target = build_target_from_draft(base_url=upstream.base_url, api_key="k", model="m")
-        sink: dict = {}
-        chunks = [c async for c in compose_service._stream_analysis(target, [{"role": "user", "content": "x"}], sink)]
+    sink: dict = {}
+    chunks = [c async for c in compose_service._stream_analysis(
+        _target(), [{"role": "user", "content": "x"}], sink,
+        text_stream=_pieces("用户要两张不同季节的画面，", "主体明确，可以直接开画。\n<<<", "JSON>>>\n", body[:30], body[30:]),
+    )]
 
     events = _events(chunks)
     thought = "".join(e["text"] for e in events if e["event"] == "thought")
@@ -59,23 +65,23 @@ async def test_stream_analysis_pushes_thought_then_parses_json():
 
 
 async def test_stream_analysis_tolerates_plain_json_without_marker():
-    with FakeUpstream() as upstream:
-        upstream.script("m", sse(json.dumps(ANALYSIS, ensure_ascii=False)))
-        target = build_target_from_draft(base_url=upstream.base_url, api_key="k", model="m")
-        sink: dict = {}
-        chunks = [c async for c in compose_service._stream_analysis(target, [{"role": "user", "content": "x"}], sink)]
+    sink: dict = {}
+    chunks = [c async for c in compose_service._stream_analysis(
+        _target(), [{"role": "user", "content": "x"}], sink,
+        text_stream=_pieces(json.dumps(ANALYSIS, ensure_ascii=False)),
+    )]
     assert not [e for e in _events(chunks) if e["event"] == "thought"], "纯 JSON 不能刷成思考"
     assert sink["analysis"]["summary"] == "四季主题插画"
     assert sink["thought"] == ""
 
 
 async def test_stream_analysis_raises_when_no_json():
-    with FakeUpstream() as upstream:
-        upstream.script("m", sse("我想了想，但是没有给出结构化结果"))
-        target = build_target_from_draft(base_url=upstream.base_url, api_key="k", model="m")
-        with pytest.raises(AppError):
-            async for _ in compose_service._stream_analysis(target, [{"role": "user", "content": "x"}], {}):
-                pass
+    with pytest.raises(AppError):
+        async for _ in compose_service._stream_analysis(
+            _target(), [{"role": "user", "content": "x"}], {},
+            text_stream=_pieces("已经识别需求，但未返回结构化结果"),
+        ):
+            pass
 
 
 def test_extract_json_ignores_braces_in_thought():
@@ -99,12 +105,24 @@ def test_resolve_jobs_distinct_scenes_use_per_image_prompts():
     assert all(job["custom"] for job in jobs)
 
 
-def test_resolve_jobs_variants_and_clamping():
-    jobs = compose_service.resolve_jobs({"image_count": 9, "images": []}, "用户原话")
+def test_resolve_jobs_variants_preserve_requested_count():
+    jobs = compose_service.resolve_jobs({"image_count": compose_service.MAX_IMAGES, "images": []}, "用户原话")
     assert len(jobs) == compose_service.MAX_IMAGES
     assert {job["prompt"] for job in jobs} == {"用户原话"}, "同一画面多版本：每张都用原话"
-    assert compose_service.resolve_jobs({"image_count": "abc"}, "x")[0]["index"] == 1
     assert len(compose_service.resolve_jobs({}, "x")) == 1
+
+
+@pytest.mark.parametrize("count", ["abc", True, 2.5, None, []])
+def test_resolve_jobs_rejects_invalid_model_count(count):
+    with pytest.raises(AppError) as info:
+        compose_service.resolve_jobs({"image_count": count}, "x")
+    assert info.value.code == ErrorCode.UPSTREAM_FORMAT_ERROR
+
+
+def test_resolve_jobs_rejects_unsupported_count_instead_of_truncating():
+    with pytest.raises(AppError) as info:
+        compose_service.resolve_jobs({"image_count": compose_service.MAX_IMAGES + 1, "images": []}, "用户原话")
+    assert info.value.code == ErrorCode.VALIDATION_ERROR
 
 
 # --------------------------------------------------------------------------- #
@@ -128,8 +146,11 @@ def _run() -> SimpleNamespace:
 
 @pytest.fixture
 def fake_create(monkeypatch):
+    from app.services import batch_service
+
     calls: list[dict] = []
     spawned: list[str] = []
+    refunds: list[str] = []
     fail_from: dict = {"index": None}
 
     async def create_image_task(db, user_id, **kwargs):
@@ -143,7 +164,20 @@ def fake_create(monkeypatch):
 
     monkeypatch.setattr(compose_service.generate_service, "create_image_task", create_image_task)
     monkeypatch.setattr(compose_service, "_spawn_run", spawned.append)
-    return SimpleNamespace(calls=calls, spawned=spawned, fail_from=fail_from)
+
+    async def fail_and_refund(db, task_id, code, message):
+        refunds.append(task_id)
+
+    async def preflight(*args, **kwargs):
+        return None
+
+    async def resolve_cost(*args, **kwargs):
+        return 10
+
+    monkeypatch.setattr(task_service, "fail_and_refund", fail_and_refund)
+    monkeypatch.setattr(batch_service, "preflight", preflight)
+    monkeypatch.setattr(compose_service.generate_service, "resolve_cost", resolve_cost)
+    return SimpleNamespace(calls=calls, spawned=spawned, fail_from=fail_from, refunds=refunds)
 
 
 async def test_dispatch_creates_one_independent_task_per_image(fake_create):
@@ -158,6 +192,9 @@ async def test_dispatch_creates_one_independent_task_per_image(fake_create):
     keys = [call["idempotency_key"] for call in fake_create.calls]
     assert keys == ["compose:k:1", "compose:k:2"], "幂等键各不相同，才不会互相 replay"
     assert fake_create.calls[0]["extra"]["batch_total"] == 2
+    assert {call["extra"]["pool_batch_id"] for call in fake_create.calls} == {"run1"}
+    assert [call["extra"]["pool_task_id"] for call in fake_create.calls] == ["1", "2"]
+    assert all(call["extra"]["pool_batch_total"] == 2 for call in fake_create.calls)
     assert fake_create.spawned == ["t1", "t2"], "全部建好后一起起跑"
     assert [t["label"] for t in tasks] == ["春", "夏"]
 
@@ -172,17 +209,19 @@ async def test_dispatch_single_image_keeps_original_key(fake_create):
     assert "batch_total" not in fake_create.calls[0]["extra"]
 
 
-async def test_dispatch_partial_failure_keeps_submitted_tasks(fake_create):
+async def test_dispatch_partial_failure_refunds_entire_batch_without_execution(fake_create):
     fake_create.fail_from["index"] = 2
     db = _FakeDb()
     run = _run()
-    tasks = await compose_service._dispatch(
-        db, SimpleNamespace(id="u1"), run,
-        final_prompt="用户原话", negative="", size="1024x1024", refs=[],
-        idempotency_key="compose:k", jobs=compose_service.resolve_jobs({"image_count": 3}, "用户原话"),
-    )
-    assert [t["id"] for t in tasks] == ["t1"]
-    assert fake_create.spawned == ["t1"]
+    with pytest.raises(AppError) as info:
+        await compose_service._dispatch(
+            db, SimpleNamespace(id="u1"), run,
+            final_prompt="用户原话", negative="", size="1024x1024", refs=[],
+            idempotency_key="compose:k", jobs=compose_service.resolve_jobs({"image_count": 3}, "用户原话"),
+        )
+    assert info.value.code == ErrorCode.QUOTA_INSUFFICIENT
+    assert fake_create.refunds == ["t1"]
+    assert fake_create.spawned == []
     assert run in db.refreshed, "rollback 之后要把 run 重新载入"
 
 
@@ -198,7 +237,7 @@ async def test_dispatch_raises_when_nothing_submitted(fake_create):
     assert fake_create.spawned == []
 
 
-async def test_schedule_jobs_clamps_to_free_slots(monkeypatch):
+async def test_schedule_jobs_preserves_all_outputs_when_slots_are_insufficient(monkeypatch):
     async def free_slots(db, user_id):
         return 2
 
@@ -209,10 +248,10 @@ async def test_schedule_jobs_clamps_to_free_slots(monkeypatch):
     monkeypatch.setattr(compose_service, "_pool_capacity", no_pool)
     jobs = compose_service.resolve_jobs({"image_count": 4}, "用户原话")
     scheduled, items = await compose_service._schedule_jobs(None, "u1", jobs, "要四张")
-    assert len(scheduled) == 2
+    assert len(scheduled) == 4, "缺并发槽位时应明确失败或排队，不能悄悄漏掉产出"
     assert items[0] == "需要生成 4 张：要四张"
     assert any("并发槽位" in item for item in items)
-    assert any("号池可用账号 3/3" in item for item in items)
+    assert any("3/3" in item for item in items)
 
 
 # --------------------------------------------------------------------------- #
@@ -223,6 +262,7 @@ async def test_compose_endpoint_streams_thought_and_dispatches_n_tasks(client, m
 
     from app.database import AsyncSessionLocal
     from app.models.generation import GenerationTask
+    from app.services.gateway_client import gateway_client
 
     spawned: list[str] = []
     monkeypatch.setattr(compose_service, "_spawn_run", spawned.append)
@@ -233,25 +273,41 @@ async def test_compose_endpoint_streams_thought_and_dispatches_n_tasks(client, m
     headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
     analysis = {**ANALYSIS, "confidence": 0.95, "missing": [], "thinking": ["主体明确"]}
     body = json.dumps(analysis, ensure_ascii=False)
-    with FakeUpstream() as upstream:
-        upstream.script(
-            "m",
-            sse("用户要春夏两张，", "主体明确。\n<<<JSON>>>\n", body),
-            sse("好的，两张一起开画。"),
+
+    async def resolve(*args, **kwargs):
+        return _target()
+
+    async def stream(target, messages, **kwargs):
+        if any("本轮事实（JSON）" in str(message.get("content")) for message in messages):
+            yield "好的，两张一起开画。"
+            return
+        async for piece in _pieces("用户要春夏两张，", "主体明确。\n<<<JSON>>>\n", body):
+            yield piece
+
+    async def resilient(*args, **kwargs):
+        return relay_types.RelayOutcome(
+            content=body, model="m", provider="测试中转站", source="user", elapsed_ms=1,
+            attempts=[], chain=["m"], total_calls=1, degraded=False,
         )
-        created = await client.post(
-            "/api/ai/providers",
-            json={"name": "fake", "kind": "openai", "base_url": upstream.base_url, "api_key": "k", "model": "m"},
-            headers=headers,
-        )
-        assert created.status_code == 200, created.text
-        session = await client.post("/api/chat/sessions", json={"new_canvas": True}, headers=headers)
-        session_id = session.json()["data"]["id"]
-        resp = await client.post(
-            "/api/chat/compose",
-            json={"session_id": session_id, "content": "画两张水彩插画：春天的樱花小路和夏天的海边落日"},
-            headers=headers,
-        )
+
+    async def capacity(*args, **kwargs):
+        return {"total": 2, "healthy": 2, "available": 2, "independent_routing": True}
+
+    async def pool_stats():
+        return {"total": 2, "normal": 2, "routable_available": 2, "routable_known": 1}
+
+    monkeypatch.setattr(relay_service, "resolve", resolve)
+    monkeypatch.setattr(relay_service, "chat_stream", stream)
+    monkeypatch.setattr(relay_service, "chat_resilient", resilient)
+    monkeypatch.setattr(gateway_client, "pool_capacity", capacity)
+    monkeypatch.setattr(compose_service, "_pool_capacity", pool_stats)
+    session = await client.post("/api/chat/sessions", json={"new_canvas": True}, headers=headers)
+    session_id = session.json()["data"]["id"]
+    resp = await client.post(
+        "/api/chat/compose",
+        json={"session_id": session_id, "content": "画两张水彩插画：春天的樱花小路和夏天的海边落日"},
+        headers=headers,
+    )
     assert resp.status_code == 200, resp.text
     events = [json.loads(line[6:]) for line in resp.text.splitlines() if line.startswith("data: ")]
     kinds = [e["event"] for e in events]

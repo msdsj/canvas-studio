@@ -15,11 +15,18 @@ export interface User {
   email_verified_at?: string | null
   last_login_at?: string | null
   created_at?: string | null
+  /** 引导状态：完成前前端会引导去 /onboarding */
+  persona_key?: string
+  onboarding_completed_at?: string | null
+  active_team_id?: string | null
 }
 
 export interface CanvasProject {
   id: string
   owner_id: string
+  team_id?: string | null
+  visibility?: 'private' | 'team'
+  can_edit?: boolean
   name: string
   description: string
   thumbnail_url?: string | null
@@ -51,6 +58,10 @@ export interface Canvas {
   id: string
   project_id: string
   owner_id: string
+  team_id?: string | null
+  visibility?: 'private' | 'team'
+  version?: number
+  updated_by?: string | null
   name: string
   state?: CanvasState | null
   thumbnail_url?: string | null
@@ -65,6 +76,8 @@ export type AssetKind = 'generated' | 'uploaded'
 export interface Asset {
   id: string
   owner_id: string
+  team_id?: string | null
+  visibility?: 'private' | 'team'
   kind: AssetKind
   url: string
   thumb_url?: string | null

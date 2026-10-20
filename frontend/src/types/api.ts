@@ -16,6 +16,12 @@ export type ErrorCode =
   | 'VALIDATION_ERROR'
   | 'NOT_FOUND'
   | 'INTERNAL_ERROR'
+  /** 团队接管模型配置后，成员不再拥有个人模型设置入口 */
+  | 'MODEL_CONFIG_FORBIDDEN'
+  /** 团队席位数已满 */
+  | 'SEAT_LIMIT_EXCEEDED'
+  /** 画布版本落后太多，需要全量重同步 */
+  | 'CANVAS_VERSION_CONFLICT'
 
 export interface Envelope<T> {
   code: ErrorCode

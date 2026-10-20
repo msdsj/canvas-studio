@@ -124,6 +124,97 @@ class GatewayClient:
         """调用独立的意图分析模型中转。"""
         return await self._request("POST", "/gw/chat/llm-completions", json_body=payload)
 
+    async def llm_text_stream(self, payload: dict[str, Any]) -> AsyncIterator[str]:
+        """Decode content deltas only; provider private reasoning is never forwarded."""
+        import json
+
+        def public_content(data: Any, *, streaming: bool) -> list[str]:
+            if not isinstance(data, dict):
+                raise AppError(ErrorCode.UPSTREAM_FORMAT_ERROR, "分析服务返回了无法读取的内容，请重试")
+            # Older gateways may answer a stream request with their ordinary
+            # JSON envelope.  Unwrap only that envelope, never arbitrary text.
+            if "code" in data:
+                if data.get("code") != "OK":
+                    raise AppError(ErrorCode.UPSTREAM_ERROR, "需求分析暂时不可用，请稍后重试")
+                data = data.get("data")
+                if not isinstance(data, dict):
+                    raise AppError(ErrorCode.UPSTREAM_FORMAT_ERROR, "分析结果为空，请重试")
+            if data.get("demo") or data.get("error_code") or data.get("error"):
+                raise AppError(ErrorCode.UPSTREAM_ERROR, "需求分析需要真实模型，请检查模型配置后重试")
+            choices = data.get("choices") or []
+            if not isinstance(choices, list):
+                raise AppError(ErrorCode.UPSTREAM_FORMAT_ERROR, "分析结果格式不完整，请重试")
+            pieces: list[str] = []
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    raise AppError(ErrorCode.UPSTREAM_FORMAT_ERROR, "分析结果格式不完整，请重试")
+                if choice.get("finish_reason") in {"length", "content_filter"}:
+                    raise AppError(ErrorCode.UPSTREAM_FORMAT_ERROR, "分析结果未完成，请重试")
+                message = choice.get("delta" if streaming else "message") or {}
+                if not isinstance(message, dict):
+                    raise AppError(ErrorCode.UPSTREAM_FORMAT_ERROR, "分析结果格式不完整，请重试")
+                # No fallback to reasoning_content, thinking, raw provider
+                # messages, or other draft fields, even if content is absent.
+                content = message.get("content")
+                if isinstance(content, str) and content:
+                    pieces.append(content)
+            return pieces
+
+        def parse(raw: str) -> Any:
+            try:
+                return json.loads(raw)
+            except ValueError as exc:
+                raise AppError(ErrorCode.UPSTREAM_FORMAT_ERROR, "分析结果未完整返回，请重试") from exc
+
+        try:
+            async with self._client() as client:
+                async with client.stream("POST", "/gw/chat/llm-completions", headers=self._headers(), json={**payload, "stream": True}) as response:
+                    if response.status_code >= 400:
+                        raise AppError(ErrorCode.UPSTREAM_ERROR, "需求分析暂时不可用，请稍后重试")
+                    if "application/json" in response.headers.get("content-type", "").lower():
+                        pieces = public_content(parse((await response.aread()).decode("utf-8", "replace")), streaming=False)
+                        if not pieces:
+                            raise AppError(ErrorCode.UPSTREAM_FORMAT_ERROR, "分析结果为空，请重试")
+                        for content in pieces:
+                            for start in range(0, len(content), 80):
+                                yield content[start:start + 80]
+                        return
+                    # A provider may ignore stream=true.  The current gateway
+                    # then relays JSON under an SSE header; detect it by body.
+                    json_lines: list[str] | None = None
+                    produced = False
+                    async for line in response.aiter_lines():
+                        if json_lines is not None:
+                            json_lines.append(line)
+                            continue
+                        if line.lstrip().startswith(("{", "[")):
+                            json_lines = [line]
+                            continue
+                        if not line.startswith("data:"):
+                            continue
+                        raw = line[5:].strip()
+                        if not raw:
+                            continue
+                        if raw == "[DONE]":
+                            if not produced:
+                                raise AppError(ErrorCode.UPSTREAM_FORMAT_ERROR, "分析结果为空，请重试")
+                            return
+                        for content in public_content(parse(raw), streaming=True):
+                            produced = True
+                            yield content
+                    if json_lines is not None:
+                        pieces = public_content(parse("\n".join(json_lines)), streaming=False)
+                        for content in pieces:
+                            produced = True
+                            for start in range(0, len(content), 80):
+                                yield content[start:start + 80]
+                    if not produced:
+                        raise AppError(ErrorCode.UPSTREAM_FORMAT_ERROR, "分析结果为空，请重试")
+        except httpx.ConnectError as exc:
+            raise AppError(ErrorCode.PROXY_UNREACHABLE, "无法连接需求分析服务，请稍后重试") from exc
+        except httpx.HTTPError as exc:
+            raise AppError(ErrorCode.UPSTREAM_ERROR, "需求分析连接中断或超时，请稍后重试") from exc
+
     async def chat_completions_stream(
         self, payload: dict[str, Any]
     ) -> AsyncIterator[bytes]:
@@ -147,6 +238,9 @@ class GatewayClient:
                         yield chunk
 
     # ---- 生图 / 编辑 ----
+    async def pool_capacity(self) -> dict[str, Any]:
+        return await self._request("GET", "/gw/pool/capacity")
+
     async def image_generations(self, payload: dict[str, Any]) -> dict[str, Any]:
         """文生图转发。"""
         return await self._request("POST", "/gw/images/generations", json_body=payload)

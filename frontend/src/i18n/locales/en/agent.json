@@ -1,13 +1,13 @@
 {
   "name": "zleap Agent",
   "trace": {
-    "live_title": "Agent is analyzing",
-    "done_title": "Analysis complete",
+    "live_title": "Analyzing your request and images",
+    "done_title": "Analysis and execution plan",
     "failed_title": "Analysis interrupted",
     "elapsed": "{{seconds}}s",
     "steps": "{{count}} steps",
-    "expand": "Show reasoning",
-    "collapse": "Hide reasoning",
+    "expand": "Show processing details",
+    "collapse": "Hide processing details",
     "placeholder": {
       "understand": "Understanding your request",
       "plan": "Planning the visual direction",
@@ -22,13 +22,19 @@
       "blocked": "Needs your input",
       "failed": "Failed"
     },
-    "thought_live": "Live reasoning",
-    "thought_stats": "{{chars}} chars · {{speed}}/s",
+    "thought_live": "Live analysis summary",
+    "thought_stats": "{{chars}} chars received",
     "structuring": "Writing structured result · {{chars}} chars",
     "output_chars": "{{chars}} chars out",
     "streamed": "streamed",
-    "show_thought": "Show model reasoning",
-    "hide_thought": "Hide reasoning"
+    "show_thought": "Show analysis summary",
+    "hide_thought": "Hide analysis summary",
+    "blocked_title": "Analysis ready · needs your input",
+    "stopped_title": "Analysis stopped",
+    "stopped": "You stopped this analysis",
+    "completed_steps": "{{completed}} / {{total}} steps done",
+    "waiting": "Waiting for the next stage",
+    "connecting": "Connecting to the analysis model, awaiting processing status…"
   },
   "skill": {
     "using": "Using skill",
@@ -62,12 +68,20 @@
       "explicit_count": "Count you specified",
       "structure": "Based on selection",
       "ambiguous": "Ambiguous wording",
-      "needs_image": "Base image missing"
+      "needs_image": "Base image missing",
+      "model_plan": "AI output plan"
     },
     "custom_open": "None of these…",
     "custom_placeholder": "Describe your direction, e.g. more playful, blue tones",
     "custom_send": "Re-analyze with this direction",
-    "custom_hint": "Press Enter — I'll combine it with your original request"
+    "custom_hint": "Press Enter — I'll combine it with your original request",
+    "task_breakdown": "Request breakdown · {{count}} independent outputs",
+    "preserve_outside": "Preserve the original image outside the selection",
+    "job_instruction": "View instructions for this output",
+    "output_kind": {
+      "sprite": "Standalone asset",
+      "composite": "Full image"
+    }
   },
   "feedback": {
     "copy": "Copy",
@@ -87,7 +101,11 @@
     "try": "Try saying"
   },
   "result": {
-    "generating": "Generating"
+    "generating": "Generating",
+    "model_running": "Image model is processing this task",
+    "execution_details": "View task instructions and parameters",
+    "task_cost": "Task credits {{cost}}",
+    "regions": "Selected regions {{indexes}}"
   },
   "wait": {
     "analysis_slow": "The model is slower than usual — still working on it, no need to resend.",
@@ -134,7 +152,6 @@
     "relay_title": "Connect a relay first",
     "relay_desc": "Add the URL and key, then send this message again",
     "relay_go": "Set up",
-    "relay_template": "Try a local template first",
     "need_image_title": "Pick an image on the canvas first",
     "need_image_desc": "This request edits an image. Select it on the canvas, tap \"Reference\" on its toolbar, then say it again.",
     "need_image_canvas": "Pick on canvas",

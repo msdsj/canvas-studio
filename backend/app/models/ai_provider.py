@@ -29,6 +29,13 @@ class AIProvider(Base):
     user_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("users.id"), index=True, nullable=False
     )
+    # 配置归属：personal = 用户自建；team = 团队超级管理员统一配置，成员只读使用。
+    # 团队配置仍然落在本表（而不是另开一张表），因为请求参数结构完全一致，
+    # 分表只会让 relay_service 多一条几乎相同的解析分支。
+    scope: Mapped[str] = mapped_column(String(16), default="personal", index=True)
+    team_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("teams.id"), index=True, nullable=True
+    )
 
     # 展示名（用户自己起，如「我的 DeepSeek 中转」）
     name: Mapped[str] = mapped_column(String(80), default="")

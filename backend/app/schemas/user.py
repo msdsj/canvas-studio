@@ -22,6 +22,10 @@ class UserOut(ORMModel):
     email_verified_at: datetime | None = None
     last_login_at: datetime | None = None
     created_at: datetime | None = None
+    # 引导状态：前端据此决定是否强制跳 /onboarding
+    persona_key: str = ""
+    onboarding_completed_at: datetime | None = None
+    active_team_id: str | None = None
 
 
 class UserUpdateRequest(BaseModel):

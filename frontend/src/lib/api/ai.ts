@@ -53,6 +53,17 @@ export interface RelayStatus {
   kind: string
   reason: string
   skills_count: number
+  /** false = 团队接管了模型配置，成员不该看到编辑入口 */
+  editable?: boolean
+  /** 本人是否有权管理团队统一模型（= 超级管理员）。配合 editable=false 用 */
+  can_manage?: boolean
+  team_id?: string | null
+  team_name?: string
+  /** 团队超级管理员的 user_id（用于「由 xxx 管理」的说明） */
+  managed_by?: string
+  fallback_models?: string[]
+  chain_preview?: string[]
+  backup_provider?: string
 }
 
 export interface ProviderTestResult {
@@ -117,8 +128,27 @@ export interface DesignSkillCategory {
   count: number
 }
 
+/** 当前生效的模型清单（成员看到的是团队统一配置的那一套）。 */
+export interface ModelCatalog {
+  configured: boolean
+  editable: boolean
+  /** 本人是否有权管理团队统一模型（= 超级管理员） */
+  can_manage?: boolean
+  source?: string
+  provider_name?: string
+  team_id?: string | null
+  team_name?: string
+  managed_by?: string
+  image: string[]
+  text: string[]
+  default_image: string
+  default_text: string
+  backup_provider?: string
+}
+
 export const aiApi = {
   presets: () => api.get<{ kinds: ProviderKindPreset[] }>('/ai/presets'),
+  models: () => api.get<ModelCatalog>('/ai/models'),
   status: () => api.get<RelayStatus>('/ai/status'),
   providers: () => api.get<AIProvider[]>('/ai/providers'),
   createProvider: (payload: ProviderUpsert) => api.post<AIProvider>('/ai/providers', payload),

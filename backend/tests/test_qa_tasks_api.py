@@ -205,11 +205,38 @@ async def test_qa_idempotency_same_key_one_task_one_charge(client, monkeypatch):
 # --------------------------------------------------------------------------
 # P0-33/34 并发上限 · 超时回收
 # --------------------------------------------------------------------------
+async def _set_concurrency_limit(limit: int) -> None:
+    """显式设定并发上限。
+
+    用例不能假设「默认一定是 2」：配置默认值已随产品调整到 12，seed 还会把
+    「无人为修改过的旧默认 2」升级为新默认。断言必须建立在用例自己写死的上限上，
+    否则调整默认值就会让用例失效（本轮基线里它就是唯一失败项）。
+    """
+    from app.models.system_config import SystemConfig
+
+    async with AsyncSessionLocal() as session:
+        row = await session.get(SystemConfig, "MAX_ACTIVE_TASKS_PER_USER")
+        if row is None:
+            session.add(
+                SystemConfig(
+                    key="MAX_ACTIVE_TASKS_PER_USER",
+                    value=str(limit),
+                    value_type="int",
+                    category="pool",
+                    description="每用户并发活跃任务上限",
+                )
+            )
+        else:
+            row.value = str(limit)
+        await session.commit()
+
+
 async def test_qa_concurrency_limit_exceeded_429(client, monkeypatch):
-    """超过并发上限（默认 2）→ 429 TASK_LIMIT_EXCEEDED（P0-34/Q19）。"""
+    """超过并发上限 → 429 TASK_LIMIT_EXCEEDED（P0-34/Q19）。"""
     email = "qa-limit@example.com"
     headers = await _headers(client, email)
     _patch_run_task_noop(monkeypatch)
+    await _set_concurrency_limit(2)
 
     await _gen(client, headers, prompt="1")
     await _gen(client, headers, prompt="2")
@@ -225,6 +252,7 @@ async def test_qa_paused_frees_concurrency_slot(client, monkeypatch):
     email = "qa-paused-slot@example.com"
     headers = await _headers(client, email)
     _patch_run_task_noop(monkeypatch)
+    await _set_concurrency_limit(2)
 
     t1 = await _gen(client, headers, prompt="1")
     await _gen(client, headers, prompt="2")
@@ -347,3 +375,50 @@ async def test_qa_upstream_error_no_charge_terminal_task(client, monkeypatch):
     # 失败任务不应出现在活跃列表
     active = await client.get("/api/tasks/active", headers=headers)
     assert tid not in [r["id"] for r in active.json()["data"]]
+
+
+# --------------------------------------------------------------------------
+# 重试：复用原任务参数，不重新规划
+# --------------------------------------------------------------------------
+async def test_retry_clones_params_without_replanning(client, monkeypatch):
+    """失败/取消的任务重试 → 新任务沿用原 params，且只对可重试状态开放。"""
+    email = "qa-retry@example.com"
+    headers = await _headers(client, email)
+    _patch_run_task_noop(monkeypatch)
+
+    original = await _gen(client, headers, prompt="重试用例", size="1024x1024")
+    tid = original["id"]
+
+    # 还在跑的任务不能重试（否则同一需求双跑，双份扣费）
+    running = await client.post(f"/api/generate/tasks/{tid}/retry", headers=headers)
+    assert running.status_code == 409
+
+    cancelled = await client.post(f"/api/generate/tasks/{tid}/cancel", headers=headers)
+    assert cancelled.status_code == 200
+    assert await _balance(email) == 200  # 取消已退款
+
+    retried = await client.post(f"/api/generate/tasks/{tid}/retry", headers=headers)
+    assert retried.status_code == 200, retried.text
+    clone = retried.json()["data"]
+    assert clone["id"] != tid
+    assert clone["prompt"] == "重试用例"
+    assert clone["params"].get("size") == "1024x1024"
+    # 重新扣费：重试不是免费重发
+    assert await _balance(email) == 190
+
+
+async def test_retry_is_idempotent_on_same_key(client, monkeypatch):
+    """同一 Idempotency-Key 重试两次 → 同一条新任务，只扣一次费。"""
+    email = "qa-retry-idem@example.com"
+    headers = await _headers(client, email)
+    _patch_run_task_noop(monkeypatch)
+
+    tid = (await _gen(client, headers))["id"]
+    await client.post(f"/api/generate/tasks/{tid}/cancel", headers=headers)
+
+    keyed = {**headers, "Idempotency-Key": "retry-fixed-key"}
+    first = await client.post(f"/api/generate/tasks/{tid}/retry", headers=keyed)
+    second = await client.post(f"/api/generate/tasks/{tid}/retry", headers=keyed)
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.json()["data"]["id"] == second.json()["data"]["id"]
+    assert await _balance(email) == 190

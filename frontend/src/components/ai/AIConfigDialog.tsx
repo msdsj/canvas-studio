@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import {
   AlertCircle,
   Check,
   CheckCircle2,
   Loader2,
+  Lock,
   Plus,
   RefreshCw,
   Server,
@@ -27,6 +29,7 @@ import {
   type AIProvider,
   type ProviderKindPreset,
   type ProviderUpsert,
+  type RelayStatus,
 } from '@/lib/api/ai'
 import { ApiError } from '@/lib/api/client'
 
@@ -64,6 +67,7 @@ const EMPTY_FORM: FormState = {
 /** 中转站配置面板：左侧列表 + 右侧表单。 */
 export function AIConfigDialog({ open, onOpenChange, onChanged }: AIConfigDialogProps) {
   const toast = useToast()
+  const navigate = useNavigate()
   const [providers, setProviders] = useState<AIProvider[]>([])
   const [presets, setPresets] = useState<ProviderKindPreset[]>([])
   const [loading, setLoading] = useState(false)
@@ -75,6 +79,8 @@ export function AIConfigDialog({ open, onOpenChange, onChanged }: AIConfigDialog
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [advanced, setAdvanced] = useState(false)
   const [clearKey, setClearKey] = useState(false)
+  /** 团队接管时（editable=false）整个面板变成只读说明，不给「能点但存不进去」的假入口 */
+  const [status, setStatus] = useState<RelayStatus | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -95,9 +101,17 @@ export function AIConfigDialog({ open, onOpenChange, onChanged }: AIConfigDialog
   }, [])
 
   useEffect(() => {
-    if (open) void load()
+    if (!open) return
+    void load()
+    void aiApi
+      .status()
+      .then(setStatus)
+      .catch(() => setStatus(null))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  /** 团队超级管理员统一配置了模型：成员只读。 */
+  const locked = status?.editable === false
 
   const selectProvider = (provider: AIProvider) => {
     setEditingId(provider.id)
@@ -172,6 +186,7 @@ export function AIConfigDialog({ open, onOpenChange, onChanged }: AIConfigDialog
   }
 
   const save = async (): Promise<AIProvider | null> => {
+    if (locked) return null
     const payload = buildPayload()
     if (!payload) return null
     setSaving(true)
@@ -255,6 +270,95 @@ export function AIConfigDialog({ open, onOpenChange, onChanged }: AIConfigDialog
     [providers, editingId]
   )
   const configured = providers.some((item) => item.is_active && item.base_url)
+
+  /*
+   * 团队接管态：整个弹窗换成一张只读说明。
+   *
+   * 不做「表单可见但保存会 403」——那是最糟的一种：用户填了五分钟，点保存才被告知
+   * 你不能改。这里直接把「谁配的、配的是什么」摆出来，并指路到团队设置。
+   */
+  if (locked) {
+    /*
+     * 团队模式下谁都不能在这里改——团队模型只有一个真源（团队设置里的那张卡）。
+     * 但「不能改」对 owner 和成员的含义完全不同：
+     *   owner  → 他有权改，只是走错了地方，要把他送过去；
+     *   成员   → 他确实没权限，要告诉他找谁。
+     * 两者用同一句话会让超级管理员被告知「请联系超级管理员」（也就是他自己）。
+     */
+    const canManage = Boolean(status?.can_manage)
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent size="md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Lock size={16} className="text-text-tertiary" />
+              {canManage ? '对话模型由你统一配置' : '对话模型由团队统一配置'}
+            </DialogTitle>
+            <DialogDescription className="text-caption">
+              {canManage
+                ? status?.team_name
+                  ? `你当前在「${status.team_name}」且是超级管理员。团队模型在「团队设置」里统一维护，所有成员共用这一套。`
+                  : '团队模型在「团队设置」里统一维护，所有成员共用这一套。'
+                : status?.team_name
+                  ? `你当前在「${status.team_name}」，模型由团队超级管理员统一维护，所有成员共用同一套。`
+                  : '你的团队已统一管理模型配置，所有成员共用同一套。'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-3 py-2">
+            {status?.configured ? (
+              <dl className="grid gap-2 rounded-[12px] bg-bg-subtle px-3 py-2.5 text-caption sm:grid-cols-2">
+                <div className="flex flex-col">
+                  <dt className="text-[11px] text-text-tertiary">模型</dt>
+                  <dd className="truncate font-mono text-[12px] text-text">
+                    {status.model || '—'}
+                  </dd>
+                </div>
+                <div className="flex flex-col">
+                  <dt className="text-[11px] text-text-tertiary">中转站</dt>
+                  <dd className="truncate text-[12px] text-text-secondary">
+                    {status.provider_name || '—'}
+                  </dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="flex items-start gap-1.5 rounded-[10px] bg-warning-subtle px-2.5 py-2 text-micro leading-relaxed text-warning">
+                <AlertCircle size={13} className="mt-[1px] shrink-0" />
+                <span>
+                  {canManage
+                    ? '团队还没有配置模型，成员暂时无法使用 AI 对话。去「团队设置 → 对话模型」填一个。'
+                    : '团队还没有配置模型，暂时无法使用 AI 对话。请联系团队超级管理员。'}
+                </span>
+              </p>
+            )}
+
+            {canManage ? null : (
+              <p className="text-[11px] leading-relaxed text-text-tertiary">
+                如果你就是超级管理员，请到「团队空间 → 设置 → 对话模型」修改。
+              </p>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="secondary" onClick={() => onOpenChange(false)}>
+              知道了
+            </Button>
+            {canManage && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  onOpenChange(false)
+                  void navigate({ to: '/team/settings' })
+                }}
+              >
+                去团队设置
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    )
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

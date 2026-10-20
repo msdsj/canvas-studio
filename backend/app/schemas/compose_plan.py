@@ -106,7 +106,7 @@ class ComposeOption(StrictBase):
     description: str = Field(default="", max_length=120)
     prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
     aspect: ComposeAspect
-    image_count: int = Field(default=1, ge=1, le=4)
+    image_count: int = Field(default=1, ge=1, le=12)
 
 
 class ComposePlan(StrictBase):

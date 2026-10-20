@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.user import User
-from app.schemas.asset import AssetOut
+from app.schemas.asset import AssetOut, AssetVisibilityRequest
 from app.schemas.chat import BatchDeleteRequest
 from app.services import asset_service, config_service, storage_service
 from app.utils.errors import AppError, ErrorCode, envelope
@@ -43,10 +43,11 @@ async def list_assets(
     size: int = Query(default=20, ge=1, le=100),
     kind: str | None = Query(default=None),
     q: str | None = Query(default=None),
+    scope: str = Query(default="all", pattern="^(all|mine|team)$"),
 ) -> dict:
-    """分页查询资产。"""
+    """分页查询资产（scope：all = 我的 + 团队共享）。"""
     page, size = normalize_page(page, size)
-    rows, total = await asset_service.list_assets(db, user.id, page, size, kind, q)
+    rows, total = await asset_service.list_assets(db, user, page, size, kind, q, scope)
     items = [AssetOut.model_validate(r).model_dump() for r in rows]
     return envelope(paginated(items, total, page, size))
 
@@ -55,13 +56,20 @@ async def list_assets(
 async def upload_asset(
     file: UploadFile = File(...),
     prompt: str = Form(default=""),
+    share_with_team: bool = Form(default=False),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """上传图片到资产库（`prompt` 为上传流程内置提示词配置，随资产保存）。"""
     data = await file.read()
     asset = await asset_service.upload(
-        db, user.id, file.filename or "upload.png", file.content_type or "", data, prompt
+        db,
+        user,
+        file.filename or "upload.png",
+        file.content_type or "",
+        data,
+        prompt,
+        share_with_team=share_with_team,
     )
     await db.commit()
     return envelope(AssetOut.model_validate(asset).model_dump())
@@ -100,6 +108,18 @@ async def delete_asset(
     await asset_service.delete_asset(db, user, asset_id)
     await db.commit()
     return envelope({})
+
+
+@router.post("/visibility")
+async def set_visibility(
+    payload: AssetVisibilityRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """把资产设为团队共享 / 收回私有。"""
+    count = await asset_service.set_visibility(db, user, payload.ids, payload.visibility)
+    await db.commit()
+    return envelope({"updated": count})
 
 
 @router.get("/{asset_id}/download")

@@ -54,21 +54,37 @@ UNLOCKED_ROLES = ("pro", "admin")
 
 
 def is_unlocked(user: User | None) -> bool:
-    """判断用户是否已解锁全部功能（画布 / 抠图 / AI 对话 / 润色 / 图生图）。"""
+    """判断用户是否已解锁全部功能（画布 / 抠图 / AI 对话 / 润色 / 图生图）。
+
+    这是**纯同步**的快速判定，只看角色。团队成员的能力解锁需要查库，
+    用 `unlocked_async()`；`require_pro` 已经接好了这条链路。
+    """
     return bool(user and user.role in UNLOCKED_ROLES)
+
+
+async def unlocked_async(db: AsyncSession, user: User) -> bool:
+    """完整判定：角色直通，或已加入任一有效团队（按席位解锁）。"""
+    if is_unlocked(user):
+        return True
+    from app.services import access
+
+    return await access.has_active_team(db, user)
 
 
 async def require_pro(
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> User:
-    """要求 Pro（或管理员）身份。
+    """要求 Pro（或管理员 / 团队成员）身份。
 
     未激活时抛 `PRO_REQUIRED`（402），前端据此弹出「升级 / 激活 Pro」引导，
     而不是展示一条冷冰冰的 403。
+
+    团队席位等价于 Pro：企业买了席位却还要逐个成员再买激活码，是卖不出去的。
     """
-    if not is_unlocked(user):
-        raise AppError(ErrorCode.PRO_REQUIRED)
-    return user
+    if await unlocked_async(db, user):
+        return user
+    raise AppError(ErrorCode.PRO_REQUIRED)
 
 
 async def pagination_params(

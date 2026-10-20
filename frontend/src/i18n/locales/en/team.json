@@ -1,0 +1,119 @@
+{
+  "title": "Team space",
+  "subtitle": "Keep skill packs, assets, projects and quota in one place so nobody has to re-send files.",
+  "nav": {
+    "overview": "Overview",
+    "members": "Members",
+    "settings": "Settings",
+    "audit": "Activity",
+    "skills": "Skill packs"
+  },
+  "role": {
+    "owner": "Owner",
+    "admin": "Admin",
+    "member": "Member"
+  },
+  "status": {
+    "active": "Active",
+    "invited": "Invited",
+    "disabled": "Disabled"
+  },
+  "space": {
+    "label": "Space",
+    "personal": "Personal",
+    "switch": "Switch space",
+    "personal_hint": "Only you can see what's in here"
+  },
+  "list": {
+    "empty": "No teams yet",
+    "empty_hint": "Create a team space and bring colleagues in.",
+    "create": "Create team",
+    "name_label": "Team name",
+    "name_placeholder": "e.g. Marketing design",
+    "seats_label": "Seats",
+    "seats_hint": "Adjust as needed — you can change this later",
+    "shared_quota_label": "Enable shared quota",
+    "shared_quota_hint": "Members' generations bill the team pool instead of personal balance"
+  },
+  "overview": {
+    "seats": "Seats",
+    "seats_value": "{{used}} / {{total}}",
+    "balance": "Shared quota",
+    "tasks_today": "Tasks today",
+    "spend_today": "Spent today",
+    "members_today": "Today's usage",
+    "no_usage": "No generations today",
+    "topup": "Top up",
+    "topup_amount": "Amount",
+    "shared_off": "Shared quota is off — members pay from their own balance.",
+    "enable_shared": "Enable shared quota"
+  },
+  "members": {
+    "title": "Members",
+    "invite": "Invite member",
+    "email_label": "Email",
+    "role_label": "Role",
+    "invite_submit": "Send invite",
+    "invite_sent": "Invite sent",
+    "pending": "Pending invites",
+    "revoke": "Revoke",
+    "remove": "Remove",
+    "remove_confirm": "They will lose access to team content. Remove this member?",
+    "promote": "Make admin",
+    "demote": "Make member",
+    "transfer": "Transfer ownership",
+    "transfer_confirm": "You will lose owner permissions (model settings, team deletion). Transfer?",
+    "transfer_done": "Ownership transferred",
+    "seat_full": "All seats taken",
+    "you": "you",
+    "empty": "No other members yet",
+    "joined_at": "Joined",
+    "no_invites": "No pending invites"
+  },
+  "settings": {
+    "title": "Team settings",
+    "general": "General",
+    "name_label": "Team name",
+    "seats_label": "Seats",
+    "seats_used": "{{used}} in use",
+    "save": "Save",
+    "saved": "Saved",
+    "model": "Chat model",
+    "model_hint": "Everyone in the team uses this model set — members cannot change it.",
+    "model_managed_note": "You're a member. This is maintained by the owner and read-only for you.",
+    "model_unconfigured": "No model configured yet — members can't use AI chat for now.",
+    "shared_quota": "Shared quota pool",
+    "shared_quota_hint": "Members' generations bill the team pool when on.",
+    "allow_personal_provider": "Let members bring their own provider",
+    "allow_personal_provider_hint": "Off by default: everyone uses the team config so billing can't be bypassed.",
+    "danger": "Danger zone",
+    "delete": "Delete team",
+    "delete_confirm": "Team content will disappear from members' workspaces and cannot be recovered. Delete?",
+    "deleted": "Team deleted",
+    "skills": "Team skill packs",
+    "skills_hint": "Members inherit these packs automatically and can add their own on top."
+  },
+  "join": {
+    "title": "Join \"{{team}}\"",
+    "invited_by": "{{inviter}} invited you as {{role}}",
+    "accept": "Accept invite",
+    "accepting": "Joining…",
+    "accepted": "You're in",
+    "expired": "This invite link has expired — ask an admin to resend it",
+    "invalid": "Invalid invite link",
+    "go_team": "Open team space",
+    "invalid_hint": "This link may have expired, been revoked, or this account may already be in the team. Ask the team owner to send a new invite."
+  },
+  "audit": {
+    "title": "Activity log",
+    "subtitle": "Member changes, model configuration and quota operations",
+    "empty": "No activity yet",
+    "forbidden": "Only admins can view the team activity log",
+    "time": "Time",
+    "actor": "Actor",
+    "action": "Action",
+    "detail": "Detail",
+    "prev": "Previous",
+    "next": "Next"
+  }
+}

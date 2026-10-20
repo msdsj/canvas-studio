@@ -28,6 +28,14 @@ class User(Base):
     theme: Mapped[str] = mapped_column(String(16), default="system")
     balance: Mapped[int] = mapped_column(Integer, default=0)
     token_version: Mapped[int] = mapped_column(Integer, default=0)
+    # 首登引导：身份场景（developer / ui_designer / ecommerce …）与完成时间。
+    # 用 `onboarding_completed_at` 而不是布尔：既能判断是否完成，也能做激活漏斗统计。
+    persona_key: Mapped[str] = mapped_column(String(32), default="")
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 当前生效的团队（个人空间为 NULL）。
+    # 刻意**不加外键**：teams.owner_user_id → users.id 已经是一条反向依赖，
+    # 再加 users.active_team_id → teams.id 会让 create_all 变成循环依赖而无法建表。
+    active_team_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     banned_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)

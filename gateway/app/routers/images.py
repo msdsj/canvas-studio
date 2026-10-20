@@ -24,6 +24,9 @@ async def image_edits(
     quality: str = Form(default="standard"),
     n: int = Form(default=1),
     response_format: str = Form(default="b64_json"),
+    pool_batch_id: str = Form(default="", max_length=200),
+    pool_task_id: str = Form(default="", max_length=200),
+    pool_batch_total: int = Form(default=1, ge=1, le=32),
     image: list[UploadFile] = File(...),
     mask: UploadFile | None = File(default=None),
 ) -> dict:
@@ -58,5 +61,8 @@ async def image_edits(
         "quality": quality,
         "n": max(1, min(n, 4)),
         "response_format": response_format,
+        "pool_batch_id": pool_batch_id,
+        "pool_task_id": pool_task_id,
+        "pool_batch_total": pool_batch_total,
     }
     return ok(await image_router.image_edits(files, form))

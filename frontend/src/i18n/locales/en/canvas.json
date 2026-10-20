@@ -40,5 +40,12 @@
     "title": "Start your first creation",
     "desc": "Type a prompt in the chat panel on the right, or drop an image to begin."
   },
-  "minimap": "Navigator"
+  "minimap": "Navigator",
+  "collab": {
+    "online_count": "{{count}} people editing",
+    "online_alone": "Live sync on",
+    "connecting": "Connecting…",
+    "offline": "Live sync offline — changes are saved locally only",
+    "offline_short": "Offline"
+  }
 }

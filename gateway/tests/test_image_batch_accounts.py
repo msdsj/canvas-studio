@@ -1,0 +1,253 @@
+"""One independent account per analyzed image output, including mixed edits."""
+from __future__ import annotations
+
+import asyncio
+import json
+import time
+
+import httpx
+import pytest
+
+from app.services import image_router, resilience
+from app.services.account_pool import account_pool
+from app.state import runtime_config
+from app.utils.errors import ErrorCode, GatewayError
+
+
+@pytest.fixture(autouse=True)
+def live_images(monkeypatch):
+    monkeypatch.setattr(runtime_config, "demo_mode", "off")
+    monkeypatch.setattr(runtime_config, "image_model_fallbacks", [])
+
+
+def _payload(index: int, total: int = 2, batch: str = "batch") -> dict:
+    return {
+        "prompt": f"output {index}", "n": 1,
+        "pool_batch_id": batch, "pool_task_id": f"task-{index}", "pool_batch_total": total,
+    }
+
+
+async def _seed(count: int):
+    await account_pool.import_accounts([f"key-{index}" for index in range(count)], [])
+
+
+async def test_batch_reserves_all_accounts_before_first_request_finishes():
+    await _seed(2)
+    first = await account_pool.acquire_image(batch_id="batch", task_id="one", batch_total=2)
+    await account_pool.release_image(first["id"], batch_id="batch", task_id="one")
+    # The first task already finished before the second even starts.  Its
+    # account must remain reserved rather than being reused for its sibling.
+    assert await account_pool.select(kind="image") is None
+    second = await account_pool.acquire_image(batch_id="batch", task_id="two", batch_total=2)
+    assert first["id"] != second["id"]
+    await account_pool.release_image(second["id"], batch_id="batch", task_id="two")
+    assert all(item["in_flight"] == 0 for item in await account_pool.list())
+    assert await account_pool.select(kind="image") is not None
+
+
+async def test_batch_insufficient_accounts_fails_atomically():
+    await _seed(1)
+    with pytest.raises(GatewayError) as info:
+        await account_pool.acquire_image(batch_id="batch", task_id="one", batch_total=2)
+    assert info.value.code == ErrorCode.POOL_UNAVAILABLE
+    assert info.value.data == {"reason": "insufficient_accounts", "required_accounts": 2, "available_accounts": 1}
+    assert account_pool._batches == {}
+    assert (await account_pool.list())[0]["in_flight"] == 0
+
+
+async def test_expired_abandoned_batch_releases_unstarted_siblings():
+    await _seed(2)
+    first = await account_pool.acquire_image(batch_id="batch", task_id="one", batch_total=2)
+    # Active requests must never lose their reservation to a TTL sweep.
+    account_pool._batches["batch"]["expires_at"] = time.time() - 1
+    assert await account_pool.select(kind="image") is None
+    await account_pool.release_image(first["id"], batch_id="batch", task_id="one")
+    account_pool._batches["batch"]["expires_at"] = time.time() - 1
+    assert await account_pool.select(kind="image") is not None
+    assert "batch" not in account_pool._batches
+
+
+async def test_duplicate_batch_task_does_not_acquire_another_account():
+    await _seed(2)
+    first = await account_pool.acquire_image(batch_id="batch", task_id="one", batch_total=2)
+    with pytest.raises(GatewayError) as info:
+        await account_pool.acquire_image(batch_id="batch", task_id="one", batch_total=2)
+    assert info.value.code == ErrorCode.VALIDATION_ERROR
+    await account_pool.release_image(first["id"], batch_id="batch", task_id="one")
+    with pytest.raises(GatewayError):
+        await account_pool.acquire_image(batch_id="batch", task_id="one", batch_total=2)
+
+
+async def test_generation_and_edit_use_distinct_accounts_without_leaking_metadata(
+    client, headers, mock_upstream,
+):
+    await _seed(2)
+    arrived = asyncio.Event()
+    seen: list[tuple[str, str]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert b"pool_batch" not in request.content and b"pool_task" not in request.content
+        seen.append((request.url.path, request.headers["Authorization"]))
+        if len(seen) == 2:
+            arrived.set()
+        await asyncio.wait_for(arrived.wait(), timeout=2)
+        return httpx.Response(200, json={"data": [{"b64_json": "QUJD"}]})
+
+    mock_upstream(handler)
+    generated, edited = await asyncio.gather(
+        client.post("/gw/images/generations", headers=headers, json=_payload(1)),
+        client.post(
+            "/gw/images/edits", headers=headers,
+            data={key: str(value) for key, value in _payload(2).items()},
+            files={"image": ("original.png", b"source", "image/png")},
+        ),
+    )
+    assert generated.status_code == edited.status_code == 200
+    assert {path for path, _ in seen} == {"/images/generations", "/images/edits"}
+    assert len({key for _, key in seen}) == 2
+    assert all(item["in_flight"] == 0 for item in await account_pool.list())
+
+
+async def test_retry_keeps_original_task_account_and_preserves_sibling_reservation(
+    client, headers, mock_upstream, monkeypatch,
+):
+    await _seed(2)
+    monkeypatch.setattr(resilience.settings, "max_retries", 1)
+    seen: dict[str, list[str]] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        prompt = json.loads(request.content)["prompt"]
+        seen.setdefault(prompt, []).append(request.headers["Authorization"])
+        if prompt == "output 1" and len(seen[prompt]) == 1:
+            return httpx.Response(200, text="<html>try again</html>")
+        return httpx.Response(200, json={"data": [{"b64_json": "QUJD"}]})
+
+    mock_upstream(handler)
+    # Deliberately sequential: timing must not be what provides isolation.
+    first = await client.post("/gw/images/generations", headers=headers, json=_payload(1))
+    second = await client.post("/gw/images/generations", headers=headers, json=_payload(2))
+    assert first.status_code == second.status_code == 200
+    assert len(seen["output 1"]) == 2
+    assert seen["output 1"][0] == seen["output 1"][1]
+    assert seen["output 1"][0] != seen["output 2"][0]
+
+
+async def test_empty_remote_only_batch_reports_missing_routing_capability(client, headers, mock_upstream):
+    calls: list = []
+    mock_upstream(lambda request: calls.append(request))
+    response = await client.post("/gw/images/generations", headers=headers, json=_payload(1))
+    assert response.status_code == 503
+    assert response.json()["code"] == "POOL_UNAVAILABLE"
+    assert "按账号路由能力" in response.json()["message"]
+    assert calls == []
+
+
+async def test_single_output_keeps_configured_provider_compatibility(client, headers, mock_upstream):
+    mock_upstream(lambda request: httpx.Response(200, json={"data": [{"b64_json": "QUJD"}]}))
+    response = await client.post("/gw/images/generations", headers=headers, json=_payload(1, total=1))
+    assert response.status_code == 200
+
+
+async def test_busy_pool_cannot_fall_back_to_shared_provider_key(client, headers, mock_upstream):
+    await _seed(1)
+    await account_pool.select(kind="image")
+    await account_pool.select(kind="image")
+    calls: list = []
+    mock_upstream(lambda request: calls.append(request))
+    response = await client.post("/gw/images/generations", headers=headers, json={"prompt": "legacy"})
+    assert response.status_code == 503
+    assert response.json()["code"] == "POOL_UNAVAILABLE"
+    assert calls == []
+
+
+async def test_cancelled_image_request_releases_active_lease(mock_upstream):
+    await _seed(2)
+    started = asyncio.Event()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    mock_upstream(handler)
+    task = asyncio.create_task(image_router.image_generations(_payload(1)))
+    await asyncio.wait_for(started.wait(), timeout=2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert all(item["in_flight"] == 0 for item in await account_pool.list())
+    assert not account_pool._batches["batch"]["active"]
+
+
+async def test_twelve_outputs_have_twelve_distinct_credentials():
+    await _seed(12)
+    accounts = await asyncio.gather(*(
+        account_pool.acquire_image(batch_id="batch", task_id=f"task-{index}", batch_total=12)
+        for index in range(12)
+    ))
+    assert len({item["id"] for item in accounts}) == 12
+
+
+async def test_capacity_excludes_busy_and_reserved_accounts_without_exposing_credentials(client, headers):
+    await _seed(3)
+    first = await account_pool.acquire_image(batch_id="batch", task_id="one", batch_total=2)
+    response = await client.get("/gw/pool/capacity", headers=headers)
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["total"] == data["healthy"] == 3
+    assert data["available"] == 1 and data["reserved"] == 2
+    assert data["scope"] == "local" and data["independent_routing"] is True
+    assert "access_token" not in response.text and "key-" not in response.text
+    await account_pool.release_image(first["id"], batch_id="batch", task_id="one")
+    # Unstarted sibling reservations remain excluded from the capacity snapshot.
+    assert (await account_pool.image_capacity())["available"] == 1
+
+
+async def test_batch_metadata_requires_one_output_per_credential(client, headers, mock_upstream):
+    await _seed(2)
+    calls: list = []
+    mock_upstream(lambda request: calls.append(request))
+    response = await client.post(
+        "/gw/images/generations", headers=headers, json={**_payload(1), "n": 2},
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
+    assert calls == []
+    assert all(item["in_flight"] == 0 for item in await account_pool.list())
+
+
+@pytest.mark.parametrize("endpoint", ["generations", "edits"])
+@pytest.mark.parametrize("mode", ["on", "auto"])
+async def test_planned_batch_never_reports_demo_image_success(
+    client, headers, mock_upstream, monkeypatch, endpoint, mode,
+):
+    await _seed(2)
+    monkeypatch.setattr(runtime_config, "demo_mode", mode)
+    monkeypatch.setattr(resilience.settings, "max_retries", 0)
+    calls: list[str] = []
+
+    def unreachable(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        raise httpx.ConnectError("simulated provider outage")
+
+    mock_upstream(unreachable)
+    body = _payload(1)
+    if endpoint == "generations":
+        response = await client.post("/gw/images/generations", headers=headers, json=body)
+    else:
+        response = await client.post(
+            "/gw/images/edits", headers=headers,
+            data={key: str(value) for key, value in body.items()},
+            files={"image": ("original.png", b"source", "image/png")},
+        )
+    assert response.status_code >= 400
+    result = response.json()
+    assert result["code"] != "OK" and result["data"] is None
+    assert "b64_json" not in response.text and '"demo":true' not in response.text
+    if mode == "on":
+        assert result["code"] == ErrorCode.UPSTREAM_ERROR.value
+        assert "演示" in result["message"] and calls == []
+    else:
+        assert result["code"] == ErrorCode.PROXY_UNREACHABLE.value
+        assert calls == [f"/images/{endpoint}"]
+    assert all(item["in_flight"] == 0 for item in await account_pool.list())

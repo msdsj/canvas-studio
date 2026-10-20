@@ -23,6 +23,9 @@ class QuotaTransaction(Base):
         String(36), ForeignKey("users.id"), index=True, nullable=False
     )
     type: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    # 团队共享额度池流水：非空表示这一笔动的是 `teams.balance`，
+    # 而 `user_id` 仍然记录发起人，用于「谁花了团队的额度」的对账。
+    team_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
     amount: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(16), index=True, default="processing")
     ref_id: Mapped[str] = mapped_column(String(64), index=True, default="")

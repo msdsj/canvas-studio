@@ -1,9 +1,11 @@
 import { useRef } from 'react'
 import { Sparkles } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/hooks/use-auth'
 import { useQuota } from '@/hooks/use-quota'
 import { useUIStore } from '@/stores/ui'
 import { Avatar } from '@/components/ui/avatar'
+import { TeamSwitcher } from '@/components/team/TeamSwitcher'
 import { NotificationBell } from './NotificationBell'
 import { ThemeToggle } from './ThemeToggle'
 import { LocaleToggle } from './LocaleToggle'
@@ -30,7 +32,8 @@ import { useReveal } from '@/lib/motion'
  * 4. 进入页面时各元素依次落位（GSAP），让这块常驻区域也有呼吸感。
  */
 export function WorkspaceIdentityBar() {
-  const { user, isPro } = useAuth()
+  const { user, isPro, activeTeam } = useAuth()
+  const { t } = useTranslation('team')
   const { balance } = useQuota()
   const openProDialog = useUIStore((s) => s.openProDialog)
 
@@ -78,11 +81,17 @@ export function WorkspaceIdentityBar() {
                 : 'shrink-0 rounded-full bg-bg-subtle px-1.5 py-px text-[10px] font-semibold uppercase leading-[14px] tracking-[0.1em] text-text-tertiary'
             }
           >
-            {isPro ? 'Pro' : 'free'}
+            {/* 在团队里就显示团队角色（owner/admin/member），
+                这是比「Pro」更有用的信息：它能解释「为什么有些按钮我点不了」 */}
+            {activeTeam ? t(`role.${activeTeam.role}`) : isPro ? 'Pro' : 'free'}
           </span>
         </span>
-        <span className="truncate text-[10px] leading-tight text-text-tertiary tabular-nums">
-          额度 {balance}
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-[10px] leading-tight text-text-tertiary tabular-nums">
+            额度 {balance}
+          </span>
+          {/* 空间切换紧贴额度：两者都是「我现在在哪儿、还有多少钱」的上下文信息 */}
+          <TeamSwitcher compact />
         </span>
 
         {/* 普通用户的升级入口：青柠渐变 + 扫光，是这块区域唯一"会动"的元素 */}

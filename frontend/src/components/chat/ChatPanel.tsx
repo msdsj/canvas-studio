@@ -21,10 +21,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { usePolling } from '@/hooks/use-polling'
-import { useQuota } from '@/hooks/use-quota'
 import { useToast } from '@/hooks/use-toast'
 import { assetsApi } from '@/lib/api/assets'
-import { aiApi, type DesignSkill, type RelayStatus } from '@/lib/api/ai'
+import { aiApi, type DesignSkill, type ModelCatalog, type RelayStatus } from '@/lib/api/ai'
 import {
   chatApi,
   pickComposeRun,
@@ -41,7 +40,7 @@ import {
 import { ApiError, apiUrl } from '@/lib/api/client'
 import { generateApi } from '@/lib/api/generate'
 import { events } from '@/lib/events'
-import { errorMessage } from '@/lib/errors'
+import { errorMessage, errorTextByCode } from '@/lib/errors'
 import { parseServerTime } from '@/lib/utils'
 import { loadPlacedUrls, readNotifiedResults, writeNotifiedResults } from '@/lib/task-persistence'
 import { useUIStore } from '@/stores/ui'
@@ -61,6 +60,7 @@ import { ClarifyCard, type ClarifyState } from './ClarifyCard'
 import { SkillLibraryPanel } from './SkillLibraryPanel'
 import { PolishPopover } from './PolishPopover'
 import { AIConfigDialog } from '@/components/ai/AIConfigDialog'
+import { SessionSelector } from './SessionSelector'
 
 
 import { SkillRunCard } from './SkillRunCard'
@@ -103,8 +103,6 @@ interface ChatPanelProps {
   onInitialConsumed?: () => void
 }
 
-/** 同一会话的并发上限（与后端 max_active_tasks_per_user 保持一致）。 */
-const MAX_ACTIVE_TASKS = 2
 const DRAFT_PREFIX = 'cs.draft:'
 
 type TimelineEntry =
@@ -147,13 +145,21 @@ function upsertStep<T extends { id: string }>(steps: T[], next: T): T[] {
   return copy
 }
 
+function interruptSteps<T extends TraceStep>(steps: T[], detail: string, stopped = false): T[] {
+  return steps.map((step) =>
+    step.status === 'running' || step.status === 'pending'
+      ? { ...step, status: stopped ? 'skipped' : 'failed', detail }
+      : step
+  )
+}
+
 /**
- * 生成过程中的实时分析：Agent 头像（工作光环）+ 逐步展开的思考轨迹。
+ * 生成过程中的实时分析：Agent 头像 + 实际步骤和公开分析摘要。
  *
- * 展示的是「每一步在做什么、得出了哪些要点」；最终提示词仍属中间产物，不展示。
- * 完成后这块消失，同一份轨迹以折叠摘要的形式挂到那条 AI 回复上，过程可回看。
+ * 正式消息加载后接替同一份轨迹；中断时保留已接收的处理记录。
  */
 function ThinkingBubble({
+  active,
   steps,
   reply,
   thought,
@@ -162,10 +168,11 @@ function ThinkingBubble({
   onStop,
   onRetry,
 }: {
+  active: boolean
   steps: TraceStep[]
   /** 正在流式输出的回复正文（分析结论已定，Agent 正在「说成人话」） */
   reply: string
-  /** 需求分析的实时思考文字 */
+  /** 模型公开返回的实时分析摘要 */
   thought: string
   /** 结构化输出阶段已写出的字数 */
   thoughtChars: number
@@ -177,29 +184,26 @@ function ThinkingBubble({
   return (
     <div className="cs-bubble-in-left flex flex-col gap-1.5" aria-live="polite">
       <div className="flex items-center gap-2">
-        <AgentGlyph size={22} active />
+        <AgentGlyph size={22} active={active} />
         <span className="text-caption font-semibold text-text">{t('name')}</span>
       </div>
       <div className="min-w-0 pl-[30px]">
-        {reply ? (
-          <>
-            {/* 开始回话后轨迹保持展开（不再计时）：全链路过程与回答同屏可见 */}
-            <AgentTrace steps={steps} defaultOpen className="mb-2" />
+        <AgentTrace
+          steps={steps}
+          live={active}
+          defaultOpen
+          thought={thought}
+          thoughtChars={thoughtChars}
+          offline={offline}
+          onStop={onStop}
+          onRetry={onRetry}
+          className={reply ? 'mb-2' : undefined}
+        />
+        {reply && (
             <div className="min-w-0 rounded-[16px] rounded-tl-[6px] bg-surface px-3.5 py-2.5 shadow-xs ring-1 ring-inset ring-border-faint">
               <Markdown content={reply} size="ui" />
-              <span className="cs-caret ml-0.5 inline-block h-[1em] w-[2px] rounded-full bg-accent-strong align-[-0.15em]" />
+              {active && <span className="cs-caret ml-0.5 inline-block h-[1em] w-[2px] rounded-full bg-accent-strong align-[-0.15em]" />}
             </div>
-          </>
-        ) : (
-          <AgentTrace
-            steps={steps}
-            live
-            thought={thought}
-            thoughtChars={thoughtChars}
-            offline={offline}
-            onStop={onStop}
-            onRetry={onRetry}
-          />
         )}
       </div>
     </div>
@@ -231,8 +235,12 @@ export function ChatPanel({
   const { t: te } = useTranslation()
   const { t: ta } = useTranslation('agent')
   const toast = useToast()
-  const { canAfford, prices } = useQuota()
   const setQuotaModalOpen = useUIStore((s) => s.setQuotaModalOpen)
+  const handleQuotaError = useCallback((code?: string) => {
+    if (code !== 'QUOTA_INSUFFICIENT') return
+    setQuotaModalOpen(true)
+    events.emit('quota:changed')
+  }, [setQuotaModalOpen])
 
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [messages, setMessages] = useState<ChatMessageType[]>([])
@@ -255,11 +263,11 @@ export function ChatPanel({
   /** 「缺少底图」内联提示 */
   const [needsImage, setNeedsImage] = useState(false)
 
-  /** 生图全链路：实时思考步骤 */
+  /** 生图全链路：实际处理步骤 */
   const [composeSteps, setComposeSteps] = useState<ComposeStep[]>([])
   /** 回复正文的流式草稿：落库后由 loadMessages 带回的正式消息接替 */
   const [replyDraft, setReplyDraft] = useState('')
-  /** 需求分析的实时思考过程（流式），以及进入结构化输出后的字数 */
+  /** 公开分析摘要增量，以及进入结构化输出后的真实字符量 */
   const [thoughtDraft, setThoughtDraft] = useState('')
   const [thoughtChars, setThoughtChars] = useState(0)
   const [composing, setComposing] = useState(false)
@@ -276,16 +284,33 @@ export function ChatPanel({
 
   const [configOpen, setConfigOpen] = useState(false)
   /** 生图模型：只列 GPT（上游 2.5 有两个变体，不要混成同一个） */
+  /** 可用模型清单：团队空间下由超级管理员统一配置，成员只在这里挑选 */
+  const [catalog, setCatalog] = useState<ModelCatalog | null>(null)
   const [imageModel, setImageModel] = useState(
     () => localStorage.getItem('cs.imageModel') || 'gpt-image-2'
   )
+  /*
+   * 模型选项来源：
+   * - 已配置（团队或个人的）→ 用服务端返回的清单，**成员不能自己加模型**；
+   * - 未配置 → 回退到内置三档，让用户至少能先把需求描述出来。
+   * 用 useMemo 缓存：这个数组每帧重建会让 DropdownMenu 无谓重渲染。
+   */
+  const imageModels = useMemo(() => {
+    const configured = catalog?.image ?? []
+    if (configured.length === 0) return IMAGE_MODELS
+    return configured.map((id) => ({
+      id,
+      label: IMAGE_MODELS.find((item) => item.id === id)?.label ?? id,
+      short: IMAGE_MODELS.find((item) => item.id === id)?.short ?? id,
+    }))
+  }, [catalog])
   const chooseModel = (value: string) => {
     setImageModel(value)
     localStorage.setItem('cs.imageModel', value)
   }
   const [skillOpen, setSkillOpen] = useState(false)
   const [relay, setRelay] = useState<RelayStatus | null>(null)
-  /** 上一次提交的内容：未配置中转站时「用本地模板先试一次」要原样重发 */
+  /** 上一次提交的原话，用于配置完成后重试。 */
   const lastComposeRef = useRef<string>('')
 
   const nearBottomRef = useRef(true)
@@ -294,6 +319,9 @@ export function ChatPanel({
    * 只有这类任务在完成时才提醒；进页面就已完成的属于历史，安静带过。
    */
   const watchersRef = useRef<Set<string>>(new Set())
+  /** 每个真实产出只通知一次；串行放置防止并发结果抢占同一落点。 */
+  const notifiedCanvasResultsRef = useRef<Set<string>>(new Set())
+  const resultPlacementQueueRef = useRef<Promise<void>>(Promise.resolve())
   const draftTimerRef = useRef<number | null>(null)
   const lastTimelineLenRef = useRef(0)
   /** 已处理过的 run（本会话内确认过的）：历史卡不再提供选择入口，避免重复入口 */
@@ -305,10 +333,17 @@ export function ChatPanel({
   const composeCancelRef = useRef<(() => void) | null>(null)
   /** 用户主动取消：onClose 里据此决定「不弹失败提示」 */
   const cancelledRef = useRef(false)
+  /** 取消旧流后的延迟回调不得覆盖新一轮或另一个会话。 */
+  const streamEpochRef = useRef(0)
+  const sessionIdRef = useRef(sessionId)
+  sessionIdRef.current = sessionId
+  const messagesRequestRef = useRef(0)
 
   const loadRelay = useCallback(async () => {
     try {
-      setRelay(await aiApi.status())
+      const [status, models] = await Promise.all([aiApi.status(), aiApi.models()])
+      setRelay(status)
+      setCatalog(models)
     } catch {
       /* 状态读取失败不阻塞输入，提交时会再拦一次 */
     }
@@ -318,15 +353,35 @@ export function ChatPanel({
     void loadRelay()
   }, [loadRelay])
 
+  /*
+   * 本地缓存的模型可能已被管理员下线（团队换了中转站/模型名）。
+   * 这里静默纠正到清单里的第一个，而不是等用户点了发送才报「模型不存在」——
+   * 那种失败对用户毫无信息量，他根本不知道是自己选错了还是服务坏了。
+   */
+  useEffect(() => {
+    if (imageModels.length === 0) return
+    if (imageModels.some((item) => item.id === imageModel)) return
+    const fallback = catalog?.default_image || imageModels[0].id
+    setImageModel(fallback)
+    try {
+      localStorage.setItem('cs.imageModel', fallback)
+    } catch {
+      /* ignore */
+    }
+  }, [imageModels, imageModel, catalog])
+
   const loadMessages = useCallback(async (id: string) => {
+    const request = ++messagesRequestRef.current
     setMessagesLoading(true)
     try {
       const page = await chatApi.listMessages(id)
+      if (sessionIdRef.current !== id || request !== messagesRequestRef.current) return false
       setMessages(page.items)
+      return true
     } catch {
-      setMessages([])
+      return false
     } finally {
-      setMessagesLoading(false)
+      if (sessionIdRef.current === id && request === messagesRequestRef.current) setMessagesLoading(false)
     }
   }, [])
 
@@ -365,6 +420,7 @@ export function ChatPanel({
   }, [canvasId])
 
   useEffect(() => {
+    streamEpochRef.current += 1
     // 切会话先清空旧消息并进入加载态：否则会短暂显示上一个会话的内容
     setMessages([])
     setNewCount(0)
@@ -376,6 +432,8 @@ export function ChatPanel({
     setThoughtDraft('')
     setThoughtChars(0)
     setRefs([])
+    watchersRef.current = new Set()
+    notifiedCanvasResultsRef.current = new Set()
     // 切会话时上一个请求的收尾回调可能已经落在旧会话上：必须把提交态清掉，
     // 否则新会话里发送键会一直禁用（表现为「切了个对话就发不出去了」）。
     setComposing(false)
@@ -456,17 +514,11 @@ export function ChatPanel({
     { enabled: Boolean(sessionId) && online, intervalMs: 2500, maxIntervalMs: 10000 }
   )
 
-  const guardAfford = (cost: number): boolean => {
-    if (!canAfford(cost)) {
-      setQuotaModalOpen(true)
-      return false
-    }
-    return true
-  }
-
   const orderedTasks = useMemo(
-    () => [...(tasks ?? [])].sort((a, b) => timeOf(a.created_at) - timeOf(b.created_at)),
-    [tasks]
+    () => (tasks ?? [])
+      .filter((task) => task.session_id === sessionId)
+      .sort((a, b) => timeOf(a.created_at) - timeOf(b.created_at)),
+    [tasks, sessionId]
   )
 
   const activeCount = useMemo(
@@ -551,39 +603,33 @@ export function ChatPanel({
   const scrollAnchorRef = useRef<HTMLDivElement>(null)
 
   /**
-   * 底部「最近生成」展示位：本次会话**最近一次成功且有产出**的任务。
-   *
-   * 时间线按创建时间排序，最新结果不一定在最底下（例如并发两个任务，
-   * 先发的后完成）；所以这里单独按「完成时间」取最近一条，作为主展示。
-   */
-  const latestTask = useMemo(() => {
-    let picked: GenerationTask | null = null
-    let pickedAt = -1
-    for (const task of orderedTasks) {
-      if (task.status !== 'succeeded') continue
-      if (!task.result_urls?.length) continue
-      const at = timeOf(task.updated_at ?? task.created_at) || timeOf(task.created_at)
-      if (at >= pickedAt) {
-        pickedAt = at
-        picked = task
-      }
-    }
-    return picked
-  }, [orderedTasks])
-
-  /**
    * 新结果 → 通知父级自动落画布。
    *
    * 只通知「本次停留期间真的跑完」的任务：进页面时已经完成的历史结果
    * 不应该在每次挂载时被重新塞进画布。
    */
   useEffect(() => {
-    if (!latestTask || !onResultsReady) return
-    if (!watchersRef.current.has(latestTask.id)) return
-    const urls = latestTask.result_urls ?? []
-    if (urls.length === 0) return
-    void onResultsReady(urls, latestTask.id)
-  }, [latestTask, onResultsReady])
+    if (!sessionId || !onResultsReady) return
+    const notifications = notifiedCanvasResultsRef.current
+    for (const task of orderedTasks) {
+      if (task.status !== 'succeeded' || !watchersRef.current.has(task.id)) continue
+      const urls = [...new Set(task.result_urls ?? [])].filter((url) =>
+        !notifications.has(`${task.id}:${url}`)
+      )
+      if (urls.length === 0) continue
+      const keys = urls.map((url) => `${task.id}:${url}`)
+      keys.forEach((key) => notifications.add(key))
+      resultPlacementQueueRef.current = resultPlacementQueueRef.current
+        .then(async () => {
+          if (sessionIdRef.current !== sessionId || notifications !== notifiedCanvasResultsRef.current) return
+          await onResultsReady(urls, task.id)
+        })
+        .catch(() => {
+          // 放置失败允许下次轮询重试，已成功的图片仍由父级按 URL 幂等保护。
+          keys.forEach((key) => notifications.delete(key))
+        })
+    }
+  }, [orderedTasks, onResultsReady, sessionId])
 
   const scrollToBottom = useCallback(() => {
     const viewport = scrollAnchorRef.current?.closest('[data-radix-scroll-area-viewport]')
@@ -614,7 +660,7 @@ export function ChatPanel({
     if (!nearBottomRef.current) return
     const raf = requestAnimationFrame(() => scrollToBottom())
     return () => cancelAnimationFrame(raf)
-  }, [timeline.length, composeSteps, composeRunning, scrollToBottom])
+  }, [timeline.length, composeSteps, analysis?.steps, thoughtDraft, thoughtChars, replyDraft, composeRunning, scrollToBottom])
 
   // 离开底部期间新到的消息计入角标
   useEffect(() => {
@@ -681,13 +727,15 @@ export function ChatPanel({
   const confirmOption = useCallback(
     async (runId: string, optionId: string, imageCount: number): Promise<void> => {
       try {
-        await chatApi.confirmRun(runId, optionId, fingerprintOf(runId))
+        const result = await chatApi.confirmRun(runId, optionId, fingerprintOf(runId))
+        result.task_ids.forEach((id) => watchersRef.current.add(id))
         resolvedRunsRef.current.add(runId)
         toast.success(ta('say.started_count', { count: imageCount }), ta('say.started_hint'))
         events.emit('tasks:changed')
         events.emit('quota:changed')
         await refreshTasks()
       } catch (error) {
+        if (error instanceof ApiError) handleQuotaError(error.code)
         if (error instanceof ApiError && error.code === 'TASK_STATE_CONFLICT') {
           toast.error(ta('say.selection_changed'))
         } else {
@@ -696,19 +744,27 @@ export function ChatPanel({
         throw error
       }
     },
-    [fingerprintOf, refreshTasks, toast, te, ta]
+    [fingerprintOf, refreshTasks, toast, te, ta, handleQuotaError]
   )
 
   const applyResult = useCallback(
     (result: AnalyzeResult) => {
       setSubmitting(false)
-      // 结果已由后端落库为 assistant 消息：这里拉一次消息即可，
-      // 绝不在本地再拼一条假消息（否则刷新后会出现重复气泡）。
-      void loadMessages(sessionId as string)
+      result.tasks.forEach((task) => watchersRef.current.add(task.id))
+      const epoch = streamEpochRef.current
+      // 正式消息接替实时过程之前保留完成态，避免请求结束到刷新完成之间闪空。
+      setAnalysis({ steps: result.steps, active: false })
+      setReplyDraft(result.reply)
+      void loadMessages(sessionId as string).then((loaded) => {
+        if (!loaded || epoch !== streamEpochRef.current) return
+        setAnalysis(null)
+        setReplyDraft('')
+        setThoughtDraft('')
+        setThoughtChars(0)
+      })
 
       if (result.status === 'confirm' || (result.status === 'preview' && result.options.length > 0)) {
         setNeedsImage(false)
-        setAnalysis(null)
         setPending({
           runId: result.run_id,
           fingerprint: result.selection_fingerprint ?? '',
@@ -723,15 +779,15 @@ export function ChatPanel({
       setPending(null)
 
       if (result.status === 'needs_image' || result.requires_image) {
-        setAnalysis(null)
         setNeedsImage(true)
         return
       }
 
       setNeedsImage(false)
-      setAnalysis(null)
       if (result.status === 'failed') {
-        toast.error(result.reply || ta('say.analyze_failed'))
+        setInput((prev) => prev || lastComposeRef.current)
+        handleQuotaError(result.error_code)
+        toast.error(result.error_code ? errorTextByCode(result.error_code, te) : result.reply || ta('say.analyze_failed'))
         return
       }
       if (result.status === 'direct' || result.status === 'completed') {
@@ -741,14 +797,21 @@ export function ChatPanel({
         events.emit('quota:changed')
       }
     },
-    [loadMessages, refreshTasks, sessionId, toast, ta]
+    [loadMessages, refreshTasks, sessionId, toast, ta, te, handleQuotaError]
   )
 
   /** 画布选区提交：走 `/chat/analyze`，实时展示区域判定。 */
   const submitSelection = async (prompt: string) => {
     if (!sessionId || submitting) return
-    if (!guardAfford(prices.image_standard)) return
+    const epoch = ++streamEpochRef.current
+    analyzeCancelRef.current?.()
+    cancelledRef.current = false
+    lastComposeRef.current = prompt
     setSubmitting(true)
+    setComposeSteps([])
+    setReplyDraft('')
+    setThoughtDraft('')
+    setThoughtChars(0)
 
     setPending((prev) => {
       if (!prev || prev.state !== 'pending') return prev
@@ -762,20 +825,25 @@ export function ChatPanel({
     try {
       payload = await buildSelectionPayload(selection)
     } catch (error) {
+      if (epoch !== streamEpochRef.current) return
       setAnalysis(null)
       setSubmitting(false)
       toast.error(errorMessage(error, te))
       return
     }
 
-    analyzeCancelRef.current?.()
+    if (epoch !== streamEpochRef.current) return
     let settled = false
-    const failAnalysis = () => {
-      setAnalysis(null)
+    let inputLoaded = false
+    const failAnalysis = (message = ta('say.interrupted_hint'), errorCode?: string) => {
+      if (epoch !== streamEpochRef.current) return
+      setAnalysis((prev) => prev && ({ steps: interruptSteps(prev.steps, message), active: false }))
       setSubmitting(false)
+      setInput((prev) => prev || prompt)
       setPending((prev) => (prev && prev.state === 'voided' ? { ...prev, state: 'pending' } : prev))
       if (!cancelledRef.current) {
-        toast.error(ta('say.analyze_failed'))
+        handleQuotaError(errorCode)
+        toast.error(errorCode ? errorTextByCode(errorCode, te) : ta('say.analyze_failed'))
       }
     }
     analyzeCancelRef.current = chatApi.analyzeStream(
@@ -787,18 +855,36 @@ export function ChatPanel({
       },
       {
         onStep: (step) => {
+          if (epoch !== streamEpochRef.current) return
+          if (!inputLoaded) {
+            inputLoaded = true
+            void loadMessages(sessionId)
+          }
           setAnalysis((prev) => ({
             steps: upsertStep(prev?.steps ?? [], step),
             active: true,
           }))
         },
+        onDelta: (text, reset) => {
+          if (epoch !== streamEpochRef.current) return
+          setReplyDraft((prev) => (reset ? '' : prev + text))
+        },
+        onThought: (text, reset) => {
+          if (epoch !== streamEpochRef.current) return
+          setThoughtDraft((prev) => (reset ? '' : prev + text))
+          if (reset) setThoughtChars(0)
+        },
+        onThoughtProgress: (chars) => {
+          if (epoch === streamEpochRef.current) setThoughtChars(chars)
+        },
         onResult: (result) => {
+          if (epoch !== streamEpochRef.current) return
           settled = true
           applyResult(result)
         },
-        onError: () => {
+        onError: (message, code) => {
           settled = true
-          failAnalysis()
+          failAnalysis(code ? errorTextByCode(code, te) : message, code)
         },
         onClose: () => {
           if (settled) return
@@ -814,8 +900,13 @@ export function ChatPanel({
 
   const applyComposeResult = useCallback(
     (result: ComposeResult) => {
+      const epoch = streamEpochRef.current
       setComposing(false)
-      void loadMessages(sessionId as string).then(() => {
+      result.tasks.forEach((task) => watchersRef.current.add(task.id))
+      setComposeSteps(result.steps)
+      setReplyDraft(result.reply)
+      void loadMessages(sessionId as string).then((loaded) => {
+        if (!loaded || epoch !== streamEpochRef.current) return
         setComposeSteps([])
         setReplyDraft('')
         setThoughtDraft('')
@@ -834,7 +925,8 @@ export function ChatPanel({
       if (result.status === 'failed') {
         // 失败可能是「额度不足 / 并发已满 / 模型格式不对」：把原话放回输入框，别让用户重打
         setInput((prev) => prev || lastComposeRef.current)
-        toast.error(result.reply || ta('say.compose_failed'))
+        handleQuotaError(result.error_code)
+        toast.error(result.error_code ? errorTextByCode(result.error_code, te) : result.reply || ta('say.compose_failed'))
         return
       }
       const deduped = result.tasks.length > 0 && result.tasks.every((task) => task.deduped)
@@ -848,13 +940,12 @@ export function ChatPanel({
       events.emit('tasks:changed')
       events.emit('quota:changed')
     },
-    [loadMessages, loadRelay, refreshTasks, sessionId, toast, ta]
+    [loadMessages, loadRelay, refreshTasks, sessionId, toast, ta, te, handleQuotaError]
   )
 
   /** 全链路提交：语义分析 → 澄清 / 提示词 → 生图。返回是否真的发出了请求。 */
   const submitCompose = async (
     content: string,
-    allowDegraded = false,
     refsOverride?: ComposerAttachment[],
     mentionIds?: string[]
   ): Promise<boolean> => {
@@ -863,15 +954,12 @@ export function ChatPanel({
       toast.info(ta('say.retype'), ta('say.retype_hint'))
       return false
     }
-    if (!guardAfford(prices.image_standard)) {
-      // 额度不足时把用户那句话还回输入框：被拦下的需求不该随之蒸发，
-      // 否则充值回来还得凭记忆重打一遍
-      updateInput(content)
-      return false
-    }
+    const epoch = ++streamEpochRef.current
+    composeCancelRef.current?.()
     cancelledRef.current = false
     lastComposeRef.current = content
     setComposing(true)
+    setAnalysis(null)
     setComposeSteps([])
     setReplyDraft('')
     setThoughtDraft('')
@@ -885,8 +973,8 @@ export function ChatPanel({
       return next
     })
 
-    composeCancelRef.current?.()
     let settled = false
+    let inputLoaded = false
     composeCancelRef.current = chatApi.composeStream(
       {
         session_id: sessionId,
@@ -896,43 +984,48 @@ export function ChatPanel({
           ...(refsOverride ?? refs).map((item) => item.id),
           ...(mentionIds ?? []),
         ],
-        allow_degraded: allowDegraded,
         model: imageModel,
       },
       {
         onStep: (step) => {
+          if (epoch !== streamEpochRef.current) return
+          if (!inputLoaded) {
+            inputLoaded = true
+            void loadMessages(sessionId)
+          }
           setComposeSteps((prev) => upsertStep(prev, step))
         },
         onDelta: (text, reset) => {
+          if (epoch !== streamEpochRef.current) return
           setReplyDraft((prev) => (reset ? '' : prev + text))
         },
         onThought: (text, reset) => {
+          if (epoch !== streamEpochRef.current) return
           setThoughtDraft((prev) => (reset ? '' : prev + text))
           if (reset) setThoughtChars(0)
         },
-        onThoughtProgress: (chars) => setThoughtChars(chars),
+        onThoughtProgress: (chars) => {
+          if (epoch === streamEpochRef.current) setThoughtChars(chars)
+        },
         onResult: (result) => {
+          if (epoch !== streamEpochRef.current) return
           settled = true
           applyComposeResult(result)
         },
-        onError: (message) => {
+        onError: (message, code) => {
+          if (epoch !== streamEpochRef.current) return
           settled = true
           setComposing(false)
-          setComposeSteps([])
-          setReplyDraft('')
-          setThoughtDraft('')
-          setThoughtChars(0)
+          setComposeSteps((prev) => interruptSteps(prev, code ? errorTextByCode(code, te) : message))
           // 失败把原话还给用户：输入框已清空时不要让用户重打一遍
           setInput((prev) => prev || content)
-          toast.error(ta('say.interrupted'), message)
+          handleQuotaError(code)
+          toast.error(code ? errorTextByCode(code, te) : ta('say.interrupted'), code ? undefined : message)
         },
         onClose: () => {
-          if (settled) return
+          if (settled || epoch !== streamEpochRef.current) return
           setComposing(false)
-          setComposeSteps([])
-          setReplyDraft('')
-          setThoughtDraft('')
-          setThoughtChars(0)
+          setComposeSteps((prev) => interruptSteps(prev, ta('say.interrupted_hint')))
           if (!cancelledRef.current) {
             setInput((prev) => prev || content)
             toast.error(ta('say.interrupted'), ta('say.interrupted_hint'))
@@ -947,13 +1040,15 @@ export function ChatPanel({
   const chooseClarify = async (runId: string, option: ComposeOption) => {
     setComposeRunUi((prev) => ({ ...prev, [runId]: { state: 'choosing', chosenId: option.id } }))
     try {
-      await chatApi.confirmRun(runId, option.id, '')
+      const result = await chatApi.confirmRun(runId, option.id, '')
+      result.task_ids.forEach((id) => watchersRef.current.add(id))
       setComposeRunUi((prev) => ({ ...prev, [runId]: { state: 'done', chosenId: option.id } }))
       toast.success(ta('say.started_direction', { label: option.label }), ta('say.started_hint'))
       events.emit('tasks:changed')
       events.emit('quota:changed')
       await Promise.all([refreshTasks(), loadMessages(sessionId as string)])
     } catch (error) {
+      if (error instanceof ApiError) handleQuotaError(error.code)
       setComposeRunUi((prev) => ({ ...prev, [runId]: { state: 'pending' } }))
       // 错误已在这里 toast，卡片自己会把 loading 退回去，不再向上抛（抛了也没人接）
       toast.error(errorMessage(error, te))
@@ -1024,12 +1119,6 @@ export function ChatPanel({
     const content = input.trim()
     if (!content || !sessionId || submitting || composing) return
 
-    // 并发上限前置拦截：不要等后端 429 才告诉用户
-    if (activeCount >= MAX_ACTIVE_TASKS) {
-      toast.warning(t('task.limit_title'), t('task.limit_hint', { max: MAX_ACTIVE_TASKS }))
-      return
-    }
-
     const hadSelection = hasSelection
     if (hadSelection) {
       // 选区编辑不需要参考图，但也不该把用户刚粘的图静默丢掉
@@ -1042,7 +1131,7 @@ export function ChatPanel({
     // 只有请求真的发出去才清空输入：被额度/并发拦下时不能吞掉用户写的内容
     // @ 引用图先落地成资产 id，再随原话一起提交（图生图链路靠它拿到底图）
     const mentionIds = await resolveMentionIds(composerRefs)
-    const started = await submitCompose(content, false, undefined, mentionIds)
+    const started = await submitCompose(content, undefined, mentionIds)
     if (!started) return
     setInput('')
     clearDraft()
@@ -1077,7 +1166,7 @@ export function ChatPanel({
         }
       }
       onInitialConsumed?.()
-      await submitRef.current(initialPrompt, false, attachments)
+      await submitRef.current(initialPrompt, attachments)
     })()
     // 只在「首页那一句话 / 会话就绪」变化时触发
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1104,18 +1193,34 @@ export function ChatPanel({
       toast.success(t('task.cancelled'), t('task.refunded'))
     })
 
+  /**
+   * 失败 / 超时 / 已取消的任务重试。
+   *
+   * 走服务端 `retry`：复用原任务落库的 params，**不再跑一遍 LLM 规划**。
+   * 旧实现是「取消旧任务 + submitCompose(prompt)」——那会把需求重新理解一次，
+   * 既慢又可能给出不一样的结果（用户还在纳闷「我不是让它重试吗，怎么图变了」）。
+   * 只有服务端不支持（老版本后端）时才回退到重新规划。
+   */
+  const handleRetryTask = (task: GenerationTask) =>
+    withBusy(task.id, async () => {
+      try {
+        await generateApi.retry(task.id)
+        events.emit('quota:changed')
+        events.emit('tasks:changed')
+        toast.success(t('task.retrying'))
+      } catch {
+        await submitCompose(task.prompt)
+      }
+    })
+
+  /** 「重新生成」：用户想要的是同一个需求再来一版，仍走完整规划（可能有新理解）。 */
   const handleRegenerate = (task: GenerationTask) =>
     withBusy(task.id, async () => {
       await submitCompose(task.prompt)
     })
 
-  /** 生成超时后的重试：先停掉旧任务（退回额度），再用同一需求重新出图。 */
-  const handleRetryStalled = (task: GenerationTask) =>
-    withBusy(task.id, async () => {
-      await generateApi.cancel(task.id).catch(() => undefined)
-      events.emit('quota:changed')
-      await submitCompose(task.prompt)
-    })
+  /** 生成超时后的重试：服务端复用参数重发，避免二次规划。 */
+  const handleRetryStalled = (task: GenerationTask) => handleRetryTask(task)
 
   /** 只把其中一张放进画布（结果卡图片上的悬浮按钮）。 */
   const handlePlaceImage = async (task: GenerationTask, url: string) => {
@@ -1208,27 +1313,22 @@ export function ChatPanel({
   /**
    * 画布上有**真实的区域选区**：这句话应当被当成「编辑需求」而不是从零生成。
    *
-   * 必须同时满足「有区域」与「每个区域都写了改法」——
-   * 只框了没写字时不算编辑需求，否则用户打的普通描述会被当成区域指令送进 analyze。
+   * 框选编号和总输入框的指令一起交给模型理解，不要求用户逐区重复填写。
    */
   const hasSelection =
-    (selection?.regions?.length ?? 0) > 0 &&
-    (selection?.regions ?? []).every((region) => (region.prompt ?? '').trim().length > 0)
+    (selection?.regions?.length ?? 0) > 0
   const configured = relay?.configured ?? false
 
   /** 停止当前这次分析（输入框停止键 / 等待条「停止」共用）。 */
   const stopRun = () => {
+    streamEpochRef.current += 1
     cancelledRef.current = true
     composeCancelRef.current?.()
     analyzeCancelRef.current?.()
     setComposing(false)
     setSubmitting(false)
-    setAnalysis(null)
-    // 停下后实时气泡要一起收掉：只看 composeSteps 判定显示，残留步骤会让它一直挂着
-    setComposeSteps([])
-    setReplyDraft('')
-    setThoughtDraft('')
-    setThoughtChars(0)
+    setAnalysis((prev) => prev && ({ steps: interruptSteps(prev.steps, ta('trace.stopped'), true), active: false }))
+    setComposeSteps((prev) => interruptSteps(prev, ta('trace.stopped'), true))
   }
 
   /**
@@ -1271,19 +1371,30 @@ export function ChatPanel({
             toast.error(ta('say.ref_upload_failed'), errorMessage(error, te))
           }
         }
-        await submitCompose(text, false, attachments)
+        await submitRef.current(text, attachments)
       })()
     })
-  }, [submitCompose, te, toast, ta])
+  }, [te, toast, ta])
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
       {/* 会话条：品牌 / 新建 / 收起已由外层 Agent 面板头承担，这里只回答两件事——
           「当前是哪段对话」与「Agent 现在连没连上、手上有几张图在跑」。 */}
       <div className="flex h-9 shrink-0 items-center gap-1.5 px-3">
-        <p className="min-w-0 flex-1 truncate text-caption text-text-tertiary">
-          {sessions.find((item) => item.id === sessionId)?.title || t('panel_title')}
-        </p>
+        {/*
+         * 会话切换器：列表会长到几十条，直接铺下拉会有「找不到 / 分不清 / 误删」
+         * 三个问题，所以用带搜索、时间分组、二次确认的 SessionSelector。
+         * 之前这里只是一行静态标题，等于「能看到当前对话，但换不了」。
+         */}
+        <div className="min-w-0 flex-1">
+          <SessionSelector
+            sessions={sessions}
+            currentId={sessionId}
+            onSelect={onSessionChange}
+            onCreate={() => void handleCreateSession()}
+            onDelete={(id) => void handleDeleteSession(id)}
+          />
+        </div>
 
         {activeCount > 0 && (
           <span
@@ -1326,16 +1437,31 @@ export function ChatPanel({
       )}
 
       {!configured && relay !== null && (
-        <>
-        <button
-          type="button"
-          onClick={() => setConfigOpen(true)}
-          className="mx-2 mb-1 flex shrink-0 items-center gap-1.5 rounded-sm bg-warning-subtle px-2.5 py-1.5 text-left text-micro text-warning transition-opacity hover:opacity-90"
-        >
-          <Settings2 size={12} className="shrink-0" />
-          <span className="min-w-0 truncate">{ta('ui.relay_missing')}</span>
-        </button>
-        </>
+        <div className="mx-2 mb-1 flex shrink-0 items-start gap-1.5 rounded-sm bg-warning-subtle px-2.5 py-1.5 text-micro text-warning">
+          <Settings2 size={12} className="mt-[2px] shrink-0" />
+          {/*
+           * 团队空间且由管理员统管时，点「去配置」只会打开一个只读弹窗——
+           * 那不如直接说清「找谁配」，并给出可操作的对象。
+           */}
+          {relay?.editable === false ? (
+            <span className="min-w-0 leading-relaxed">
+              {relay.team_name
+                ? t('header.relay_team_missing', {
+                    team: relay.team_name,
+                    defaultValue: `「${relay.team_name}」还没有配置模型，请联系团队超级管理员。`,
+                  })
+                : ta('ui.relay_missing')}
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfigOpen(true)}
+              className="min-w-0 text-left transition-opacity hover:opacity-90"
+            >
+              {ta('ui.relay_missing')}
+            </button>
+          )}
+        </div>
       )}
 
       <div className="relative min-h-0 flex-1">
@@ -1371,7 +1497,7 @@ export function ChatPanel({
                 const clarifyState: ClarifyState =
                   composeUi?.state ??
                   (compose?.chosen_option_id ? 'done' : compose?.status === 'clarify' ? 'pending' : 'pending')
-                // 分析轨迹挂在 AI 回复上（默认折叠）：用户随时能回看「Agent 是怎么想的」
+                // 最新回复展开处理轨迹，历史记录保持可回看。
                 const traceSteps =
                   entry.message.role === 'assistant'
                     ? compose?.steps.length
@@ -1449,16 +1575,6 @@ export function ChatPanel({
                           >
                             <Settings2 size={12} /> {ta('ui.relay_go')}
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 px-2.5 text-caption"
-                            onClick={() =>
-                              void submitCompose(compose.content || lastComposeRef.current, true)
-                            }
-                          >
-                            {ta('ui.relay_template')}
-                          </Button>
                         </div>
                       </div>
                     )}
@@ -1488,9 +1604,10 @@ export function ChatPanel({
               )
             })}
 
-            {/* 生成过程：只留一行轻量「正在思考…」，完成后随结果一起消失 */}
-            {(composing || analysisActive || composeSteps.length > 0) && (
+            {/* 过程持续呈现，待正式消息加载后原位接替；中断时保留已收到的证据。 */}
+            {(composing || analysis || composeSteps.length > 0) && (
               <ThinkingBubble
+                active={composing || analysisActive}
                 steps={composeSteps.length > 0 ? composeSteps : (analysis?.steps ?? [])}
                 reply={replyDraft}
                 thought={thoughtDraft}
@@ -1684,11 +1801,11 @@ export function ChatPanel({
                 className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-micro font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
               >
                 <Sparkles size={11} />
-                {IMAGE_MODELS.find((item) => item.id === imageModel)?.short ?? 'GPT 2.0'}
+                {imageModels.find((item) => item.id === imageModel)?.short ?? 'GPT 2.0'}
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" className="w-60">
-              {IMAGE_MODELS.map((item) => (
+              {imageModels.map((item) => (
                 <DropdownMenuItem
                   key={item.id}
                   onClick={() => chooseModel(item.id)}

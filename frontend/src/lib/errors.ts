@@ -25,6 +25,9 @@ export const ERROR_I18N_KEY: Record<ErrorCode, string> = {
   VALIDATION_ERROR: 'validation_error',
   NOT_FOUND: 'not_found',
   INTERNAL_ERROR: 'internal_error',
+  MODEL_CONFIG_FORBIDDEN: 'model_config_forbidden',
+  SEAT_LIMIT_EXCEEDED: 'seat_limit_exceeded',
+  CANVAS_VERSION_CONFLICT: 'canvas_version_conflict',
 }
 
 export interface Translate {

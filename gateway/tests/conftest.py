@@ -53,9 +53,12 @@ def isolated_pool(monkeypatch):
     monkeypatch.setattr("app.config.settings.pool_file", str(pool_path), raising=False)
     monkeypatch.setattr(account_pool, "_accounts", {}, raising=False)
     monkeypatch.setattr(account_pool, "_loaded", False, raising=False)
+    monkeypatch.setattr(account_pool, "_batches", {}, raising=False)
+    monkeypatch.setattr(account_pool, "_cursor", 0, raising=False)
     yield
     monkeypatch.setattr(account_pool, "_accounts", {}, raising=False)
     monkeypatch.setattr(account_pool, "_loaded", False, raising=False)
+    monkeypatch.setattr(account_pool, "_batches", {}, raising=False)
 
 
 @pytest.fixture
@@ -63,6 +66,12 @@ def mock_upstream(monkeypatch):
     """把上游客户端替换为 httpx.MockTransport。"""
 
     def _install(handler: Callable[[httpx.Request], httpx.Response]) -> None:
+        from app.state import runtime_config
+
+        # Pool proxy resolves its root URL before creating the mocked client.
+        # Tests must not depend on a developer's untracked .env being present.
+        if not runtime_config.image_base_url:
+            monkeypatch.setattr(runtime_config, "image_base_url", "http://upstream/v1")
         transport = httpx.MockTransport(handler)
 
         def factory(*_args, **_kwargs):

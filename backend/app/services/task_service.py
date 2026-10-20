@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.generation import GenerationTask
+from app.models.team import Team
 from app.services import config_service, quota_service
 from app.utils.errors import AppError, ErrorCode
 from app.utils.ids import new_id, utcnow
@@ -77,6 +78,7 @@ async def create_or_get(
     cost: int,
     session_id: str | None,
     canvas_id: str | None,
+    team: Team | None = None,
 ) -> tuple[GenerationTask, bool]:
     """幂等创建任务（含去重窗口语义）。
 
@@ -110,7 +112,13 @@ async def create_or_get(
     consume_type = _CONSUME_TYPE.get(task_type, "consume_image")
     if cost > 0:
         await quota_service.pre_deduct(
-            db, user_id, consume_type, cost, ref_id=task_id, note=f"{task_type}:{prompt[:40]}"
+            db,
+            user_id,
+            consume_type,
+            cost,
+            ref_id=task_id,
+            note=f"{task_type}:{prompt[:40]}",
+            team=team,
         )
 
     task = GenerationTask(
@@ -118,6 +126,8 @@ async def create_or_get(
         user_id=user_id,
         session_id=session_id,
         canvas_id=canvas_id,
+        # 任务打上团队标记：团队用量统计与「谁花了团队额度」的对账都靠它
+        team_id=team.id if team is not None else None,
         type=task_type,
         prompt=prompt,
         params=params,
@@ -140,6 +150,39 @@ async def create_or_get(
         return again, False
     await db.refresh(task)
     return task, True
+
+
+async def clone_for_retry(
+    db: AsyncSession,
+    user_id: str,
+    task_id: str,
+    *,
+    idempotency_key: str,
+    team: Team | None = None,
+) -> tuple[GenerationTask, bool]:
+    """把失败/超时的任务复制成一个新任务（重新扣费、重新执行）。
+
+    为什么复制而不是复用原任务：原任务的 `idempotency_key` 与预扣流水都已成历史，
+    就地重置会让「重试成功」和「首次成功」在账单上无法区分，也让幂等语义失效。
+    复制一份新任务，历史记录保持完整，用户看到的是一条新的执行记录。
+    """
+    source = await get_task(db, user_id, task_id)
+    if source.status not in ("failed", "timeout", "cancelled"):
+        raise AppError(ErrorCode.TASK_STATE_CONFLICT, "这个任务还没结束，不用重试")
+    params = dict(source.params or {})
+    cost = int(source.cost or 0)
+    return await create_or_get(
+        db,
+        user_id,
+        idempotency_key,
+        source.type,
+        source.prompt,
+        params,
+        cost,
+        source.session_id,
+        source.canvas_id,
+        team=team,
+    )
 
 
 async def get_task(db: AsyncSession, user_id: str, task_id: str) -> GenerationTask:

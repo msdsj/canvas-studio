@@ -1,0 +1,119 @@
+{
+  "title": "团队空间",
+  "subtitle": "把技能包、素材、项目和额度集中到一处，让同事之间不用来回传文件。",
+  "nav": {
+    "overview": "概览",
+    "members": "成员",
+    "settings": "设置",
+    "audit": "操作日志",
+    "skills": "技能包"
+  },
+  "role": {
+    "owner": "超级管理员",
+    "admin": "管理员",
+    "member": "成员"
+  },
+  "status": {
+    "active": "正常",
+    "invited": "待接受",
+    "disabled": "已停用"
+  },
+  "space": {
+    "label": "当前空间",
+    "personal": "个人空间",
+    "switch": "切换空间",
+    "personal_hint": "只有你自己能看到这里的内容"
+  },
+  "list": {
+    "empty": "还没有团队",
+    "empty_hint": "建一个团队空间，把同事拉进来一起做图。",
+    "create": "创建团队",
+    "name_label": "团队名称",
+    "name_placeholder": "比如：市场部设计组",
+    "seats_label": "席位数",
+    "seats_hint": "按需要调整，之后可以再改",
+    "shared_quota_label": "启用共享额度",
+    "shared_quota_hint": "开启后成员生成图片从这里扣费，不再各扣各的"
+  },
+  "overview": {
+    "seats": "席位",
+    "seats_value": "{{used}} / {{total}}",
+    "balance": "共享额度",
+    "tasks_today": "今日任务",
+    "spend_today": "今日消耗",
+    "members_today": "今日用量明细",
+    "no_usage": "今天还没有人生成",
+    "topup": "充值",
+    "topup_amount": "充值数量",
+    "shared_off": "共享额度未开启，成员生成时扣自己的额度。",
+    "enable_shared": "启用共享额度"
+  },
+  "members": {
+    "title": "成员管理",
+    "invite": "邀请成员",
+    "email_label": "对方邮箱",
+    "role_label": "角色",
+    "invite_submit": "发送邀请",
+    "invite_sent": "邀请已发送",
+    "pending": "待接受的邀请",
+    "revoke": "撤回",
+    "remove": "移除成员",
+    "remove_confirm": "移除后他将无法访问团队内容，确认移除？",
+    "promote": "设为管理员",
+    "demote": "设为成员",
+    "transfer": "转让超级管理员",
+    "transfer_confirm": "转让后你将失去超级管理员权限（包括模型配置与团队删除），确认转让？",
+    "transfer_done": "已转让超级管理员",
+    "seat_full": "席位已满",
+    "you": "你",
+    "empty": "还没有其他成员",
+    "joined_at": "加入时间",
+    "no_invites": "没有待处理的邀请"
+  },
+  "settings": {
+    "title": "团队设置",
+    "general": "基础信息",
+    "name_label": "团队名称",
+    "seats_label": "席位数",
+    "seats_used": "已用 {{used}} 个",
+    "save": "保存",
+    "saved": "已保存",
+    "model": "对话模型",
+    "model_hint": "团队里所有人都用这一套模型，成员无法自行修改。",
+    "model_managed_note": "你是成员，这里的配置由超级管理员维护，只读。",
+    "model_unconfigured": "团队还没有配置模型，成员暂时无法使用 AI 对话。",
+    "shared_quota": "共享额度池",
+    "shared_quota_hint": "开启后成员生成图片从团队池扣费；关闭则各扣各的。",
+    "allow_personal_provider": "允许成员自带中转站",
+    "allow_personal_provider_hint": "默认关闭：所有成员统一使用团队配置，避免绕过计费。",
+    "danger": "危险操作",
+    "delete": "解散团队",
+    "delete_confirm": "解散后团队内容将从成员的工作台中消失，且无法恢复。确认解散？",
+    "deleted": "团队已解散",
+    "skills": "团队技能包",
+    "skills_hint": "成员会自动继承这些技能包，也可以再叠加自己的。"
+  },
+  "join": {
+    "title": "加入「{{team}}」",
+    "invited_by": "{{inviter}} 邀请你以「{{role}}」身份加入",
+    "accept": "接受邀请",
+    "accepting": "正在加入…",
+    "accepted": "已加入团队",
+    "expired": "这个邀请链接已经过期了，让管理员重新发一次",
+    "invalid": "邀请链接无效",
+    "go_team": "进入团队空间",
+    "invalid_hint": "链接可能已过期、已被管理员撤销，或这个账号已经加入过该团队。可以让管理员重新发一次邀请。"
+  },
+  "audit": {
+    "title": "操作日志",
+    "subtitle": "记录团队内的成员变更、模型配置与配额操作",
+    "empty": "暂无记录",
+    "forbidden": "只有管理员可以查看团队操作日志",
+    "time": "时间",
+    "actor": "操作人",
+    "action": "动作",
+    "detail": "详情",
+    "prev": "上一页",
+    "next": "下一页"
+  }
+}

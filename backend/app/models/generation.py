@@ -34,6 +34,8 @@ class GenerationTask(Base):
     )
     session_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
     canvas_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # 任务归属团队：用于团队用量统计与共享额度池对账；扣费仍记在发起人名下
+    team_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
     type: Mapped[str] = mapped_column(String(16), default="generate")  # generate | edit
     prompt: Mapped[str] = mapped_column(Text, default="")
     params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)

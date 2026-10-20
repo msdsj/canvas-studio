@@ -15,7 +15,7 @@ import io
 
 import pytest
 import pytest_asyncio
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 from sqlalchemy import select
 
 from app.config import settings
@@ -84,22 +84,36 @@ def _sent_mask(call: dict) -> bytes:
     raise AssertionError("本次上游调用没有携带 mask")
 
 
-def _png_b64() -> str:
-    """上游返回一张合法 PNG。"""
+def _png_b64(*, alpha: Image.Image | None = None) -> str:
+    """整图返回 RGB；素材模拟原图坐标系内、带主体 alpha 的 PNG。"""
     buf = io.BytesIO()
-    Image.new("RGB", BASE_SIZE, (200, 40, 40)).save(buf, format="PNG")
+    image = Image.new("RGB", BASE_SIZE, (200, 40, 40))
+    if alpha is not None:
+        image.putalpha(alpha)
+    image.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode()
 
 
 class _Recorder:
-    """记录上游调用；返回一张合法 PNG。"""
+    """记录真实请求；素材响应按该次 mask 生成透明背景主体。"""
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
     async def __call__(self, files, form):
-        self.calls.append({"files": files, "form": form})
-        return {"data": [{"b64_json": _png_b64()}], "demo": False}
+        call = {"files": files, "form": form}
+        self.calls.append(call)
+        alpha = None
+        if "只保留选区内的主体" in form["prompt"]:
+            with Image.open(io.BytesIO(_sent_mask(call))) as mask:
+                editable = ImageChops.invert(mask.convert("RGBA").getchannel("A"))
+            alpha = Image.new("L", BASE_SIZE, 0)
+            bounds = editable.getbbox()
+            assert bounds, "素材请求必须包含可处理的区域"
+            left, top, right, bottom = bounds
+            ImageDraw.Draw(alpha).ellipse((left + 1, top + 1, right - 2, bottom - 2), fill=255)
+            alpha = ImageChops.multiply(alpha, editable)
+        return {"data": [{"b64_json": _png_b64(alpha=alpha)}], "demo": False}
 
 
 # --------------------------------------------------------------------------- #

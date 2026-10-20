@@ -93,7 +93,7 @@ function modelLabel(model: unknown): string | null {
  * - 结果到达时播一次「显影」：从模糊、低饱和、下沉的状态清晰起来——
  *   与等待态的「相纸扫光」首尾呼应，让「图出来了」这一刻有分量。
  *
- * 不展示提示词、思考步骤等中间处理信息。
+ * 任务实际指令与执行参数可展开核对。
  */
 export function GenerationResultCard({
   task,
@@ -122,6 +122,12 @@ export function GenerationResultCard({
   const ratioText = ratioLabel(params.size)
   const model = modelLabel(params.model)
   const expectedCount = Math.max(1, Math.min(4, Number(params.n) || 1))
+  const batchIndex = Number(params.batch_index) || 0
+  const batchTotal = Number(params.batch_total) || 0
+  const batchLabel = typeof params.batch_label === 'string' ? params.batch_label : ''
+  const regionIndexes = Array.isArray(params.region_indexes)
+    ? params.region_indexes.filter((index): index is number => Number.isInteger(index))
+    : []
 
   const createdAt = parseServerTime(task.created_at)?.getTime() ?? null
   const timer = useStageTimer({ active, startedAt: createdAt, ...GENERATION_TIMING })
@@ -138,11 +144,7 @@ export function GenerationResultCard({
   const stageLabel =
     task.status === 'queued'
       ? t('task.queued')
-      : timer.elapsed < 8
-        ? ta('wait.gen_stage.compose')
-        : timer.elapsed < 30
-          ? ta('wait.gen_stage.render')
-          : ta('wait.gen_stage.detail')
+      : ta('result.model_running')
 
   const failText =
     task.status === 'timeout' ? t('task.timeout') : errorTextByCode(task.error_code, i18n.t)
@@ -278,6 +280,12 @@ export function GenerationResultCard({
         active && 'cs-breathe-edge'
       )}
     >
+      {(batchLabel || batchTotal > 1) && (
+        <div className="mb-2 flex items-start gap-1.5 text-micro">
+          {batchTotal > 1 && <span className="shrink-0 rounded-full bg-accent-soft px-1.5 py-0.5 font-medium tabular-nums text-accent-ink">{batchIndex}/{batchTotal}</span>}
+          {batchLabel && <p className="min-w-0 py-0.5 font-medium text-text [overflow-wrap:anywhere]">{batchLabel}</p>}
+        </div>
+      )}
       {/* 状态行：状态 · 用时 | 模型 · 比例 */}
       <div className="mb-2 flex min-w-0 items-center gap-1.5">
         {succeeded ? (
@@ -315,6 +323,18 @@ export function GenerationResultCard({
           {task.demo && <Badge variant="warning">{t('task.result_demo')}</Badge>}
         </span>
       </div>
+
+      <details className="mb-2 rounded-sm bg-bg-subtle/60 px-2.5 py-2 text-micro text-text-tertiary">
+        <summary className="cursor-pointer font-medium text-text-secondary hover:text-text">
+          {ta('result.execution_details')}
+        </summary>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {model && <span className="rounded-full bg-surface px-1.5 py-0.5">{model}</span>}
+          <span className="rounded-full bg-surface px-1.5 py-0.5 tabular-nums">{ta('result.task_cost', { cost: task.cost })}</span>
+          {regionIndexes.length > 0 && <span className="rounded-full bg-surface px-1.5 py-0.5">{ta('result.regions', { indexes: regionIndexes.join(', ') })}</span>}
+        </div>
+        <p className="mt-2 max-h-60 overflow-y-auto whitespace-pre-wrap leading-relaxed text-text-secondary [overflow-wrap:anywhere]">{task.prompt}</p>
+      </details>
 
       {/* 演示占位图必须说清楚：用户看到写着 DEMO 的图，会以为产品坏了 */}
       {task.demo && (

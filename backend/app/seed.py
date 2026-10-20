@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.user import User
+from app.models.system_config import SystemConfig
 from app.security import hash_password
 from app.services import config_service
 from app.utils.ids import new_id, utcnow
@@ -17,6 +18,10 @@ logger = get_logger("app.seed")
 async def run_seed(db: AsyncSession) -> None:
     """执行幂等初始化。"""
     await config_service.ensure_defaults(db)
+    # Upgrade only the old seeded default; keep limits explicitly set by an admin.
+    limit = await db.get(SystemConfig, "MAX_ACTIVE_TASKS_PER_USER")
+    if limit and limit.value == "2" and limit.updated_by is None and settings.max_active_tasks_per_user > 2:
+        limit.value = str(settings.max_active_tasks_per_user)
 
     email = settings.default_admin_email.strip().lower()
     result = await db.execute(select(User).where(User.email == email))

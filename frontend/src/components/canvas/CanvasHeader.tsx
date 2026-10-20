@@ -15,6 +15,8 @@ interface CanvasHeaderProps {
   /** 画布上至少选中了一张图片：只有这时「导出」才可用 */
   hasImageSelected?: boolean
   className?: string
+  /** 协作者在线条（团队画布才传；个人画布为 null 时不渲染） */
+  presence?: React.ReactNode
 }
 
 /**
@@ -28,6 +30,7 @@ export function CanvasHeader({
   api,
   hasImageSelected = false,
   className,
+  presence,
 }: CanvasHeaderProps) {
   const { t } = useTranslation('canvas')
   const toast = useToast()
@@ -84,6 +87,8 @@ export function CanvasHeader({
         </span>
         {statusNode}
       </div>
+
+      {presence}
 
       <Popover>
         <PopoverTrigger asChild>

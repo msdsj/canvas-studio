@@ -14,6 +14,9 @@
   "validation_error": "Something in the input needs adjusting",
   "not_found": "We couldn't find that",
   "internal_error": "Something went sideways — try again in a moment",
+  "model_config_forbidden": "The chat model is configured by your team owner; you don't need to set it",
+  "seat_limit_exceeded": "All team seats are taken. Remove a member or add seats first",
+  "canvas_version_conflict": "The canvas changed elsewhere; syncing the latest version",
   "network": "Looks like you're offline — check your connection",
   "unknown": "Something went wrong — retry, or contact support if it persists"
 }

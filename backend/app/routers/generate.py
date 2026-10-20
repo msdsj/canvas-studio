@@ -19,6 +19,7 @@ from app.models.user import User
 from app.schemas.generate import GenerateImageRequest, PlanRequest
 from app.schemas.task import GenerationTaskOut
 from app.services import (
+    access,
     asset_service,
     cutout_service,
     generate_service,
@@ -53,6 +54,7 @@ async def generate_image(
 ) -> dict:
     """创建文生图任务（幂等，异步执行）。"""
     key = idempotency_key or generate_service.new_idempotency_key()
+    ctx = await access.current_context(db, user)
     task, created = await generate_service.create_image_task(
         db,
         user.id,
@@ -65,6 +67,7 @@ async def generate_image(
         canvas_id=payload.canvas_id,
         idempotency_key=key,
         extra=payload.params,
+        team=ctx.team,
     )
     if created:
         background_tasks.add_task(generate_service.run_task, task.id)
@@ -173,6 +176,7 @@ async def generate_edit(
             edit_ops = [item for item in parsed_ops if isinstance(item, dict)] or None
 
     key = idempotency_key or generate_service.new_idempotency_key()
+    ctx = await access.current_context(db, user)
     task, created = await generate_service.create_edit_task(
         db,
         user.id,
@@ -189,6 +193,7 @@ async def generate_edit(
         edit_mode=edit_mode,
         edit_intensity=edit_intensity,
         extra={"guide_url": guide_url, "n": max(1, min(n, 4))} if guide_url else {"n": max(1, min(n, 4))},
+        team=ctx.team,
     )
     if created:
         background_tasks.add_task(generate_service.run_task, task.id)
@@ -328,6 +333,25 @@ async def cancel_task(
 ) -> dict:
     """取消任务并幂等回滚预扣。"""
     task = await task_service.cancel(db, user.id, task_id)
+    return envelope(_serialize(task))
+
+
+@router.post("/tasks/{task_id}/retry")
+async def retry_task(
+    task_id: str,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict:
+    """重试失败/超时/已取消的任务（复制成新任务，重新扣费与执行）。"""
+    ctx = await access.current_context(db, user)
+    key = idempotency_key or generate_service.new_idempotency_key()
+    task, created = await task_service.clone_for_retry(
+        db, user.id, task_id, idempotency_key=key, team=ctx.team
+    )
+    if created:
+        background_tasks.add_task(generate_service.run_task, task.id)
     return envelope(_serialize(task))
 
 

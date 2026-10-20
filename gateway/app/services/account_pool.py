@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import settings
+from app.utils.errors import ErrorCode, GatewayError
 
 
 class AccountPool:
@@ -26,6 +27,27 @@ class AccountPool:
         self._accounts: dict[str, dict[str, Any]] = {}
         self._cursor = 0
         self._jobs: dict[str, dict[str, Any]] = {}
+        # A compose batch reserves all its accounts atomically.  Reservations
+        # stay process-local, just like request leases, and never persist tokens
+        # or unfinished work across a gateway restart.
+        self._batches: dict[str, dict[str, Any]] = {}
+
+    def _reclaim_batches(self, now: float) -> None:
+        """Drop expired, inactive batches (including never-submitted siblings)."""
+        for batch_id, batch in list(self._batches.items()):
+            if not batch["active"] and batch["expires_at"] <= now:
+                del self._batches[batch_id]
+
+    def _reserved_accounts(self) -> set[str]:
+        return {account_id for batch in self._batches.values() for account_id in batch["accounts"]}
+
+    @staticmethod
+    def _healthy(item: dict[str, Any], now: float) -> bool:
+        return (
+            item.get("status") not in {"disabled", "abnormal", "封禁", "禁用", "异常"}
+            and float(item.get("cooldown_until") or 0) <= now
+            and bool(item.get("access_token"))
+        )
 
     @property
     def _path(self) -> Path:
@@ -86,6 +108,26 @@ class AccountPool:
         await self._ensure_loaded()
         async with self._lock:
             return [dict(item) for item in self._accounts.values()]
+
+    async def image_capacity(self) -> dict[str, Any]:
+        """Report only credentials this gateway can route independently."""
+        await self._ensure_loaded()
+        now = time.time()
+        async with self._lock:
+            self._reclaim_batches(now)
+            reserved = self._reserved_accounts()
+            healthy = [item for item in self._accounts.values() if self._healthy(item, now)]
+            return {
+                "total": len(self._accounts),
+                "healthy": len(healthy),
+                "available": sum(
+                    1 for item in healthy
+                    if not int(item.get("in_flight") or 0) and item["id"] not in reserved
+                ),
+                "reserved": len(reserved),
+                "independent_routing": True,
+                "scope": "local",
+            }
 
     async def import_accounts(self, tokens: list[str], accounts: list[dict[str, Any]]) -> dict[str, Any]:
         await self._ensure_loaded()
@@ -150,6 +192,8 @@ class AccountPool:
         await self._ensure_loaded()
         now = time.time()
         async with self._lock:
+            self._reclaim_batches(now)
+            reserved = self._reserved_accounts()
             items = list(self._accounts.values())
             if not items:
                 return None
@@ -159,8 +203,8 @@ class AccountPool:
             candidates = [
                 item
                 for item in ordered
-                if item.get("status") not in {"disabled", "abnormal"}
-                and float(item.get("cooldown_until") or 0) <= now
+                if self._healthy(item, now)
+                and item["id"] not in reserved
                 and int(item.get("in_flight") or 0) < int(item.get("max_concurrency") or 2)
             ]
             if not candidates:
@@ -171,6 +215,98 @@ class AccountPool:
             item["last_kind"] = kind
             item["in_flight"] = int(item.get("in_flight") or 0) + 1
             return dict(item)
+
+    async def acquire_image(
+        self, *, batch_id: str = "", task_id: str = "", batch_total: int = 1
+    ) -> dict[str, Any] | None:
+        """Acquire one image lease, with strict distinct accounts per batch.
+
+        An empty legacy pool returns None for a directly configured provider.
+        A managed batch must have enough actual selectable credentials; it
+        must never silently fall back to a shared administrator/provider key.
+        """
+        await self._ensure_loaded()
+        if batch_total == 1 and not self._accounts:
+            # A single request needs only the configured image provider; no
+            # cross-task isolation is claimed or required in this case.
+            return None
+        if not batch_id:
+            account = await self.select(kind="image")
+            if account is None and await self.list():
+                raise GatewayError(ErrorCode.POOL_UNAVAILABLE, "号池账号正在使用或冷却中，请稍后重试")
+            return account
+        if not task_id or not 1 <= batch_total <= 32:
+            raise GatewayError(ErrorCode.VALIDATION_ERROR, "图片批次必须包含任务标识和 1–32 个独立任务")
+
+        now = time.time()
+        async with self._lock:
+            self._reclaim_batches(now)
+            batch = self._batches.get(batch_id)
+            if batch is None:
+                reserved = self._reserved_accounts()
+                candidates = [
+                    item for item in self._accounts.values()
+                    if self._healthy(item, now)
+                    and not int(item.get("in_flight") or 0)
+                    and item["id"] not in reserved
+                ]
+                candidates.sort(key=lambda item: float(item.get("last_used") or 0))
+                if len(candidates) < batch_total:
+                    message = (
+                        "当前远端账号池未提供按账号路由能力，无法为此批次保证独立账号；请配置可路由账号池"
+                        if not self._accounts else
+                        f"本批次需要 {batch_total} 个不同账号，当前可独立调度 {len(candidates)} 个；请补充账号或稍后重试"
+                    )
+                    raise GatewayError(
+                        ErrorCode.POOL_UNAVAILABLE,
+                        message,
+                        {
+                            "reason": "independent_routing_unavailable" if not self._accounts else "insufficient_accounts",
+                            "required_accounts": batch_total, "available_accounts": len(candidates),
+                        },
+                    )
+                batch = {
+                    "total": batch_total,
+                    "accounts": [item["id"] for item in candidates[:batch_total]],
+                    "tasks": {}, "active": set(), "done": set(),
+                    "expires_at": now + max(600, settings.read_timeout * 2),
+                }
+                self._batches[batch_id] = batch
+            if batch["total"] != batch_total:
+                raise GatewayError(ErrorCode.VALIDATION_ERROR, "同一图片批次的任务数量不一致")
+            if task_id in batch["active"] or task_id in batch["done"]:
+                raise GatewayError(ErrorCode.VALIDATION_ERROR, "该图片任务已在执行或已完成，请勿重复提交")
+            if len(batch["tasks"]) >= batch_total:
+                raise GatewayError(ErrorCode.VALIDATION_ERROR, "图片批次任务数超过预留账号数量")
+            account_id = batch["accounts"][len(batch["tasks"])]
+            account = self._accounts.get(account_id)
+            if account is None or not self._healthy(account, now):
+                raise GatewayError(ErrorCode.POOL_UNAVAILABLE, "为该图片任务预留的账号已不可用，请重新提交")
+            batch["tasks"][task_id] = account_id
+            batch["active"].add(task_id)
+            batch["expires_at"] = now + max(600, settings.read_timeout * 2)
+            account["last_used"] = now
+            account["last_kind"] = "image"
+            account["in_flight"] = int(account.get("in_flight") or 0) + 1
+            return dict(account)
+
+    async def release_image(self, account_id: str, *, batch_id: str = "", task_id: str = "") -> None:
+        """Finish a request after all model retries; free completed batches."""
+        await self._ensure_loaded()
+        async with self._lock:
+            item = self._accounts.get(account_id)
+            if item:
+                item["in_flight"] = max(0, int(item.get("in_flight") or 0) - 1)
+            batch = self._batches.get(batch_id)
+            if batch and batch["tasks"].get(task_id) == account_id:
+                batch["active"].discard(task_id)
+                batch["done"].add(task_id)
+                # Retain a brief tombstone after completion so a duplicate task
+                # cannot start the same batch again and charge twice.
+                if len(batch["done"]) == batch["total"]:
+                    batch["accounts"] = []
+                batch["expires_at"] = time.time() + max(600, settings.read_timeout * 2)
+            await self._persist()
 
     async def release(self, account_id: str) -> None:
         """Release one request lease, including failed requests."""

@@ -79,12 +79,24 @@ async def list_accounts(status: str | None = None, q: str | None = None) -> list
 
 
 async def stats() -> dict[str, int]:
-    """号池统计：total/normal/limited/abnormal/disabled。"""
+    """账号健康统计与实际可独立路由容量（远端账号数不等于可路由数）。"""
     items = await list_accounts()
     result = {"total": len(items), "normal": 0, "limited": 0, "abnormal": 0, "disabled": 0}
     for item in items:
         key = item["status"] if item["status"] in result else "abnormal"
         result[key] += 1
+    try:
+        capacity = await gateway_client.pool_capacity()
+    except AppError:
+        # Compatibility with an older gateway: unknown capacity must not be
+        # interpreted as proof that remote accounts can be routed separately.
+        capacity = {}
+    result.update({
+        "routable": int(capacity.get("healthy") or 0),
+        "routable_available": int(capacity.get("available") or 0),
+        "routable_total": int(capacity.get("total") or 0),
+        "routable_known": int(bool(capacity.get("independent_routing"))),
+    })
     return result
 
 

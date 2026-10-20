@@ -15,8 +15,18 @@ from app.schemas.pool import (
     PoolUpdateRequest,
 )
 from app.services import pool_proxy
+from app.services.account_pool import account_pool
+from app.state import runtime_config
 
 router = APIRouter(prefix="/gw/pool", tags=["gateway-pool"])
+
+
+@router.get("/capacity")
+async def image_capacity() -> dict:
+    """Actual independent routing capacity, separate from remote pool stats."""
+    capacity = await account_pool.image_capacity()
+    capacity["configured_provider_available"] = bool(runtime_config.image_base_url)
+    return ok(capacity)
 
 
 @router.get("/accounts")

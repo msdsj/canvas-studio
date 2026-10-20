@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal
 from app.models.chat import ChatMessage, ChatSession
-from app.services import config_service, quota_service
+from app.models.user import User
+from app.services import access, config_service, quota_service
 from app.services.gateway_client import gateway_client
 from app.utils.errors import AppError, ErrorCode
 from app.utils.ids import new_id, utcnow
@@ -23,10 +24,14 @@ logger = get_logger("app.chat_service")
 
 
 async def list_sessions(
-    db: AsyncSession, user_id: str, canvas_id: str | None = None
+    db: AsyncSession, user: User, canvas_id: str | None = None
 ) -> list[ChatSession]:
-    """列出用户会话。"""
-    conditions = [ChatSession.user_id == user_id, ChatSession.deleted_at.is_(None)]
+    """列出会话：本人 ∪ 当前团队共享。"""
+    ctx = await access.current_context(db, user)
+    conditions = [
+        access.session_scope_clause(user, ctx),
+        ChatSession.deleted_at.is_(None),
+    ]
     if canvas_id:
         conditions.append(ChatSession.canvas_id == canvas_id)
     result = await db.execute(
@@ -37,7 +42,7 @@ async def list_sessions(
 
 async def create_session(
     db: AsyncSession,
-    user_id: str,
+    user: User,
     canvas_id: str | None,
     title: str | None,
     *,
@@ -50,62 +55,80 @@ async def create_session(
     对话与画布的对应关系会立刻错位。
     """
     if new_canvas or not canvas_id:
-        canvas_id = await _create_conversation_canvas(db, user_id, title)
+        canvas_id = await _create_conversation_canvas(db, user, title)
     session = ChatSession(
-        id=new_id(), user_id=user_id, canvas_id=canvas_id, title=title or "新对话"
+        id=new_id(), user_id=user.id, canvas_id=canvas_id, title=title or "新对话"
     )
+    # 会话跟随画布走：在团队画布上开的对话，团队成员也该看得到上下文
+    if canvas_id:
+        from app.models.canvas import Canvas
+
+        canvas = await db.get(Canvas, canvas_id)
+        if canvas is not None and canvas.team_id:
+            session.team_id = canvas.team_id
+            session.visibility = canvas.visibility
     db.add(session)
     await db.flush()
     return session
 
 
 async def _create_conversation_canvas(
-    db: AsyncSession, user_id: str, title: str | None
+    db: AsyncSession, user: User, title: str | None
 ) -> str:
     """在用户的首个项目下开一张空画布（没有项目就先建一个）。"""
     from app.models.project import CanvasProject
     from app.services import canvas_service, project_service
 
+    ctx = await access.current_context(db, user)
     project_id = (
         await db.execute(
             select(CanvasProject.id)
-            .where(CanvasProject.owner_id == user_id, CanvasProject.deleted_at.is_(None))
+            .where(
+                CanvasProject.owner_id == user.id,
+                CanvasProject.deleted_at.is_(None),
+                # 优先落在当前团队项目里：团队协作时新对话应该进公司的项目，
+                # 而不是散落在个人空间里，否则「团队资源统一管理」名不副实
+                CanvasProject.team_id == ctx.team_id
+                if ctx.team_id
+                else CanvasProject.team_id.is_(None),
+            )
             .order_by(CanvasProject.updated_at.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
     if project_id is None:
-        project = await project_service.create_project(db, user_id, "我的项目")
+        project = await project_service.create_project(
+            db, user, "我的项目", share_with_team=ctx.team_id is not None
+        )
         project_id = project.id
     name = (title or "新对话").strip()[:40] or "新对话"
     canvas = await canvas_service.create_canvas(
-        db, user_id, project_id, name=f"{name} · 画布"
+        db, user, project_id, name=f"{name} · 画布"
     )
     return canvas.id
 
 
-async def get_session(db: AsyncSession, user_id: str, session_id: str) -> ChatSession:
-    """获取会话并校验归属。"""
-    result = await db.execute(
-        select(ChatSession).where(ChatSession.id == session_id, ChatSession.deleted_at.is_(None))
-    )
-    session = result.scalar_one_or_none()
-    if session is None:
-        raise AppError(ErrorCode.NOT_FOUND, "会话不存在")
-    if session.user_id != user_id:
-        raise AppError(ErrorCode.FORBIDDEN, "无权访问该会话")
+async def get_session(
+    db: AsyncSession, user: User, session_id: str, permission: str = "read"
+) -> ChatSession:
+    """获取会话并校验访问权限（团队共享会话可读，写仍限属主）。"""
+    # 先按「读」校验存在性与可见性，再对写操作单独拦：团队成员能看到这段对话，
+    # 但没有权限改它时应该收到「只能改自己的」这种明确提示，而不是「不存在」。
+    session = await access.get_session_for(db, user, session_id, "read")
+    if permission != "read" and session.user_id != user.id:
+        raise AppError(ErrorCode.FORBIDDEN, "只能修改自己创建的对话")
     return session
 
 
 async def update_session(
     db: AsyncSession,
-    user_id: str,
+    user: User,
     session_id: str,
     title: str | None,
     canvas_id: str | None = None,
 ) -> ChatSession:
     """重命名会话 / 重新绑定画布。"""
-    session = await get_session(db, user_id, session_id)
+    session = await get_session(db, user, session_id, "write")
     if title is not None:
         session.title = title
     if canvas_id is not None:
@@ -115,18 +138,18 @@ async def update_session(
     return session
 
 
-async def delete_session(db: AsyncSession, user_id: str, session_id: str) -> None:
+async def delete_session(db: AsyncSession, user: User, session_id: str) -> None:
     """删除会话（软删）。"""
-    session = await get_session(db, user_id, session_id)
+    session = await get_session(db, user, session_id, "write")
     session.deleted_at = utcnow()
     await db.flush()
 
 
 async def list_messages(
-    db: AsyncSession, user_id: str, session_id: str, page: int, size: int
+    db: AsyncSession, user: User, session_id: str, page: int, size: int
 ) -> tuple[list[ChatMessage], int]:
     """分页查询会话消息（时间正序）。"""
-    await get_session(db, user_id, session_id)
+    await get_session(db, user, session_id)
     base = select(ChatMessage).where(
         ChatMessage.session_id == session_id, ChatMessage.deleted_at.is_(None)
     )
@@ -168,20 +191,30 @@ async def append_message(
 
 async def prepare_turn(
     db: AsyncSession,
-    user_id: str,
+    user: User,
     session: ChatSession,
     content: str,
     image_refs: list[str] | None = None,
 ) -> tuple[ChatMessage, str, int]:
-    """保存用户消息并预扣对话额度，返回 (user_msg, ref_id, cost)。"""
+    """保存用户消息并预扣对话额度，返回 (user_msg, ref_id, cost)。
+
+    扣费走用户所在团队的共享池（若已开启），流水仍记在发起人名下。
+    """
     user_msg = await append_message(
-        db, session.id, user_id, "user", content, attachments=image_refs or []
+        db, session.id, user.id, "user", content, attachments=image_refs or []
     )
     prices = await config_service.prices(db)
     cost = int(prices.get("chat", 0))
     if cost > 0:
+        ctx = await access.current_context(db, user)
         await quota_service.pre_deduct(
-            db, user_id, "consume_chat", cost, ref_id=user_msg.id, note="chat"
+            db,
+            user.id,
+            "consume_chat",
+            cost,
+            ref_id=user_msg.id,
+            note="chat",
+            team=ctx.team,
         )
     session.updated_at = utcnow()
     await db.commit()

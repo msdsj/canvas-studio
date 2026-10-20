@@ -194,3 +194,35 @@ async def complete_llm(payload: dict) -> dict:
         if runtime_config.demo_mode == "auto" and exc.code in _FALLBACK_CODES:
             return demo_service.demo_chat_completion(payload.get("messages") or [])
         raise
+
+
+async def stream_llm(payload: dict):
+    """Stream the independent intent provider; never manufacture a demo plan."""
+    if runtime_config.demo_mode == "on":
+        yield sse_line({"error_code": "UPSTREAM_ERROR", "message": "需求分析需要连接真实模型"})
+        return
+    chain = runtime_config.model_chain("llm") or runtime_config.model_chain("text") or [runtime_config.text_model]
+    produced = False
+    for model in chain:
+        try:
+            async with llm_client() as client:
+                async with client.stream(
+                    "POST", "/chat/completions", headers=llm_headers(),
+                    json={**payload, "model": model, "stream": True},
+                ) as response:
+                    if response.status_code >= 400:
+                        raise classify_status(response.status_code, (await response.aread()).decode("utf-8", "ignore"))
+                    async for chunk in response.aiter_bytes():
+                        if chunk:
+                            if not produced:
+                                check_stream_prefix(chunk)
+                            produced = True
+                            yield chunk
+                    if produced:
+                        return
+        except Exception as exc:
+            error = exc if isinstance(exc, GatewayError) else classify_exception(exc)
+            if produced or not error.switch_model:
+                yield sse_line({"error_code": error.code.value, "message": error.message})
+                return
+    yield sse_line({"error_code": "UPSTREAM_ERROR", "message": "需求分析暂时不可用，请稍后重试"})

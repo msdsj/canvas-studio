@@ -34,6 +34,13 @@ class CanvasOut(ORMModel):
     thumbnail_url: str | None = None
     share_token: str | None = None
     is_public: bool = False
+    # 团队归属：前端据此决定要不要开实时协作通道。
+    # 少了 `team_id`，协作永远连不上（`enabled` 恒为 false），
+    # 而所有后端测试都发现不了——这是真机冒烟才暴露出来的坑。
+    team_id: str | None = None
+    visibility: str = "private"
+    version: int = 0
+    updated_by: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

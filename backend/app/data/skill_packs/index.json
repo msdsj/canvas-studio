@@ -1,0 +1,276 @@
+{
+  "version": 1,
+  "generated_at": "2026-10-20T06:27:54+00:00",
+  "source": "backend/app/services/design_skills.py",
+  "total_items": 490,
+  "packs": [
+    {
+      "key": "ecommerce_detail",
+      "name": "电商详情页",
+      "description": "从首屏到行动号召的完整详情页链路：3C、分子图、文生图/图生图/融图、LOGO 与详情页方法论。",
+      "personas": [
+        "ecommerce"
+      ],
+      "tags": [
+        "电商",
+        "详情页",
+        "主图",
+        "转化"
+      ],
+      "category": "ecommerce",
+      "count": 60
+    },
+    {
+      "key": "ecommerce_poster",
+      "name": "电商海报",
+      "description": "大促、年货节、新品首发的电商海报：C4D 展台、立体字、优惠券与价格锚点。",
+      "personas": [
+        "ecommerce",
+        "marketing"
+      ],
+      "tags": [
+        "电商",
+        "海报",
+        "大促",
+        "618",
+        "双11"
+      ],
+      "category": "ecommerce",
+      "count": 8
+    },
+    {
+      "key": "promo_poster",
+      "name": "商业促销海报",
+      "description": "通用商业促销：价格力、限时、爆款单品，适合门店与品牌活动。",
+      "personas": [
+        "marketing",
+        "ecommerce"
+      ],
+      "tags": [
+        "海报",
+        "促销",
+        "商业"
+      ],
+      "category": "poster",
+      "count": 15
+    },
+    {
+      "key": "festival_poster",
+      "name": "节气节庆海报",
+      "description": "24 节气与传统节庆营销海报，含时令物候与节庆色彩体系。",
+      "personas": [
+        "marketing"
+      ],
+      "tags": [
+        "节气",
+        "节庆",
+        "海报",
+        "国潮"
+      ],
+      "category": "poster",
+      "count": 50
+    },
+    {
+      "key": "social_cover",
+      "name": "自媒体封面",
+      "description": "小红书/公众号/短视频封面：大字标题、撕纸、拼贴、高点击率版式。",
+      "personas": [
+        "marketing",
+        "content"
+      ],
+      "tags": [
+        "封面",
+        "小红书",
+        "自媒体",
+        "标题"
+      ],
+      "category": "social",
+      "count": 35
+    },
+    {
+      "key": "font_effect",
+      "name": "字体字效",
+      "description": "205 套字体字效：书法、艺术风格、文艺创意、3D 电商与游戏字体。",
+      "personas": [
+        "brand",
+        "ui_designer",
+        "marketing"
+      ],
+      "tags": [
+        "字体",
+        "字效",
+        "3D",
+        "书法"
+      ],
+      "category": "type",
+      "count": 60
+    },
+    {
+      "key": "dev_ui",
+      "name": "开发与 UI",
+      "description": "界面稿、组件风格、图标、流程图与架构图：把需求落成可交付的视觉。",
+      "personas": [
+        "developer",
+        "ui_designer"
+      ],
+      "tags": [
+        "UI",
+        "界面",
+        "架构图",
+        "流程图",
+        "图标"
+      ],
+      "category": "ui",
+      "count": 18
+    },
+    {
+      "key": "brand_vi",
+      "name": "品牌与 VI",
+      "description": "LOGO、品牌视觉、印刷物料与周边延展，构成一套完整的品牌资产。",
+      "personas": [
+        "brand"
+      ],
+      "tags": [
+        "品牌",
+        "LOGO",
+        "VI",
+        "印刷"
+      ],
+      "category": "brand",
+      "count": 19
+    },
+    {
+      "key": "packaging",
+      "name": "产品包装",
+      "description": "包装设计与草图：结构、材质、工艺与国潮文创多图融合。",
+      "personas": [
+        "brand"
+      ],
+      "tags": [
+        "包装",
+        "结构",
+        "工艺",
+        "文创"
+      ],
+      "category": "print",
+      "count": 20
+    },
+    {
+      "key": "film_poster",
+      "name": "电影海报",
+      "description": "电影感构图与光影：情绪片、类型片、人物特写的叙事化排版。",
+      "personas": [
+        "content",
+        "marketing"
+      ],
+      "tags": [
+        "电影",
+        "海报",
+        "叙事",
+        "光影"
+      ],
+      "category": "poster",
+      "count": 21
+    },
+    {
+      "key": "guofeng_poster",
+      "name": "国风海报",
+      "description": "国风与东方美学：水墨、青绿、篆刻、留白与卷轴版式。",
+      "personas": [
+        "marketing",
+        "brand"
+      ],
+      "tags": [
+        "国风",
+        "东方",
+        "水墨",
+        "海报"
+      ],
+      "category": "poster",
+      "count": 8
+    },
+    {
+      "key": "food_poster",
+      "name": "美食海报",
+      "description": "民族食物与餐饮海报：热气、油脂、食材堆叠与食欲光。",
+      "personas": [
+        "marketing",
+        "ecommerce"
+      ],
+      "tags": [
+        "美食",
+        "餐饮",
+        "海报"
+      ],
+      "category": "poster",
+      "count": 10
+    },
+    {
+      "key": "book_cover",
+      "name": "图书封面",
+      "description": "图书与出版物封面：版式层级、书名排版、系列感。",
+      "personas": [
+        "content",
+        "brand"
+      ],
+      "tags": [
+        "封面",
+        "出版",
+        "排版"
+      ],
+      "category": "print",
+      "count": 13
+    },
+    {
+      "key": "creative_play",
+      "name": "创意玩法",
+      "description": "像素风、祈运壁纸、鱼眼自拍与创意海报：社交传播向的新奇视觉。",
+      "personas": [
+        "content"
+      ],
+      "tags": [
+        "创意",
+        "像素",
+        "壁纸",
+        "鱼眼"
+      ],
+      "category": "illustration",
+      "count": 52
+    },
+    {
+      "key": "photo_edit",
+      "name": "P 图与反推",
+      "description": "图生图与提示词反推：把一张图拆成可复现的结构化提示词，再做风格迁移。",
+      "personas": [
+        "ecommerce",
+        "general",
+        "content"
+      ],
+      "tags": [
+        "反推",
+        "图生图",
+        "P图",
+        "风格迁移"
+      ],
+      "category": "photo",
+      "count": 60
+    },
+    {
+      "key": "general_design",
+      "name": "通用设计",
+      "description": "覆盖插画、摄影、海报、社媒、3D、音频封面的通用技能集，什么都能起步。",
+      "personas": [
+        "general"
+      ],
+      "tags": [
+        "通用",
+        "插画",
+        "摄影",
+        "海报",
+        "3D"
+      ],
+      "category": "general",
+      "count": 41
+    }
+  ]
+}

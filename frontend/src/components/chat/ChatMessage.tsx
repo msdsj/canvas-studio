@@ -233,9 +233,7 @@ export const ChatMessage = memo(
     prev.traceOpen === next.traceOpen &&
     (prev.images?.length ?? 0) === (next.images?.length ?? 0) &&
     (prev.images?.[0]?.asset_id ?? '') === (next.images?.[0]?.asset_id ?? '') &&
-    (prev.traceSteps?.length ?? 0) === (next.traceSteps?.length ?? 0) &&
-    (prev.traceSteps?.[prev.traceSteps.length - 1]?.status ?? '') ===
-      (next.traceSteps?.[next.traceSteps.length - 1]?.status ?? '') &&
+    JSON.stringify(prev.traceSteps ?? []) === JSON.stringify(next.traceSteps ?? []) &&
     (prev.skillId ?? '') === (next.skillId ?? '') &&
     (prev.skillName ?? '') === (next.skillName ?? '')
 )

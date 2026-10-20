@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import type { ReactNode } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { useAuth } from '@/hooks/use-auth'
 import { useUIStore } from '@/stores/ui'
 
@@ -22,8 +22,9 @@ function FullScreenLoader() {
  * 等于把上下文弄丢。首页 + 弹窗的组合，关掉弹窗就还是原来那一屏。
  */
 export function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { isAuthenticated, initialized } = useAuth()
+  const { isAuthenticated, initialized, user } = useAuth()
   const navigate = useNavigate()
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
   const openAuth = useUIStore((s) => s.openAuth)
 
   useEffect(() => {
@@ -33,6 +34,23 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
     }
   }, [initialized, isAuthenticated, navigate, openAuth])
 
+  /*
+   * 首登引导：还没选过使用场景的用户，先带他去选一次。
+   *
+   * 用 `persona_key` 而不是 `onboarding_completed_at` 做判据——引导页有「跳过」，
+   * 跳过时两者都会被写上；但历史用户只有 persona_key 为空这个信号，
+   * 拿完成时间判断会把老用户全部漏掉。
+   *
+   * `/onboarding` 自身也包在 ProtectedRoute 里，必须排除，否则无限重定向。
+   */
+  const needsOnboarding =
+    initialized && isAuthenticated && !user?.persona_key && pathname !== '/onboarding'
+
+  useEffect(() => {
+    if (needsOnboarding) void navigate({ to: '/onboarding', replace: true })
+  }, [needsOnboarding, navigate])
+
   if (!initialized || !isAuthenticated) return <FullScreenLoader />
+  if (needsOnboarding) return <FullScreenLoader />
   return <>{children}</>
 }

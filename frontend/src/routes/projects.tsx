@@ -15,6 +15,7 @@ import {
 } from '@/components/projects/ProjectDialogs'
 import { projectsApi } from '@/lib/api/projects'
 import { useToast } from '@/hooks/use-toast'
+import { useTeamScopeKey } from '@/hooks/use-team-scope'
 import { errorMessage } from '@/lib/errors'
 import type { CanvasProject } from '@/types/models'
 
@@ -51,9 +52,15 @@ function ProjectsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, size])
 
+  /*
+   * 切工作空间后必须重拉：团队空间与个人空间的项目列表是两套。
+   * 把 `scopeKey` 放进 `load` 的依赖（而不是单独 setPage(1)）——
+   * 只在「页码变了」时才重拉的话，用户在第 1 页切空间就不会有任何刷新。
+   */
+  const scopeKey = useTeamScopeKey()
   useEffect(() => {
     void load()
-  }, [load])
+  }, [load, scopeKey])
 
   const openProject = async (project: CanvasProject) => {
     try {

@@ -62,8 +62,12 @@ async def test_create_or_get_idempotent(db):
     assert await balance_of(uid) == 190
 
 
-async def test_concurrency_limit(db):
+async def test_concurrency_limit(db, monkeypatch):
     """超过并发上限抛 TASK_LIMIT_EXCEEDED。"""
+    original = task_service.config_service.get_value
+    async def configured_limit(db, key, default=None):
+        return 2 if key == "MAX_ACTIVE_TASKS_PER_USER" else await original(db, key, default)
+    monkeypatch.setattr(task_service.config_service, "get_value", configured_limit)
     uid = await make_user(200)
     await task_service.create_or_get(db, uid, "k1", "generate", "p", {}, 10, None, None)
     await task_service.create_or_get(db, uid, "k2", "generate", "p", {}, 10, None, None)

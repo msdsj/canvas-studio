@@ -153,5 +153,13 @@ export const generateApi = {
   pause: (id: string) => api.post<GenerationTask>(`/generate/tasks/${id}/pause`),
   resume: (id: string) => api.post<GenerationTask>(`/generate/tasks/${id}/resume`),
   cancel: (id: string) => api.post<GenerationTask>(`/generate/tasks/${id}/cancel`),
+  /**
+   * 重试失败/超时/已取消的任务。
+   *
+   * 与「重新生成」不同：这个走服务端复用原任务的 params（模型/尺寸/质量/编辑算子），
+   * 不再跑一遍 LLM 规划。用户已经看过一次结果了，他要的是「同样的东西再来一次」，
+   * 不是「重新理解我的需求」——而且省掉一次模型调用，快得多。
+   */
+  retry: (id: string) => api.post<GenerationTask>(`/generate/tasks/${id}/retry`, {}),
   markSeen: (id: string) => api.post<GenerationTask>(`/generate/tasks/${id}/seen`),
 }
