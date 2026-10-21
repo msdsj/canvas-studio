@@ -26,6 +26,7 @@ from app.schemas.compose_plan import (
     MIN_PROMPT_CHARS,
     NEGATIVE_MARKER,
     PLAN_SCHEMA_VERSION,
+    QUALITY_SUFFIX,
     ComposePlan,
 )
 from app.services import compose_service, plan_validator, relay_service, relay_types
@@ -411,9 +412,18 @@ def test_assemble_dispatch_prompt_truncates_negative_not_body():
     assert NEGATIVE_MARKER in assembled
 
 
-def test_empty_negative_keeps_prompt_untouched():
-    """没有负向词时不追加空段（避免出现「画面中避免出现：」这种半截文本）。"""
-    assert plan_validator.assemble_dispatch_prompt("主体", "") == "主体"
+def test_empty_negative_adds_only_quality_suffix():
+    """没有负向词时不追加空段，但平台内置画质词仍要补上。"""
+    assembled = plan_validator.assemble_dispatch_prompt("主体", "")
+    assert assembled.startswith("主体"), "用户内容必须原样在前"
+    assert assembled.endswith(QUALITY_SUFFIX), "内置画质词追加在末尾"
+    assert NEGATIVE_MARKER not in assembled, "空负向词不应产生半截标记"
+
+
+def test_quality_suffix_is_not_repeated():
+    """用户已经写了画质词时不再叠加内置画质词。"""
+    body = "一只橘猫，超高清 8K 画质"
+    assert plan_validator.assemble_dispatch_prompt(body, "") == body
 
 
 # --------------------------------------------------------------------------- #

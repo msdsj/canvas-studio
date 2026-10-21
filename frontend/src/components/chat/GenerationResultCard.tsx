@@ -128,6 +128,10 @@ export function GenerationResultCard({
   const regionIndexes = Array.isArray(params.region_indexes)
     ? params.region_indexes.filter((index): index is number => Number.isInteger(index))
     : []
+  const outputs = Array.isArray(params.outputs) ? params.outputs : []
+  const spriteOutput = outputs.some(
+    (item) => typeof item === 'object' && item !== null && (item as { kind?: unknown }).kind === 'sprite'
+  )
 
   const createdAt = parseServerTime(task.created_at)?.getTime() ?? null
   const timer = useStageTimer({ active, startedAt: createdAt, ...GENERATION_TIMING })
@@ -216,7 +220,10 @@ export function GenerationResultCard({
       <div
         key={url}
         data-result-tile
-        className="group/tile relative overflow-hidden rounded-sm bg-mat shadow-sheet ring-1 ring-inset ring-border-faint"
+        className={cn(
+          'group/tile relative overflow-hidden rounded-sm shadow-sheet ring-1 ring-inset ring-border-faint',
+          spriteOutput ? 'cs-sprite-checker' : 'bg-mat'
+        )}
         style={singleTile ? undefined : { aspectRatio: String(ratio) }}
       >
         <button
@@ -315,10 +322,16 @@ export function GenerationResultCard({
               {model}
             </span>
           )}
-          {ratioText && (
-            <span className="shrink-0 rounded-full bg-bg-subtle px-1.5 py-0.5 text-micro tabular-nums text-text-tertiary">
-              {ratioText}
+          {spriteOutput ? (
+            <span className="shrink-0 rounded-full bg-bg-subtle px-1.5 py-0.5 text-micro text-text-tertiary">
+              {ta('result.sprite')}
             </span>
+          ) : (
+            ratioText && (
+              <span className="shrink-0 rounded-full bg-bg-subtle px-1.5 py-0.5 text-micro tabular-nums text-text-tertiary">
+                {ratioText}
+              </span>
+            )
           )}
           {task.demo && <Badge variant="warning">{t('task.result_demo')}</Badge>}
         </span>

@@ -436,6 +436,31 @@ def _prompt_is_actionable(analysis: dict[str, Any], text: str) -> bool:
     return confidence >= 0.7
 
 
+_SKILL_NEGATIVES = {
+    str(skill.negative).strip()
+    for skill in design_skills.SKILLS
+    if str(skill.negative).strip()
+}
+_SKILL_NEGATIVE_TAIL = re.compile(r"\n*\s*画面中避免出现：([^\n]+)\s*$")
+
+
+def _strip_skill_negative_tails(text: str) -> str:
+    """删掉用户输入末尾由技能模板注入的负向段（如「避免写实皮肤」）。
+
+    这些负向段是平台自己的产物：用户从历史结果里复制、或旧版技能库插入后，
+    会一直留在输入里，把「真人写实」反向压成 Q 版/3D 角色。只删与内置技能
+    负向词**完全一致**的尾段，用户自己写的其它内容原样保留。
+    """
+    original = str(text or "").strip()
+    cleaned = original
+    while True:
+        match = _SKILL_NEGATIVE_TAIL.search(cleaned)
+        if match is None or match.group(1).strip() not in _SKILL_NEGATIVES:
+            break
+        cleaned = cleaned[: match.start()].rstrip()
+    return cleaned or original
+
+
 def _last_user_text(messages: list[dict[str, Any]]) -> str:
     """取最后一条 user 消息的正文（模板兜底时当作「用户需求」的近似）。"""
     for item in reversed(messages):
@@ -765,44 +790,6 @@ def _describe_context(assets: list[Any], selection: dict[str, Any] | None) -> st
     return "\n".join(lines)
 
 
-async def _user_skill_block(db: Any, user: User, text: str) -> str:
-    """把用户启用的技能包渲染成提示词片段（失败时静默返回空）。
-
-    技能包注入不能成为主链路的单点故障：读库失败、包文件缺失都只该让这一轮
-    「少一点风格参考」，而不是让整次生成失败。
-    """
-    try:
-        from app.services import skill_packs as skill_pack_service
-
-        items = await skill_pack_service.effective_items(db, user)
-        if not items:
-            return ""
-        picked = skill_pack_service.match_items(items, text)
-        return skill_pack_service.render_for_prompt(picked)
-    except Exception:  # noqa: BLE001 - 技能注入失败不影响主流程
-        logger.warning("技能包注入失败，本轮跳过", exc_info=True)
-        return ""
-
-
-def _skill_block(text: str) -> tuple[str, list[design_skills.DesignSkill]]:
-    """技能清单（内置 78 条设计技能）：初筛命中给完整骨架，未命中给全量目录。
-
-    这是**平台内置**的技能层，与用户启用的技能包（`skill_packs`）并行存在：
-    内置层是「设计方法论」（构图/光线/色彩这些通用知识），
-    技能包是「具体风格的提示词骨架」（电商详情、国风海报…）。
-    两者都进提示词，但分开渲染，模型能分辨哪部分是方法论、哪部分是风格参考。
-    """
-    hits = shortlist_skills(text)
-    if hits:
-        detail = "\n\n".join(design_skills.render_detail(skill.id) for skill in hits)
-        return f"## 可能适用的设计技能（初筛）\n\n{detail}", hits
-    return (
-        "## 设计技能目录（没有明显命中，按需参考）\n\n"
-        + "\n".join(f"- {skill.id}｜{skill.name}｜{skill.description}" for skill in design_skills.SKILLS[:20]),
-        [],
-    )
-
-
 # --------------------------------------------------------------------------- #
 # 主流程
 # --------------------------------------------------------------------------- #
@@ -818,7 +805,9 @@ async def stream_compose(
 ) -> AsyncIterator[str]:
     """SSE：把全链路思考实时吐给前端，最后给出结论（澄清 / 已提交 / 未配置）。"""
     trace = _Trace()
-    text = (content or "").strip()
+    raw_text = (content or "").strip()
+    # 展示与留档保留用户原话；分析与出图用清理掉技能注入负向段的版本
+    text = _strip_skill_negative_tails(raw_text)
     refs = [str(item) for item in (image_refs or []) if str(item).strip()][:4]
 
     async with AsyncSessionLocal() as db:
@@ -841,7 +830,7 @@ async def stream_compose(
             for asset in assets
         ]
         user_message = await _append_message(
-            db, session.id, user.id, "user", text, attachments=attachments
+            db, session.id, user.id, "user", raw_text, attachments=attachments
         )
         # 新的提交让本会话里还在等待选择的澄清卡作废：否则刷新后旧卡仍可点，
         # 用户会拿着一条已经过时的方案去花额度（服务端也会再拒一次）。
@@ -921,14 +910,12 @@ async def stream_compose(
         yield _sse({"event": "step", "step": dict(step)})
 
         template = await prompt_service.load(db, "compose_analyze")
-        skill_block, shortlisted = _skill_block(text)
-        # 用户启用的技能包（团队包 ∪ 个人包 − 单条禁用），按本次需求粗筛
-        pack_block = await _user_skill_block(db, user, text)
+        # 技能骨架 / 技能包不再注入分析提示词：只按用户原话判断，
+        # 避免平台预设的风格词覆盖用户的真实需求（例如把写实人像带成 Q 版）。
+        shortlisted: list[design_skills.DesignSkill] = []
         user_prompt = (
             f"用户原话：{text}\n\n"
             f"{_describe_context(assets, selection)}\n\n"
-            f"{skill_block}\n\n"
-            f"{pack_block}\n\n"
             "请先输出面向用户的分析摘要，再按系统契约输出结构化计划。"
         )
 
@@ -1175,7 +1162,6 @@ async def stream_compose(
         # size 是 aspect 的派生字段（C1）：只从 aspect 推，避免两个字段各说一套
         size = plan_validator.aspect_to_size(plan_data.get("aspect"))
         skill_id = str(plan_data.get("skill_id") or "").strip()
-        skill = design_skills.get_skill(skill_id)
         prompt_source = str(plan_data.get("prompt_source") or prompt_source)
 
         step = trace.start("prompt", STEPS[3][1], "确认最终交给图像模型的提示词")
@@ -1228,7 +1214,7 @@ async def stream_compose(
         step = trace.finish(
             "prompt",
             detail=final_prompt,
-            items=[f"技能：{skill.name}" if skill else "技能：通用设计原则"]
+            items=["提示词：按用户原话，未套用技能模板"]
             + ([f"必须避免：{negative}"] if negative else [])
             + [f"画幅：{size}"],
         )
@@ -1381,7 +1367,6 @@ async def stream_compose(
                 "aspect": plan_data.get("aspect") or "",
                 "size": size,
                 "decisions": [str(item) for item in (plan_data.get("reasoning") or [])][:4],
-                "skill": skill.name if skill else "",
                 "image_count": len(tasks),
                 "has_reference_images": bool(assets),
             },

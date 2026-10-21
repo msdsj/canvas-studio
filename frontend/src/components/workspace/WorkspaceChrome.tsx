@@ -112,26 +112,18 @@ export function AgentPanelHeader({ onCreateSession }: { onCreateSession: () => v
 
 /**
  * Agent 在线指示：一颗青柠点 + 一圈慢速外扩的光环。
- * 用 GSAP 而不是 animate-ping：ping 是 1s 一次的急促闪，放在常驻头部会让人焦虑；
+ * 不用 animate-ping：ping 是 1s 一次的急促闪，放在常驻头部会让人焦虑；
  * 这里 2.4s 一个呼吸周期，和「待命」这个状态的情绪一致。
+ *
+ * 注意：光环用 CSS 动画（`.cs-agent-pulse`）而不是 GSAP 补间。
+ * 此前用 `gsap.fromTo(..., { repeat: -1 })` 实现，会让 GSAP ticker 永不空闲，
+ * 整个工作台空转 60fps——纯装饰动画不值得付这个代价。
+ * `prefers-reduced-motion` 由 index.css 的全局规则统一兜底。
  */
 function AgentPulse() {
-  const ringRef = useRef<HTMLSpanElement>(null)
-  useLayoutEffect(() => {
-    const ring = ringRef.current
-    if (!ring || shouldReduceMotion()) return
-    const tween = gsap.fromTo(
-      ring,
-      { scale: 1, opacity: 0.55 },
-      { scale: 2.6, opacity: 0, duration: 2.4, ease: 'sine.out', repeat: -1 }
-    )
-    return () => {
-      tween.kill()
-    }
-  }, [])
   return (
     <span className="relative flex h-2 w-2 shrink-0 items-center justify-center" aria-hidden>
-      <span ref={ringRef} className="absolute h-2 w-2 rounded-full bg-accent-strong" />
+      <span className="cs-agent-pulse absolute h-2 w-2 rounded-full bg-accent-strong" />
       <span className="relative h-1.5 w-1.5 rounded-full bg-accent-strong" />
     </span>
   )

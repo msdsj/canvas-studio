@@ -147,7 +147,7 @@ export function ChatTextarea({
   const canSend = !disabled && !submitting && value.trim().length > 0 && !tooLong
 
   return (
-    <div className="shrink-0 px-2.5 pb-2.5 pt-1">
+    <div className="shrink-0 border-t border-border-faint px-2.5 pb-2.5 pt-2">
       {aboveSlot}
       <div
         onDrop={handleDrop}

@@ -31,6 +31,7 @@ from app.schemas.compose_plan import (
     MIN_PROMPT_CHARS,
     NEGATIVE_MARKER,
     PLAN_SCHEMA_VERSION,
+    QUALITY_SUFFIX,
     ComposeAnalysis,
     ComposePlan,
 )
@@ -156,10 +157,10 @@ def aspect_to_size(aspect: Any) -> str:
 # 技能选取
 # --------------------------------------------------------------------------- #
 def _pick_skill(skill_id: Any, shortlisted: Iterable[Any] | None) -> Any:
-    """优先用声明的 `skill_id`，取不到就用初筛第一条，再取不到就用技能库第一条。
+    """优先用声明的 `skill_id`，取不到就用初筛第一条；都没有则返回 `None`。
 
-    「取不到就回退 `shortlisted[0]`」在一期是**静默**行为（缺陷）；这里的回退只用于
-    **构造**兜底产出，模型输出仍然必须命中技能库才算通过校验（见 `validate_plan`）。
+    不再回退到技能库第一条：那会把与用户需求无关的技能骨架（风格词、负向词）
+    静默塞进提示词，导致画面风格被平台预设覆盖。
     """
     candidate = design_skills.get_skill(str(skill_id or "").strip())
     if candidate is not None:
@@ -167,7 +168,7 @@ def _pick_skill(skill_id: Any, shortlisted: Iterable[Any] | None) -> Any:
     for item in list(shortlisted or []):
         if item is not None:
             return item
-    return design_skills.SKILLS[0] if design_skills.SKILLS else None
+    return None
 
 
 def _skill_tags(skill: Any) -> list[str]:
@@ -189,7 +190,7 @@ def _skill_negative(skill: Any) -> str:
 def _ensure_rich_prompt(prompt: str, tags: list[str]) -> str:
     """把一段提示词补到「≥40 字符 + 含 ≥1 个 style_tag」（R06 的两条硬约束）。"""
     text = str(prompt or "").strip() or "画面主体清晰，构图完整"
-    filler = "，画面主体清晰，构图完整，光线自然，细节锐利，高清质感，专业摄影灯光"
+    filler = "，画面主体清晰，构图完整，光线自然，细节锐利，超高清画质，4K/8K 细节，专业摄影灯光"
     guard = 0
     while len(text) < MIN_PROMPT_CHARS and guard < 8:
         text = f"{text}{filler}"
@@ -502,14 +503,23 @@ def assemble_dispatch_prompt(
 
     超长时**优先截断负向段**而不是主体（ADR-4）——主体是用户要的画面，
     负向段只是「避免什么」，丢几个词不致命。
+
+    平台内置的 `QUALITY_SUFFIX` 会追加在主体末尾：用户自己要的画面原样保留，
+    只在后面补画质词。用户已经写过 4K/8K/超高清时不再重复。
     """
     body = str(final_prompt or "").strip()
+    suffix = (
+        QUALITY_SUFFIX
+        if body and not any(mark in body for mark in ("4K", "8K", "超高清"))
+        else ""
+    )
     tail_text = str(negative or "").strip()
     if not tail_text:
-        return body[:limit]
+        return f"{body}{suffix}"[:limit]
     tail = f"{NEGATIVE_MARKER}{tail_text}"
-    if len(body) + 2 + len(tail) <= limit:
-        return f"{body}\n\n{tail}"
+    if len(body) + len(suffix) + 2 + len(tail) <= limit:
+        return f"{body}{suffix}\n\n{tail}"
+    # 空间不够时先放弃画质后缀，保住主体与负向段（主体优先）
     room_for_tail = limit - len(body) - 2
     if room_for_tail > len(NEGATIVE_MARKER):
         return f"{body}\n\n{tail[:room_for_tail]}"

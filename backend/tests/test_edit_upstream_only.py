@@ -1,9 +1,10 @@
 """产品口径（2026-10-17）：所有编辑操作一律提交上游 gpt-image-2，并按编辑单价计费。
 
 这里锁死三条用户可见承诺：
-1. 每项抠图 / 透明化 / 改样式都先调用上游，后处理仅做原像素保真、alpha 合成与裁剪；
-2. 发出去的提示词必须包含区域编号与能力内置说明（否则上游不知道要干什么）；
-3. 任何编辑操作都产生费用，不再有「本地免费」路径。
+1. 透明化 / 改样式等重绘类操作先调用上游；**抠图走本地确定性像素处理**，
+   不送上游——上游会按「完整人物」补画框外内容（实测框到膝盖却补出了鞋）。
+2. 发出去的提示词必须包含区域编号与能力内置说明（否则上游不知道要干什么）。
+3. 编辑任务按产出数量计费；抠图不产生上游调用，也不应出现在上游调用里。
 """
 from __future__ import annotations
 
@@ -153,41 +154,34 @@ async def _finish(task_id: str) -> GenerationTask:
         ).scalar_one()
 
 
-async def test_cutout_calls_upstream_and_is_billed(monkeypatch):
-    """抠图 = 一次上游调用 + 计费，且提示词里带「透明背景」说明。"""
+async def test_cutout_is_local_and_never_redraws(monkeypatch):
+    """抠图 = 本地像素处理，**不调用上游**，结果只含框内原像素。"""
     rec = _Recorder()
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
 
     uid = await _make_user()
-    cost, task_id = await _create(
+    _, task_id = await _create(
         uid,
         [{"region": {"x": 0.3, "y": 0.3, "w": 0.4, "h": 0.4}, "handler": "cutout", "prompt": ""}],
         "把主体抠出来",
     )
-    assert cost > 0, "抠图必须计费"
 
     done = await _finish(task_id)
-    assert len(rec.calls) == 1, "必须调用上游一次"
-    sent_prompt = rec.calls[0]["form"]["prompt"]
-    assert "区域1" in sent_prompt
-    assert "透明背景" in sent_prompt
+    assert not rec.calls, "抠图不得调用上游：上游会重绘并补出框外内容"
     assert done.status == "succeeded", done.error_message
     assert len(done.result_urls) == 1
     # 执行记录必须落库，前端据此在左侧展示
     thinking = (done.params or {}).get("thinking") or []
     assert len(thinking) >= 3
-    # 只断言「关键词出现过」而不是钉死整句：过程文案会随产品口径微调，
-    # 但「这次是当成独立素材处理的」这个信息必须始终可见。
     assert any("素材" in step for step in thinking), thinking
 
 
-async def test_mixed_ops_use_composite_plus_per_sprite_call(monkeypatch):
-    """改样式 + 抠图：整图类合并 1 次、素材类每区 1 次，各自只带自己的区域指令。
+async def test_mixed_ops_use_composite_upstream_plus_local_sprites(monkeypatch):
+    """改样式 + 抠图：整图类合并 1 次上游，素材类每个区域本地各出一张。
 
     产出契约（与产品口径一致）：
     - 整图类（改样式/挖空/去物/增强）合并成 **1 次**调用，指令里含全部整图类区域；
-    - 素材类（抠图）**每个区域各 1 次**调用，指令里只含它自己那个区域
-      （否则「先抠左边、再抠右边」会被上游当成一次整图重绘，丢一半结果）。
+    - 素材类（抠图）**每个区域各 1 张**，全部本地处理，不夹带任何整图类指令。
     """
     rec = _Recorder()
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
@@ -204,42 +198,28 @@ async def test_mixed_ops_use_composite_plus_per_sprite_call(monkeypatch):
     assert cost > 0
     done = await _finish(task_id)
     assert done.status == "succeeded", done.error_message
-    assert len(rec.calls) == 2, "整图类 1 次 + 素材类 1 次"
+    assert len(rec.calls) == 1, "只有整图类需要上游；抠图本地完成"
 
     composite_prompt = rec.calls[0]["form"]["prompt"]
-    sprite_prompt = rec.calls[1]["form"]["prompt"]
     # 整图类：只带区域1，并保留「选区外像素不变」的约束
     assert "区域1" in composite_prompt and "换成蓝色" in composite_prompt
     assert "区域2" not in composite_prompt, "整图类调用不应夹带素材类区域"
     assert "mask 外的像素保持原样" in composite_prompt
-    # 素材类：只带区域2，并要求透明背景
-    assert "区域2" in sprite_prompt and "透明背景" in sprite_prompt
-    assert "换成蓝色" not in sprite_prompt, "素材类调用不应夹带整图类区域"
+    # 整图类必须带 mask（硬约束「只改选区」，而不是靠提示词自觉）
+    assert any(field == "mask" for field, _payload in rec.calls[0]["files"])
 
-    # 整图类必须带 mask（硬约束「只改选区」，而不是靠提示词自觉）；
-    # 素材类**刻意不带** mask：它的输入已经是裁到该区域的单主体图，
-    # 再叠一张整画布尺寸的 mask 会让上游退回整图编辑，产出又变成整张画布。
-    composite_call, sprite_call = rec.calls
-    assert any(field == "mask" for field, _payload in composite_call["files"])
-    assert not any(field == "mask" for field, _payload in sprite_call["files"])
-    assert not any(
-        payload[0].startswith("edit-guide") for _f, payload in sprite_call["files"]
-    ), "素材类不应再送引导图：裁块里没有第二个主体，红框只会被画进结果"
-    # 素材类送上去的是**裁块**，不是整张底图
-    sprite_name = sprite_call["files"][0][1][0]
-    assert sprite_name == "region.png"
-
-    # 产出数量：1 张修改图 + 1 张透明素材
+    # 产出数量：1 张修改图 + 1 张本地抠出的透明素材
     assert len(done.result_urls) == 2
+    outputs = (done.params or {}).get("outputs") or []
+    assert any(item.get("kind") == "sprite" for item in outputs)
 
 
-async def test_each_cutout_region_sends_its_own_crop(monkeypatch):
-    """两个抠图区域必须各自把「自己那一块」送上游，否则会拿到两张一模一样的素材。
+async def test_each_cutout_region_yields_its_own_sprite(monkeypatch):
+    """两个抠图区域必须各自产出「自己那一块」，且不调用上游。
 
-    回归（2026-10-21 实测）：整张底图 + 全图引导图送上去时，上游把红框当成
-    「参考位置」，然后自己挑一个主体重画——6×4 九宫格里框了第 1 个和第 3 个机器人，
-    两次都返回同一个居中机器人，用户看到的是「抠了两张，图却一样」。
-    正确做法是先把底图裁到该区域再送，输入里只剩这一个主体，它没有第二个可选。
+    回归（2026-10-21 实测）：两张裁剪图分别送给上游时，上游会重画主体；
+    框了两处却返回同一个居中主体，还会按「完整人物」补画框外内容。
+    现在改为本地按区域逐像素裁切+分离背景，两个区域天然得到两张不同素材。
     """
     rec = _Recorder()
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
@@ -272,29 +252,19 @@ async def test_each_cutout_region_sends_its_own_crop(monkeypatch):
     done = await _finish(task.id)
     assert done.status == "succeeded", done.error_message
     assert len(done.result_urls) == 2, "两个区域必须各出一张素材"
+    assert not rec.calls, "两个区域都在本地处理，不得调用上游"
 
-    sprite_calls = [c for c in rec.calls if "纯透明背景" in c["form"]["prompt"]]
-    assert len(sprite_calls) == 2, "素材类每区域各一次调用"
-    sent = [c["files"][0][1][1] for c in sprite_calls]
-    assert sent[0] != sent[1], "两个区域的输入裁块必须不同（否则上游只能重画同一个主体）"
+    colors = []
+    for url in done.result_urls:
+        with _load(url) as sprite:
+            opaque = [px[:3] for px in sprite.convert("RGBA").getdata() if px[3] > 200]
+        assert opaque, "每个区域都应有可见主体"
+        colors.append(max(set(opaque), key=opaque.count))
+    assert colors[0][0] > colors[0][2], colors
+    assert colors[1][2] > colors[1][0], colors
+    assert colors[0] != colors[1], "两个区域必须各自裁自己的那一块"
 
-    # ⚠️ 素材类走并发（semaphore + gather），**调用先后顺序不保证**。
-    # 断言必须与顺序无关：收集两个裁块的中心色，再和两个期望色做无序匹配。
-    expected = [(220, 30, 30), (30, 60, 220)]  # 左半红 / 右半蓝
-    centers = []
-    for payload in sent:
-        with Image.open(io.BytesIO(payload)) as crop:
-            rgb = crop.convert("RGB")
-            centers.append(rgb.getpixel((rgb.width // 2, rgb.height // 2)))
-    for want in expected:
-        best = min(centers, key=lambda c: sum(abs(a - b) for a, b in zip(c, want)))
-        distance = sum(abs(a - b) for a, b in zip(best, want))
-        assert distance < 120, f"应有一个裁块对应 {want}，实际中心色集合 {centers}"
-        centers.remove(best)
 
-    # 两张素材本身也必须不同
-    first, second = (_load(url) for url in done.result_urls)
-    assert first.tobytes() != second.tobytes()
 
 
 async def test_transparent_calls_upstream(monkeypatch):

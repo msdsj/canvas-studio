@@ -30,7 +30,8 @@ async def prompt_presets(
     """
     presets = await config_service.get_json(db, "EDIT_PROMPT_PRESETS", [])
     template = await config_service.get_value(
-        db, "EDIT_PROMPT_TEMPLATE", "请仅修改图中红色框选标记的区域，未标记区域保持完全不变。"
+        db, "EDIT_PROMPT_TEMPLATE", "请仅修改图中红色框选标记的区域，未标记区域保持完全不变"
+        "；输出超高清画质，4K/8K 细节，清晰锐利，无噪点、无模糊。"
     )
     return envelope({"template": str(template), "presets": presets if isinstance(presets, list) else []})
 

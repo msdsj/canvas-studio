@@ -10,6 +10,18 @@
  *  - .cs-lite（低性能设备，由 lib/motion.ts 挂在 <html> 上）：同上。
  * ------------------------------------------------------------------------- */
 
+/* 透明素材底纹：让「已去背景」一眼可见，而不是看成白底或黑底 */
+.cs-sprite-checker {
+  background-color: var(--color-bg-subtle, #f2f0ea);
+  background-image:
+    linear-gradient(45deg, rgb(0 0 0 / 6%) 25%, transparent 25%),
+    linear-gradient(-45deg, rgb(0 0 0 / 6%) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgb(0 0 0 / 6%) 75%),
+    linear-gradient(-45deg, transparent 75%, rgb(0 0 0 / 6%) 75%);
+  background-size: 14px 14px;
+  background-position: 0 0, 0 7px, 7px -7px, -7px 0;
+}
+
 /* 链路扫描光：一条青柠短光沿竖直连接线往下流，表示「正在往下推」。 */
 .cs-stream-flow {
   background-image: linear-gradient(

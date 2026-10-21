@@ -53,6 +53,15 @@ def _base_png() -> bytes:
     return buf.getvalue()
 
 
+def _subject_png() -> bytes:
+    """白底 + 中心一块彩色主体：用于验证本地抠图只保留框内主体。"""
+    image = Image.new("RGB", BASE_SIZE, (255, 255, 255))
+    ImageDraw.Draw(image).rectangle((24, 24, 40, 40), fill=(200, 40, 40))
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def _brush_mask_png() -> bytes:
     """模拟「画笔自由选区」的并集掩码：只有一条细斜线是透明的。
 
@@ -74,6 +83,11 @@ def _mask_transparent_at(mask_bytes: bytes, point: tuple[int, int]) -> bool:
     with Image.open(io.BytesIO(mask_bytes)) as image:
         rgba = image.convert("RGBA")
     return rgba.getchannel("A").getpixel(point) <= 8
+
+
+def _result_bytes(task: GenerationTask) -> bytes:
+    """取出任务第一张产出的原始字节。"""
+    return generate_service._local_bytes(task.result_urls[0])[0]
 
 
 def _sent_mask(call: dict) -> bytes:
@@ -150,8 +164,9 @@ async def _create_task(
     *,
     mask_url: str | None = None,
     prompt: str = "按区域处理",
+    base: bytes | None = None,
 ) -> str:
-    base_url = await _make_asset(uid, _base_png(), "base.png")
+    base_url = await _make_asset(uid, base or _base_png(), "base.png")
     async with AsyncSessionLocal() as db:
         task, _ = await generate_service.create_edit_task(
             db,
@@ -280,18 +295,17 @@ async def test_broken_mask_url_falls_back_to_generated(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# 3) 素材类不被全局掩码污染
+# 3) 素材类本地抠图，不参与上游掩码
 # --------------------------------------------------------------------------- #
-async def test_sprite_call_sends_region_crop_instead_of_mask(monkeypatch):
-    """抠图（素材类）改成「裁块直送」，**不再带 mask**。
+async def test_sprite_region_is_cut_locally(monkeypatch):
+    """抠图（素材类）走本地像素处理，**不调用上游、不带掩码**。
 
-    契约变更（2026-10-21）：素材类若继续带整画布 mask + 整画布引导图，上游会把
-    红框当"参考位置"自己挑主体重画——框两处会返回同一个居中主体。所以现在
-    前端上行的画笔掩码**不参与素材类调用**：素材类要的是"只含这一个主体的图"，
-    而 mask 的语义是"只改这块、其余保留"，两者目标冲突。
+    契约变更（2026-10-21）：上游会按「完整人物」重绘并补出框外内容，
+    实测框到膝盖的人物被补上了腿和鞋。现在素材类直接从原图按选区裁切并
+    分离背景，框外内容没有来源，不可能被脑补出来。
 
-    这条测试锁两件事：① 素材调用不带 mask 字段；② 送上去的是裁块（region.png），
-    不是整张底图。整图类的 mask 行为由 test_brush_mask 其余用例继续守着。
+    这条测试锁三件事：① 不产生上游调用；② 产出是带 alpha 的 RGBA；
+    ③ 素材尺寸不超过选区，不会把框外内容带进来。
     """
     rec = _Recorder()
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
@@ -302,58 +316,58 @@ async def test_sprite_call_sends_region_crop_instead_of_mask(monkeypatch):
         uid,
         [{"region": CENTER_REGION, "handler": "cutout", "prompt": ""}],
         mask_url=mask_url,
+        base=_subject_png(),
     )
     done = await _finish(task_id)
     assert done.status == "succeeded", done.error_message
-    assert len(rec.calls) == 1, "单个素材区域只调用一次"
+    assert not rec.calls, "抠图不得调用上游"
 
-    call = rec.calls[0]
-    assert not any(field == "mask" for field, _p in call["files"]), "素材类不得携带 mask"
-    assert call["files"][0][1][0] == "region.png", "素材类送的是裁块，不是整张底图"
-    with Image.open(io.BytesIO(call["files"][0][1][1])) as crop:
-        # 裁块尺寸必然小于原图（外扩 6% 后仍远小于整图）
-        assert crop.width < BASE_SIZE[0] and crop.height < BASE_SIZE[1]
+    with Image.open(io.BytesIO(_result_bytes(done))) as output:
+        assert output.mode == "RGBA"
+        assert output.width <= round(BASE_SIZE[0] * CENTER_REGION["w"]), "素材不得超出选区"
+        assert output.height <= round(BASE_SIZE[1] * CENTER_REGION["h"]), "素材不得超出选区"
+        alpha = output.getchannel("A")
+        assert alpha.getextrema()[0] == 0, "背景必须透明"
+        assert alpha.getextrema()[1] == 255, "主体必须保留"
 
 
-async def test_two_sprite_regions_send_distinct_crops(monkeypatch):
-    """两个素材区域各调用一次，每次送的是**自己那块**裁块（不再靠掩码区分）。
-
-    契约变更（2026-10-21）：上游会无视掩码重画居中单主体，所以素材类改由
-    "输入裁块本身"来区分区域。这里断言两次调用的裁块内容不同，
-    且各自只占原图的一个角落。
-    """
+async def test_two_sprite_regions_are_cut_separately(monkeypatch):
+    """两个素材区域各出一张，各自只含自己框到的主体，互不相同。"""
     rec = _Recorder()
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
 
     left = {"x": 0.05, "y": 0.05, "w": 0.3, "h": 0.3}
     right = {"x": 0.6, "y": 0.6, "w": 0.3, "h": 0.3}
     uid = await _make_user()
-    mask_url = await _make_asset(uid, _brush_mask_png(), "edit-mask.png")
+    canvas = Image.new("RGB", BASE_SIZE, (255, 255, 255))
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle((6, 6, 20, 20), fill=(200, 40, 40))
+    draw.rectangle((42, 42, 58, 58), fill=(40, 70, 210))
+    buf = io.BytesIO()
+    canvas.save(buf, format="PNG")
+
     task_id = await _create_task(
         uid,
         [
             {"region": left, "handler": "cutout", "prompt": ""},
             {"region": right, "handler": "cutout", "prompt": ""},
         ],
-        mask_url=mask_url,
+        base=buf.getvalue(),
     )
     done = await _finish(task_id)
     assert done.status == "succeeded", done.error_message
-    assert len(rec.calls) == 2, "每个素材区域各一次调用"
+    assert not rec.calls, "抠图不得调用上游"
+    assert len(done.result_urls) == 2, "两个区域必须各出一张素材"
 
-    crops = [call["files"][0][1][1] for call in rec.calls]
-    sizes: list[tuple[int, int]] = []
-    for call, crop_bytes in zip(rec.calls, crops):
-        assert not any(field == "mask" for field, _p in call["files"]), "素材类不得携带 mask"
-        with Image.open(io.BytesIO(crop_bytes)) as crop:
-            sizes.append(crop.size)
-            # 0.3 宽的选区外扩 6% → 约 0.336，远小于整图
-            assert crop.width < BASE_SIZE[0] * 0.5, "裁块应只覆盖选区，而不是整张图"
-    # 底图是纯色（_Recorder 固定返回纯色），两个裁块像素内容天然相同，
-    # 所以用**几何**区分：两块选区尺寸一致时，裁块也应一致；这里只要求
-    # 「确实按各自选区裁了」，而不是「字节不同」。
-    assert all(size == sizes[0] for size in sizes), sizes
-    assert done.result_urls, "两个素材都应产出结果"
+    colors = []
+    for url in done.result_urls:
+        raw = generate_service._local_bytes(url)[0]
+        with Image.open(io.BytesIO(raw)) as sprite:
+            opaque = [px[:3] for px in sprite.convert("RGBA").getdata() if px[3] > 200]
+        assert opaque, "每个区域都应有可见主体"
+        colors.append(max(set(opaque), key=opaque.count))
+    assert colors[0][0] > colors[0][2], colors
+    assert colors[1][2] > colors[1][0], colors
 
 
 # --------------------------------------------------------------------------- #

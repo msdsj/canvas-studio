@@ -125,7 +125,7 @@ _PAREN_META = re.compile(r"[（(]\s*(?:参考图|参考|图\s*\d+|见附件|截�
 
 _REGION_TAIL = "，仅修改该区域，其余部分保持原样"
 _SCENE_TAIL = {
-    "composer": "，高清细节，构图完整",
+    "composer": "，超高清画质，4K/8K 细节，清晰锐利，构图完整",
     "sidebar": "",
     "region": _REGION_TAIL,
 }

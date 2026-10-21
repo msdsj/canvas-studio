@@ -61,7 +61,8 @@ DEFAULT_CONFIGS: list[ConfigDef] = [
     # ---- 编辑提示词内置配置（上传/编辑流程共用，随用户提示词一并透传上游）----
     ConfigDef(
         "EDIT_PROMPT_TEMPLATE",
-        "请仅修改图中红色框选标记的区域，未标记区域保持完全不变。",
+        "请仅修改图中红色框选标记的区域，未标记区域保持完全不变；"
+        "输出超高清画质，4K/8K 细节，清晰锐利，无噪点、无模糊。",
         "string",
         "prompt",
         "编辑任务内置提示词前缀（自动拼接在用户提示词之前）",
@@ -70,7 +71,11 @@ DEFAULT_CONFIGS: list[ConfigDef] = [
         "EDIT_PROMPT_PRESETS",
         json.dumps(
             [
-                {"id": "enhance", "label": "画质增强", "prompt": "提升该区域的清晰度与细节，保持内容一致"},
+                {
+                    "id": "enhance",
+                    "label": "画质增强",
+                    "prompt": "提升该区域的清晰度与细节，超高清 4K/8K 画质，边缘锐利、无噪点，保持内容一致",
+                },
                 {"id": "remove", "label": "去除杂物", "prompt": "去除该区域的物体，并用周围背景自然填补"},
                 {"id": "replace", "label": "替换主体", "prompt": "将该区域的主体替换为"},
                 {"id": "style", "label": "风格迁移", "prompt": "将该区域改为水彩插画风格，其余保持不变"},

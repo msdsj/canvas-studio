@@ -36,8 +36,11 @@ def classify_status(status: int, body_text: str = "") -> GatewayError:
     """
     lowered = (body_text or "").lower()
     if any(hint in lowered for hint in _POOL_HINTS):
+        # 号池「暂时排不上」是瞬时容量问题：同一模型等几秒往往就能拿到账号。
+        # 这里标记为可重试（不换模型——换模型不会凭空多出账号），
+        # 由 `resilience` 用更长的退避等待，避免用户刚点一次就直接失败。
         return GatewayError(
-            ErrorCode.POOL_UNAVAILABLE, "上游号池无可用账号", retryable=False, switch_model=False
+            ErrorCode.POOL_UNAVAILABLE, "上游号池无可用账号", retryable=True, switch_model=False
         )
     if status in (401, 403):
         return GatewayError(

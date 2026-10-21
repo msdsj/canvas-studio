@@ -59,6 +59,10 @@ NEGATIVE_MARKER = "画面中避免出现："
 #: 技能没给 `negative` 时的兜底负向词（真实容易画坏的东西，不是通用「低质量」堆砌）
 DEFAULT_NEGATIVE = "低清晰度、模糊、畸变、多余手指、文字错乱、水印、裁切不当"
 
+#: 平台内置画质强化后缀：每次派发生图/编辑时自动追加，让成片更清晰锐利。
+#: 用户原话已经写了画质词时不再重复（见 `plan_validator.assemble_dispatch_prompt`）。
+QUALITY_SUFFIX = "，超高清画质，4K/8K 细节，清晰锐利，无噪点"
+
 #: 技能没有任何 `style_tags` 时的兜底（保证 R06 的「含 ≥1 个 style_tag」可满足）
 DEFAULT_STYLE_TAGS: tuple[str, ...] = ("高清质感", "构图完整")
 

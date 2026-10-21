@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from '@tanstack/react-router'
 import type { ExcalidrawInitialDataState } from '@excalidraw/excalidraw/types'
 import { CanvasExcali } from './CanvasExcali'
+import { ScrollTrigger } from '@/lib/gsap'
 import { CanvasHeader } from './CanvasHeader'
 import { CanvasToolbar } from './CanvasToolbar'
 import { ImageEditLayer, type ImageEditLayerHandle } from './ImageEditLayer'
@@ -299,6 +300,21 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   const closeStudioDrawer = useUIStore((s) => s.closeStudioDrawer)
   const agentPanelRef = useRef<HTMLDivElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
+
+  /*
+   * 工作台不需要 ScrollTrigger：这里的动画全是补间/时间线，没有一个滚动触发器。
+   * 但 `@/lib/gsap` 会全局注册插件，聊天卡片一 import 就把它带进来了，
+   * 于是 ScrollTrigger 在「0 个实例」的情况下仍然 60fps 空转
+   * （实测占页面自请求帧的一半：124/s → 60/s）。
+   * 进工作台关掉、离开时恢复，主页的滚动动画不受影响。
+   */
+  useEffect(() => {
+    ScrollTrigger.disable(false, true)
+    return () => {
+      ScrollTrigger.enable()
+    }
+  }, [])
+
   // Agent 面板：≥md 推挤收放；移动端由「画布 / 对话」分段切换接管
   usePanelMotion(agentPanelRef, agentPanelOpen, { pushQuery: '(min-width: 768px)' })
   // 工作室抽屉：≥lg 推挤画布；更窄时从左侧滑出、盖在内容之上

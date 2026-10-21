@@ -4,7 +4,6 @@ import {
   ArrowDown,
   Check,
   Images,
-  LibraryBig,
   Loader2,
   Plus,
   Settings2,
@@ -23,7 +22,7 @@ import {
 import { usePolling } from '@/hooks/use-polling'
 import { useToast } from '@/hooks/use-toast'
 import { assetsApi } from '@/lib/api/assets'
-import { aiApi, type DesignSkill, type ModelCatalog, type RelayStatus } from '@/lib/api/ai'
+import { aiApi, type ModelCatalog, type RelayStatus } from '@/lib/api/ai'
 import {
   chatApi,
   pickComposeRun,
@@ -57,7 +56,6 @@ import { ChatTextarea, type ComposerAttachment } from './ChatTextarea'
 import { GenerationResultCard } from './GenerationResultCard'
 import { ConfirmCountCard, type ConfirmCardState } from './ConfirmCountCard'
 import { ClarifyCard, type ClarifyState } from './ClarifyCard'
-import { SkillLibraryPanel } from './SkillLibraryPanel'
 import { PolishPopover } from './PolishPopover'
 import { AIConfigDialog } from '@/components/ai/AIConfigDialog'
 import { SessionSelector } from './SessionSelector'
@@ -104,6 +102,23 @@ interface ChatPanelProps {
 }
 
 const DRAFT_PREFIX = 'cs.draft:'
+
+/**
+ * 素材类结果（抠图/透明素材）的多张独立产出。
+ *
+ * 只在这种「每个选区各自一张、彼此无关」的任务上返回 URL 列表；
+ * 普通多图生成仍走一张结果卡内的网格，不能一刀切拆开。
+ */
+function spriteResultUrls(task: GenerationTask): string[] {
+  const outputs = (task.params as Record<string, unknown> | undefined)?.outputs
+  const hasSprite =
+    Array.isArray(outputs) &&
+    outputs.some(
+      (item) => typeof item === 'object' && item !== null && (item as { kind?: unknown }).kind === 'sprite'
+    )
+  const urls = task.result_urls ?? []
+  return hasSprite && urls.length > 1 ? urls : []
+}
 
 type TimelineEntry =
   | { kind: 'message'; at: number; message: ChatMessageType }
@@ -200,10 +215,10 @@ function ThinkingBubble({
           className={reply ? 'mb-2' : undefined}
         />
         {reply && (
-            <div className="min-w-0 rounded-[16px] rounded-tl-[6px] bg-surface px-3.5 py-2.5 shadow-xs ring-1 ring-inset ring-border-faint">
-              <Markdown content={reply} size="ui" />
-              {active && <span className="cs-caret ml-0.5 inline-block h-[1em] w-[2px] rounded-full bg-accent-strong align-[-0.15em]" />}
-            </div>
+          <div className="min-w-0 text-ui leading-[1.75] text-text">
+            <Markdown content={reply} size="ui" />
+            {active && <span className="cs-caret ml-0.5 inline-block h-[1em] w-[2px] rounded-full bg-accent-strong align-[-0.15em]" />}
+          </div>
         )}
       </div>
     </div>
@@ -308,7 +323,6 @@ export function ChatPanel({
     setImageModel(value)
     localStorage.setItem('cs.imageModel', value)
   }
-  const [skillOpen, setSkillOpen] = useState(false)
   const [relay, setRelay] = useState<RelayStatus | null>(null)
   /** 上一次提交的原话，用于配置完成后重试。 */
   const lastComposeRef = useRef<string>('')
@@ -1296,14 +1310,6 @@ export function ChatPanel({
     }
   }
 
-  /** 技能库：把骨架写进输入框（{主体} 用当前内容替换，避免让用户对着占位符发呆）。 */
-  const insertSkill = (skill: DesignSkill) => {
-    const subject = input.trim()
-    const scaffold = skill.prompt_scaffold.replace(/\{主体\}/g, subject || '（主体）')
-    updateInput(subject && !scaffold.startsWith(subject) ? `${subject}。${scaffold}` : scaffold)
-    toast.success(ta('say.skill_applied', { name: skill.name }), ta('say.skill_applied_hint'))
-  }
-
   /**
    * 刷新后恢复待确认卡：assistant 消息附件里带着 `status==='confirm'` 的 skill_run。
    *
@@ -1414,7 +1420,7 @@ export function ChatPanel({
     <div className="flex h-full min-h-0 flex-col bg-surface">
       {/* 会话条：品牌 / 新建 / 收起已由外层 Agent 面板头承担，这里只回答两件事——
           「当前是哪段对话」与「Agent 现在连没连上、手上有几张图在跑」。 */}
-      <div className="flex h-9 shrink-0 items-center gap-1.5 px-3">
+      <div className="flex h-10 shrink-0 items-center gap-1.5 px-3.5">
         {/*
          * 会话切换器：列表会长到几十条，直接铺下拉会有「找不到 / 分不清 / 误删」
          * 三个问题，所以用带搜索、时间分组、二次确认的 SessionSelector。
@@ -1500,7 +1506,7 @@ export function ChatPanel({
 
       <div className="relative min-h-0 flex-1">
         <ScrollArea className="h-full">
-          <div className="flex flex-col gap-3 px-3 pb-4">
+          <div className="flex flex-col gap-4 px-3.5 pb-5 pt-1">
             {/* 会话加载：给骨架而不是空白，让"正在加载"可被感知 */}
             {messagesLoading && timeline.length === 0 && (
               <div className="flex flex-col gap-3 pt-2">
@@ -1617,6 +1623,60 @@ export function ChatPanel({
               }
               // 生成结果直接以 AI 气泡落在对话里：左侧头像 + 结果卡，
               // 不再另设侧栏大图位，也不再回显生图提示词。
+              //
+              // 素材类任务（抠图）里每个选区都是独立产出，必须一张一张分开渲染：
+              // 两张竖图挤在同一个 1:1 网格里会被裁成「半截图」，既看不清也分不开。
+              const spriteUrls = spriteResultUrls(entry.task)
+              if (spriteUrls.length > 1) {
+                const taskParams = entry.task.params as Record<string, unknown>
+                const spriteMeta = Array.isArray(taskParams.outputs)
+                  ? (taskParams.outputs.find(
+                      (item) =>
+                        typeof item === 'object' &&
+                        item !== null &&
+                        (item as { kind?: unknown }).kind === 'sprite'
+                    ) as { region_indexes?: unknown[] } | undefined)
+                  : undefined
+                const regionSource = Array.isArray(taskParams.region_indexes)
+                  ? (taskParams.region_indexes as unknown[])
+                  : Array.isArray(spriteMeta?.region_indexes)
+                    ? spriteMeta.region_indexes
+                    : []
+                return (
+                  <div key={entry.task.id} className="flex flex-col gap-2 pl-[30px]">
+                    {spriteUrls.map((url, index) => (
+                      <div key={url} className="cs-bubble-in-left min-w-0">
+                        <GenerationResultCard
+                          task={{
+                            ...entry.task,
+                            result_urls: [url],
+                            params: {
+                              ...entry.task.params,
+                              n: 1,
+                              batch_index: index + 1,
+                              batch_total: spriteUrls.length,
+                              batch_label: '',
+                              region_indexes: regionSource[index]
+                                ? [regionSource[index]]
+                                : [index + 1],
+                            },
+                          }}
+                          placedUrls={placedUrls}
+                          busy={busyTaskId === entry.task.id || composing}
+                          offline={!online}
+                          onAddToCanvas={handleAddToCanvas}
+                          onPlaceImage={(item, target) => void handlePlaceImage(item, target)}
+                          onRetryStalled={handleRetryStalled}
+                          onCancel={handleCancel}
+                          onRegenerate={handleRegenerate}
+                          onPreview={(task, target) => setPreview({ url: target, prompt: task.prompt })}
+                          onReference={referenceImage}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )
+              }
               return (
                 <div key={entry.task.id} className="cs-bubble-in-left flex pl-[30px]">
                   <div className="min-w-0 flex-1">
@@ -1790,17 +1850,6 @@ export function ChatPanel({
             disabled={!input.trim()}
           />
         }
-        leftSlot={
-          <button
-            type="button"
-            onClick={() => setSkillOpen(true)}
-            title={ta('ui.skill_library')}
-            aria-label={ta('ui.skill_library')}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-brand-subtle hover:text-brand-text"
-          >
-            <LibraryBig size={15} />
-          </button>
-        }
         attachSlot={
           onUpload || onPickAsset ? (
             <DropdownMenu>
@@ -1864,7 +1913,6 @@ export function ChatPanel({
           void loadRelay()
         }}
       />
-      <SkillLibraryPanel open={skillOpen} onOpenChange={setSkillOpen} onPick={insertSkill} />
 
       {preview && (
         <div

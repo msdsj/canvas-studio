@@ -35,6 +35,27 @@ export default defineConfig({
       },
     },
   },
+  /*
+   * 生产构建预览（`npm run build && npm run preview`）。
+   * dev 模式带 HMR、未压缩、React 开发版，CPU 明显高于构建产物；
+   * 想安心用（而不是改代码）时走这里，端口与代理跟 dev 保持一致。
+   */
+  preview: {
+    port: 27190,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:27181',
+        changeOrigin: true,
+        ws: true,
+        timeout: 0,
+        proxyTimeout: 0,
+      },
+      '/static': {
+        target: 'http://127.0.0.1:27181',
+        changeOrigin: true,
+      },
+    },
+  },
   build: {
     outDir: 'dist',
     sourcemap: false,

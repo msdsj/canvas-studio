@@ -40,6 +40,7 @@ from app.services import edit_ops as ops_module
 from app.services import edit_prompt_service
 from app.services.edit_handlers import (
     ENGINE_UPSTREAM,
+    EXECUTOR_CUTOUT,
     OUTPUT_COMPOSITE,
     OUTPUT_SPRITE,
     EditHandler,
@@ -432,6 +433,18 @@ async def _run_edit_task(db: AsyncSession, task: GenerationTask) -> dict[str, An
         async def run_sprite(op: ops_module.EditOp) -> tuple[int, bytes | None, bool]:
             async with semaphore:
                 handler = resolve_handler(handlers, op.handler)
+                if handler.executor == EXECUTOR_CUTOUT:
+                    # 本地确定性抠图：直接从原图按选区裁切并分离背景，
+                    # 逐像素保留用户框到的内容。绝不调用上游重绘——
+                    # 上游会按「完整人物」补画框外没有的腿和鞋，属于脑补。
+                    try:
+                        sprite = await offload.run_sync(
+                            cutout_service.extract_sprite, base_bytes, op.region
+                        )
+                        return op.index, sprite, False
+                    except Exception:  # noqa: BLE001 - 单区域失败不影响其它区域
+                        logger.exception("本地抠图区域 %s 失败 task=%s", op.index, task.id)
+                        return op.index, None, False
                 prompt = _compose_prompt(global_prompt, ops_module.build_instruction([op], handlers), sprite=True)
                 if handler.prompt_prefix:
                     prompt = f"{handler.prompt_prefix}\n{prompt}"

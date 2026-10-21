@@ -47,7 +47,10 @@ async def run_with_fallback(
                 if not error.retryable:
                     raise error
                 if attempt_no < retries:
-                    delay = base_delay * (2**attempt_no) + random.uniform(0, 0.2)
+                    # 号池瞬时排队需要更长的等待：上游「暂时排不上」通常几秒后恢复，
+                    # 0.4s 级别的退避来不及释放账号，等于白重试。
+                    base = base_delay * (6 if error.code is ErrorCode.POOL_UNAVAILABLE else 1)
+                    delay = base * (2**attempt_no) + random.uniform(0, 0.2)
                     logger.warning(
                         "上游调用失败（%s），%.1fs 后重试同一模型 %s：%s",
                         error.code.value,

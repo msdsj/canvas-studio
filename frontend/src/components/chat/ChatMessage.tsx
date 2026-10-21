@@ -102,7 +102,7 @@ function ChatMessageInner({ message, streaming, images, traceSteps, traceOpen, s
         {/* 头部：时间 · 你（右对齐），与 Agent 侧的「名字 · 时间」镜像 */}
         <div className="flex items-center gap-1.5 pr-0.5">
           {message.content && (
-            <span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+            <span className="opacity-60 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
               <ActionButton
                 label={copied ? ta('feedback.copied') : ta('feedback.copy')}
                 onClick={() => void copy()}
@@ -169,9 +169,10 @@ function ChatMessageInner({ message, streaming, images, traceSteps, traceOpen, s
         )}
 
         {message.content ? (
-          // 回答放进一张浅描边卡片：长回复（列表 / 参数）有边界才好读，
-          // 和下方的决策卡、结果卡在视觉上属于同一组
-          <div className="min-w-0 rounded-[16px] rounded-tl-[6px] bg-surface px-3.5 py-2.5 shadow-xs ring-1 ring-inset ring-border-faint">
+          // 回答直接排在面板上：不再套描边卡片。
+          // 340px 宽的对话列里，卡片内边距 + 描边会把正文挤成很窄的一条，
+          // 长回复看起来像被框住；去掉后与上方名字、下方操作按钮同宽更舒展。
+          <div className="min-w-0 text-ui leading-[1.75] text-text">
             <Markdown content={message.content} size="ui" />
             {/* 流式光标：让"还在写"这件事有明确的视觉信号 */}
             {streaming && (
@@ -179,7 +180,7 @@ function ChatMessageInner({ message, streaming, images, traceSteps, traceOpen, s
             )}
           </div>
         ) : streaming ? (
-          <div className="inline-flex items-center gap-1 rounded-[16px] rounded-tl-[6px] bg-surface px-3.5 py-3 ring-1 ring-inset ring-border-faint">
+          <div className="inline-flex items-center gap-1 rounded-[16px] rounded-tl-[6px] bg-surface-raised px-3.5 py-3 ring-1 ring-inset ring-border-faint">
             {[0, 1, 2].map((index) => (
               <span
                 key={index}

@@ -10,6 +10,9 @@ os.environ["CS_DATABASE_URL"] = f"sqlite+aiosqlite:///{_TEST_DB}"
 os.environ.setdefault("CS_EMAIL_BACKEND", "console")
 os.environ.setdefault("CS_SECRET_KEY", "test-secret")
 os.environ.setdefault("CS_GATEWAY_BASE_URL", "http://localhost:8100")
+# 本地 .env 为了限流把并发上限调成 2，但用例会一次创建 3 个任务；
+# 测试必须和本地运行配置解耦，否则同一套测试在不同机器上结果不同。
+os.environ.setdefault("CS_MAX_ACTIVE_TASKS_PER_USER", "12")
 
 Path("./data").mkdir(parents=True, exist_ok=True)
 

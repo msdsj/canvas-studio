@@ -125,7 +125,7 @@ do_start() {
     start_if_needed up "$UPSTREAM_PORT" "$UPSTREAM_DIR" \
       "$UPSTREAM_DIR/.venv/bin/python" -m uvicorn main:app --host 127.0.0.1 --port "$UPSTREAM_PORT" --log-level info
   else
-    echo "  · 上游未配置（UPSTREAM_DIR=$UPSTREAM_DIR），跳过；生图/生文将不可用"
+    echo "  · 上游未配置（UPSTREAM_DIR=${UPSTREAM_DIR}），跳过；生图/生文将不可用"
   fi
 
   echo ""

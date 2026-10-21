@@ -342,6 +342,30 @@
 }
 
 /*
+ * Agent 在线指示的外扩光环。
+ *
+ * 原先用 GSAP 的 repeat:-1 补间实现，代价是 GSAP ticker 被永久钉在 60fps——
+ * 整个工作台页面即使静止不动也每秒跑 60 次 JS 回调（实测空闲 CPU 6-9%，
+ * 笔记本明显发热）。这类纯装饰的 scale/opacity 动画交给合成器即可，
+ * 不占 JS 线程，也不阻止 ticker 休眠。
+ */
+@keyframes cs-agent-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+.cs-agent-pulse {
+  animation: cs-agent-pulse 2.4s cubic-bezier(0.39, 0.575, 0.565, 1) infinite;
+  will-change: transform, opacity;
+}
+
+/*
  * 扫光轨迹与旧版 background-position: -140% → 240%（background-size 220%）逐像素等价：
  * 光带图块起点从 +1.68W 移到 -2.88W。现在由 3 个图块宽（6.6W）的伪元素平移实现，
  * 起点取 1.68W - 2.2W = -0.52W，终点 -5.08W，换算成自身宽度百分比即下面两个值。

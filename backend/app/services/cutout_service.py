@@ -35,6 +35,10 @@ _MIN_FOREGROUND_RATIO = 0.01
 _EDGE_BAND = 2
 # 边缘采样步长（降采样，控制聚类开销）
 _EDGE_STEP = 2
+# 边界泛洪：相邻像素允许的颜色突变（平方距离，容忍照片噪点）
+_BORDER_STEP_SQ = 12.0**2
+# 边界泛洪：允许沿渐变漂移的最大距离（平方距离，防止渗进浅色衣物）
+_BORDER_DRIFT_SQ = 48.0**2
 
 
 def region_to_pixels(
@@ -89,7 +93,7 @@ def _load_cv2() -> Any:
 
 def available_strategies() -> list[str]:
     """返回当前环境实际可用的抠图策略（供后台配置页展示）。"""
-    names = ["chroma"]
+    names = ["border", "chroma"]
     if _load_cv2() is not None:
         names.insert(0, "grabcut")
     if _load_rembg() is not None:
@@ -170,10 +174,72 @@ def _cutout_chroma(crop: Image.Image) -> Image.Image:
     return out
 
 
+def _cutout_border_flood(crop: Image.Image) -> Image.Image | None:
+    """从选区四边向内做「颜色连续」泛洪，删掉与边缘连通的背景（纯 Pillow）。
+
+    为什么不用「全局限定背景色」：实拍背景几乎总是渐变的（顶部浅、底部更亮），
+    单一背景色 + 固定阈值会让离边缘较远的那部分背景残留，变成一圈脏边。
+    这里改为**逐像素与当前像素比较**（相邻差 ≤ 小阈值），渐变可以一路走到底，
+    而主体边界处颜色突变会立刻截断泛洪，主体不会被吃掉。
+
+    再加一道「离种子色不超过 ``_BORDER_DRIFT``」的上限：避免沿着柔和阴影或
+    抗锯齿边缘一路渗进浅色衣服内部。两道约束组合后：
+    - 人物内部的浅色衣服/皮肤只要不与边界连通就不会被删；
+    - 选区之外的内容没有像素来源，天然杜绝「补脚」这类脑补。
+    """
+    rgb = crop.convert("RGB")
+    width, height = rgb.size
+    pixels = rgb.load()
+
+    background_mask = bytearray(width * height)
+    queue: list[tuple[int, tuple[int, int, int]]] = []
+
+    def seed(x: int, y: int) -> None:
+        index = y * width + x
+        if background_mask[index]:
+            return
+        background_mask[index] = 1
+        queue.append((index, pixels[x, y]))
+
+    for x in range(width):
+        seed(x, 0)
+        seed(x, height - 1)
+    for y in range(1, height - 1):
+        seed(0, y)
+        seed(width - 1, y)
+
+    head = 0
+    while head < len(queue):
+        index, seed_color = queue[head]
+        head += 1
+        y, x = divmod(index, width)
+        current = pixels[x, y]
+        for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+            if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                continue
+            neighbor_index = ny * width + nx
+            if background_mask[neighbor_index]:
+                continue
+            neighbor = pixels[nx, ny]
+            if _color_distance(neighbor, current) > _BORDER_STEP_SQ:
+                continue
+            if _color_distance(neighbor, seed_color) > _BORDER_DRIFT_SQ:
+                continue
+            background_mask[neighbor_index] = 1
+            queue.append((neighbor_index, seed_color))
+
+    alpha = Image.new("L", (width, height))
+    alpha.putdata([0 if flag else 255 for flag in background_mask])
+    out = crop.copy().convert("RGBA")
+    out.putalpha(alpha)
+    return out
+
+
 _STRATEGY_ORDER: dict[str, tuple[str, ...]] = {
-    "auto": ("rembg", "grabcut", "chroma"),
+    "auto": ("rembg", "grabcut", "border", "chroma"),
     "rembg": ("rembg", "chroma"),
-    "grabcut": ("grabcut", "chroma"),
+    "grabcut": ("grabcut", "border", "chroma"),
+    "border": ("border", "chroma"),
     "chroma": ("chroma",),
     # 上游生成透明背景的路径由编排层负责；本地兜底仍用 chroma，保证不空手而归
     "upstream": ("chroma",),
@@ -187,6 +253,8 @@ def _run_strategy(crop: Image.Image, name: str) -> Image.Image | None:
             return _cutout_rembg(crop)
         if name == "grabcut":
             return _cutout_grabcut(crop)
+        if name == "border":
+            return _cutout_border_flood(crop)
         return _cutout_chroma(crop)
     except Exception:  # noqa: BLE001 - 单策略失败即降级，不影响整体可用性
         logger.exception("抠图策略 %s 执行失败，尝试降级", name)

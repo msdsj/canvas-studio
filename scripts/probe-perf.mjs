@@ -51,15 +51,11 @@ await new Promise((r) => setTimeout(r, 9000)) // 等首屏稳定
 const pick = (metrics) => Object.fromEntries(metrics.map((m) => [m.name, m.value]))
 const before = pick((await s('Performance.getMetrics')).metrics)
 
-// 统计空闲期间的 rAF 帧数
-await s('Runtime.evaluate', {
-  expression: `window.__rafCount = 0; (function loop(){ window.__rafCount++; requestAnimationFrame(loop) })()`,
-})
-
+// 不注入自己的 rAF 循环：否则测出来的帧数是被测量代码自己制造的，
+// 无法反映页面真实动画开销。只靠 Performance 指标判断。
 await new Promise((r) => setTimeout(r, SECONDS * 1000))
 
 const after = pick((await s('Performance.getMetrics')).metrics)
-const raf = (await s('Runtime.evaluate', { expression: 'window.__rafCount', returnByValue: true })).result.value
 
 const ms = (key) => Math.round((after[key] - before[key]) * 1000)
 const total = ms('TaskDuration')
@@ -69,8 +65,8 @@ console.log(`  CPU 总忙碌      ${total} ms   → 占用率 ≈ ${((total / (S
 console.log(`    脚本执行      ${ms('ScriptDuration')} ms`)
 console.log(`    样式重算      ${ms('RecalcStyleDuration')} ms`)
 console.log(`    布局          ${ms('LayoutDuration')} ms`)
-console.log(`  rAF 帧数        ${raf} 帧 → ${(raf / SECONDS).toFixed(0)} fps（持续动画会接近 60）`)
 console.log(`  堆内存          ${(after.JSHeapUsedSize / 1048576).toFixed(1)} MB`)
+console.log(`  DOM 节点        ${after.Nodes}`)
 
 await send('Target.closeTarget', { targetId })
 ws.close()
