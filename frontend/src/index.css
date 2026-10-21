@@ -257,6 +257,13 @@
   background: var(--color-bg);
 }
 
+/* 画布纸卡：亮色下也补一道极细内描边，边缘不糊在页面上，纸感更干净。 */
+.cs-canvas-card {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-border) 30%, transparent),
+    var(--shadow-sheet);
+}
+
 /* 暗色下画布卡靠「受光边 + 内侧细线」勾出纸的厚度：
  * 纯黑底上仅靠阴影完全看不出边界，会像页面破了一个洞。 */
 [data-theme='dark'] .cs-canvas-card {

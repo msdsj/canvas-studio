@@ -32,6 +32,10 @@ const EXCALIDRAW_BG_VAR = 'transparent'
  */
 const EXCALIDRAW_FACTORY_BG = new Set(['#ffffff', '#fff', 'white', 'rgb(255,255,255)', 'rgb(255, 255, 255)'])
 
+/** 画布网格：让对齐和构图有参考线，避免元素摆得东倒西歪。 */
+const GRID_SIZE = 20
+const GRID_STATE = { gridModeEnabled: true, gridSize: GRID_SIZE } as const
+
 /**
  * 决定画布底色。
  *
@@ -149,7 +153,7 @@ const data = useMemo(() => {
     const src = initialRef.current as unknown as
       | { elements?: unknown[]; files?: Record<string, unknown>; appState?: Record<string, unknown> }
       | undefined
-    if (!src) return null
+    if (!src) return { elements: [], appState: { ...GRID_STATE } as never, files: {} as never }
     try {
       const rawElements = Array.isArray(src.elements) ? (src.elements as CanvasElement[]) : []
       // 先把「自己存的 fileId」转成 Excalidraw 认的命名，否则图片元素会补不上尺寸
@@ -172,6 +176,8 @@ const data = useMemo(() => {
         elements,
         appState: {
           ...restAppState,
+          // 网格是平台默认行为：历史画布无论之前存过什么，都统一打开
+          ...GRID_STATE,
           zoom: { value: 1 },
           scrollX: 0,
           scrollY: 0,
@@ -180,7 +186,7 @@ const data = useMemo(() => {
         files: adopted.files as never,
       }
     } catch {
-      return { elements: [], appState: {} as never, files: {} as never }
+      return { elements: [], appState: { ...GRID_STATE } as never, files: {} as never }
     }
   }, [])
 

@@ -45,14 +45,17 @@ async def test_batch_reserves_all_accounts_before_first_request_finishes():
     assert await account_pool.select(kind="image") is not None
 
 
-async def test_batch_insufficient_accounts_fails_atomically():
+async def test_batch_degrades_to_upstream_dispatch_when_accounts_are_insufficient():
+    """账号不够时不再整批拒绝：一个账号独立路由，剩余任务交给上游调度。"""
     await _seed(1)
-    with pytest.raises(GatewayError) as info:
-        await account_pool.acquire_image(batch_id="batch", task_id="one", batch_total=2)
-    assert info.value.code == ErrorCode.POOL_UNAVAILABLE
-    assert info.value.data == {"reason": "insufficient_accounts", "required_accounts": 2, "available_accounts": 1}
-    assert account_pool._batches == {}
+    first = await account_pool.acquire_image(batch_id="batch", task_id="one", batch_total=2)
+    second = await account_pool.acquire_image(batch_id="batch", task_id="two", batch_total=2)
+    assert first is not None
+    assert second is None, "第 2 个任务应退化为上游默认取号"
+    await account_pool.release_image(first["id"], batch_id="batch", task_id="one")
+    await account_pool.release_image("", batch_id="batch", task_id="two")
     assert (await account_pool.list())[0]["in_flight"] == 0
+    assert account_pool._batches["batch"]["done"] == {"one", "two"}
 
 
 async def test_expired_abandoned_batch_releases_unstarted_siblings():
@@ -132,14 +135,72 @@ async def test_retry_keeps_original_task_account_and_preserves_sibling_reservati
     assert seen["output 1"][0] != seen["output 2"][0]
 
 
-async def test_empty_remote_only_batch_reports_missing_routing_capability(client, headers, mock_upstream):
+async def test_empty_remote_pool_is_scheduled_by_upstream(client, headers, mock_upstream):
+    """本地号池为空时，批次任务交给上游自己的号池轮询，而不是直接判失败。"""
     calls: list = []
-    mock_upstream(lambda request: calls.append(request))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"data": [{"b64_json": "QUJD"}]})
+
+    mock_upstream(handler)
     response = await client.post("/gw/images/generations", headers=headers, json=_payload(1))
-    assert response.status_code == 503
-    assert response.json()["code"] == "POOL_UNAVAILABLE"
-    assert "按账号路由能力" in response.json()["message"]
-    assert calls == []
+    assert response.status_code == 200
+    assert len(calls) == 1
+
+
+async def test_sync_quota_error_falls_back_to_upstream_task_queue(client, headers, mock_upstream, monkeypatch):
+    """同步接口没空闲账号时，转上游任务队列排队出图，而不是直接失败。"""
+    monkeypatch.setattr(resilience.settings, "max_retries", 0)
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if request.url.path == "/images/generations":
+            return httpx.Response(429, json={"error": {"message": "no available image quota"}})
+        if request.url.path == "/api/image-tasks/generations":
+            return httpx.Response(200, json={"id": "task-1", "status": "running"})
+        if request.url.path == "/api/image-tasks":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "id": "task-1",
+                            "status": "success",
+                            "data": [{"b64_json": "QUJD"}],
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(404)
+
+    mock_upstream(handler)
+    response = await client.post("/gw/images/generations", headers=headers, json=_payload(1))
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["data"][0]["b64_json"] == "QUJD"
+    assert "/api/image-tasks/generations" in seen
+    assert "/images/generations" in seen
+
+
+async def test_pool_failure_rotates_to_another_account(client, headers, mock_upstream, monkeypatch):
+    """首个账号报号池/额度错误后，应换号重试，而不是在同一账号上打转。"""
+    await _seed(2)
+    monkeypatch.setattr(resilience.settings, "max_retries", 0)
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers["Authorization"])
+        if len(seen) == 1:
+            return httpx.Response(503, json={"error": "no available image quota"})
+        return httpx.Response(200, json={"data": [{"b64_json": "QUJD"}]})
+
+    mock_upstream(handler)
+    response = await client.post("/gw/images/generations", headers=headers, json=_payload(1, total=1))
+    assert response.status_code == 200
+    assert len(seen) == 2
+    assert seen[0] != seen[1], "重试必须落在另一个账号上"
+    assert all(item["in_flight"] == 0 for item in await account_pool.list())
 
 
 async def test_single_output_keeps_configured_provider_compatibility(client, headers, mock_upstream):

@@ -568,7 +568,7 @@ export function focusSceneBox(
  *
  * 规则（固定，不随内容变化）：
  * - 空画布：zoom = 1，居中
- * - 有内容：按「内容适配视口 × 0.86」计算，居中
+ * - 有内容：按「内容适配视口 × 0.95」计算，居中（留白收紧，首屏更满）
  * - 结果夹取在 [0.15, 1]：**绝不允许 > 1 的初始缩放**。
  *   在 1512 屏上默认 1.0 就等于「1 像素 = 1 像素」，一张 1024 的图会占掉
  *   大半屏，看起来就是「画布炸开、缩不动」。
@@ -613,8 +613,10 @@ export function fitSceneToViewport(
 
   const minZoom = options.minZoom ?? 0.15
   const maxZoom = options.maxZoom ?? 1
-  const padding = options.padding ?? 72
-  const ratio = options.ratio ?? 0.86
+  // 首屏把内容尽量铺满：原来的 72px 留白 + 0.86 比例，在 1024 图上只剩 ~63%，
+  // 用户会觉得「画布明明很大，图却很小」。收紧留白与比例，边界更舒展。
+  const padding = options.padding ?? 40
+  const ratio = options.ratio ?? 0.95
 
   const box = sceneContentBox(elements)
   if (!box) {

@@ -5,12 +5,16 @@
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
+import time
+import uuid
 from contextlib import asynccontextmanager
 
 import httpx
 
+from app.config import settings
 from app.services import demo_service
 from app.services.account_pool import account_pool
 from app.services.error_mapper import classify_exception, classify_status
@@ -29,7 +33,7 @@ _DEMO_FALLBACK_CODES = {ErrorCode.PROXY_UNREACHABLE}
 
 @asynccontextmanager
 async def _image_lease(payload: dict):
-    """Hold one credential for the full request, including retries/fallbacks."""
+    """Hold one credential for one attempt; `rotate()` swaps it after a failure."""
     batch_id = str(payload.get("pool_batch_id") or "")
     task_id = str(payload.get("pool_task_id") or "")
     try:
@@ -41,14 +45,40 @@ async def _image_lease(payload: dict):
         raise GatewayError(ErrorCode.VALIDATION_ERROR, "每个图片批次任务须包含标识且只生成一张图片")
     if not batch_id and (task_id or batch_total != 1):
         raise GatewayError(ErrorCode.VALIDATION_ERROR, "缺少图片批次标识")
-    account = await account_pool.acquire_image(
+    state: dict = {"account": None, "released": False}
+    state["account"] = await account_pool.acquire_image(
         batch_id=batch_id, task_id=task_id, batch_total=batch_total
     )
+
+    async def rotate() -> dict | None:
+        """失败后换一个可用账号（本地池为空时由上游号池自己取号）。"""
+        account = state["account"]
+        new_account = await account_pool.rotate_image(
+            (account or {}).get("id"),
+            batch_id=batch_id,
+            task_id=task_id,
+            batch_total=batch_total,
+        )
+        if new_account is None:
+            return None
+        state["account"] = new_account
+        return new_account
+
     try:
-        yield account
+        yield state, rotate
     finally:
+        account = state["account"]
         if account:
             await account_pool.release_image(account["id"], batch_id=batch_id, task_id=task_id)
+        elif batch_id:
+            # 没有本地账号的批次任务也要登记完成，否则批次永远不释放、重复提交会被拒
+            await account_pool.release_image("", batch_id=batch_id, task_id=task_id)
+
+
+#: 换号重试上限：一次请求最多经历 3 个账号（首次 + 换 2 次）。
+_MAX_ACCOUNT_ROTATIONS = 2
+#: 只有「号池/账号额度」类失败才值得换号；格式异常交回模型链重试，鉴权失败换号也白搭。
+_ROTATABLE_CODES = {ErrorCode.POOL_UNAVAILABLE}
 
 
 async def _to_b64(client: httpx.AsyncClient, item: dict) -> str | None:
@@ -75,6 +105,90 @@ def _normalize(data: dict, images: list[str]) -> dict:
         "demo": False,
         "data": [{"b64_json": b64} for b64 in images if b64],
     }
+
+
+async def _generations_via_queue(
+    payload: dict, model: str, *, prompt: str, size: str, n: int, account: dict | None = None
+) -> dict | None:
+    """同步接口暂时没有空闲账号时，改用上游任务队列排队出图。
+
+    上游的同步 `/images/generations` 只要「此刻没有立即可用的账号」就直接 429
+    （no available image quota），但号池里其它账号稍后就会空出来。上游的任务队列
+    会自己按号池轮询等待空闲账号，因此这里提交排队任务并轮询结果，
+    让用户的一次请求真正用上号池其余账号的额度，而不是当场失败。
+
+    返回 `None` 表示上游没有任务队列能力（非 chatgpt2api），调用方退回换号重试。
+    """
+    base_url = (account or {}).get("base_url") or runtime_config.image_base_url
+    api_key = (account or {}).get("access_token") or None
+    root = base_url.rstrip("/")
+    if root.endswith("/v1"):
+        root = root[: -len("/v1")]
+    headers = provider_headers("image", api_key)
+    quality = str(payload.get("quality") or "standard")
+
+    async with provider_client("image", base_url=root) as client:
+        task_ids: list[str] = []
+        for _ in range(max(1, n)):
+            body = {
+                "client_task_id": f"cs-{uuid.uuid4().hex}",
+                "prompt": prompt,
+                "model": model,
+                "size": size,
+                "quality": quality,
+            }
+            resp = await client.post("/api/image-tasks/generations", headers=headers, json=body)
+            if resp.status_code in (404, 405):
+                return None
+            if resp.status_code >= 400:
+                raise classify_status(resp.status_code, resp.text)
+            task = parse_json_body(resp)
+            task_id = str(task.get("id") or "")
+            if not task_id:
+                return None
+            task_ids.append(task_id)
+
+        deadline = time.monotonic() + min(settings.read_timeout, 240)
+        pending = list(task_ids)
+        images: list[str] = []
+        while pending:
+            resp = await client.get(
+                "/api/image-tasks", headers=headers, params={"ids": ",".join(pending)}
+            )
+            if resp.status_code in (404, 405):
+                return None
+            if resp.status_code >= 400:
+                raise classify_status(resp.status_code, resp.text)
+            items = {
+                str(item.get("id")): item
+                for item in (parse_json_body(resp).get("items") or [])
+            }
+            for task_id in list(pending):
+                item = items.get(task_id)
+                if not item:
+                    continue
+                status = str(item.get("status") or "")
+                if status == "success":
+                    for entry in item.get("data") or []:
+                        b64 = await _to_b64(client, entry)
+                        if b64:
+                            images.append(b64)
+                    pending.remove(task_id)
+                elif status in {"error", "cancelled"}:
+                    raise GatewayError(
+                        ErrorCode.UPSTREAM_ERROR,
+                        f"上游出图失败：{item.get('error') or status}",
+                    )
+            if pending:
+                if time.monotonic() >= deadline:
+                    raise GatewayError(
+                        ErrorCode.POOL_UNAVAILABLE,
+                        "上游号池持续繁忙：已排队等待可用账号，请稍后再试",
+                    )
+                await asyncio.sleep(2)
+        if not images:
+            raise GatewayError(ErrorCode.UPSTREAM_ERROR, "上游未返回图片")
+        return {"created": 0, "demo": False, "data": [{"b64_json": b64} for b64 in images]}
 
 
 async def _generations_once(
@@ -110,13 +224,51 @@ async def _generations_once(
         return _normalize(data, images)
     except Exception as exc:  # noqa: BLE001 - 归一后交给上层决定重试 / 换模型
         error = exc if isinstance(exc, GatewayError) else classify_exception(exc)
-        if account:
+        # 只有「本地不托管账号」时才转队列：本地有账号时换号更直接，
+        # 队列会把请求重新交还给上游自己调度，绕开本地隔离策略。
+        if error.code is ErrorCode.POOL_UNAVAILABLE and account is None:
+            # 同步接口此刻没有空闲账号：交给上游任务队列按号池排队，
+            # 而不是让用户的一次请求当场失败。
+            logger.info("同步生图暂无空闲账号，转入上游任务队列排队")
+            queued = await _generations_via_queue(
+                payload, model, prompt=prompt, size=size, n=n, account=account
+            )
+            if queued is not None:
+                if account:
+                    await account_pool.mark_success(account["id"])
+                return queued
+        # 上游整池无可用账号与这个 Key 无关，冷却它只会让恢复后也用不了；
+        # 账号级失败（限流 / 额度 / 鉴权）才记录冷却。
+        if account and error.code is not ErrorCode.POOL_UNAVAILABLE:
             await account_pool.mark_failure(
                 account["id"],
                 error.message,
                 retryable=error.retryable,
             )
         raise error
+
+
+async def _run_with_account_rotation(payload: dict, chain: list[str], attempt) -> dict:
+    """一次请求内先换号、再交给模型链重试。
+
+    原来账号只在请求开始时取一次，账号没额度后所有重试仍打同一个账号，
+    等于把「号池还有 4 个可用账号」白白浪费。这里在号池类失败后立刻换号重跑，
+    保证重试落在另一个账号上。
+    """
+    rotations = 0
+    async with _image_lease(payload) as (lease, rotate):
+        while True:
+            try:
+                return await run_with_fallback(
+                    chain, lambda model: attempt(model, lease["account"])
+                )
+            except GatewayError as error:
+                if rotations >= _MAX_ACCOUNT_ROTATIONS or error.code not in _ROTATABLE_CODES:
+                    raise
+                if await rotate() is None:
+                    raise
+                rotations += 1
+                logger.warning("账号失败（%s），已切换到号池中的下一个可用账号重试", error.code.value)
 
 
 async def image_generations(payload: dict) -> dict:
@@ -135,11 +287,13 @@ async def image_generations(payload: dict) -> dict:
         runtime_config.image_model or str(payload.get("model") or "gpt-image-2")
     ]
     try:
-        async with _image_lease(payload) as account:
-            return await run_with_fallback(
-                chain,
-                lambda model: _generations_once(payload, model, prompt=prompt, size=size, n=n, account=account),
-            )
+        return await _run_with_account_rotation(
+            payload,
+            chain,
+            lambda model, account: _generations_once(
+                payload, model, prompt=prompt, size=size, n=n, account=account
+            ),
+        )
     except GatewayError as exc:
         logger.warning("生图上游失败: %s %s", exc.code, exc)
         if mode == "auto" and not payload.get("pool_batch_id") and exc.code in _DEMO_FALLBACK_CODES:
@@ -186,7 +340,7 @@ async def _edits_once(
         return _normalize(result, images)
     except Exception as exc:  # noqa: BLE001 - 归一后交给上层决定重试 / 换模型
         error = exc if isinstance(exc, GatewayError) else classify_exception(exc)
-        if account:
+        if account and error.code is not ErrorCode.POOL_UNAVAILABLE:
             await account_pool.mark_failure(
                 account["id"],
                 error.message,
@@ -220,11 +374,13 @@ async def image_edits(
         runtime_config.image_model or str(form.get("model") or "gpt-image-2")
     ]
     try:
-        async with _image_lease(form) as account:
-            return await run_with_fallback(
-                chain,
-                lambda model: _edits_once(files, form, model, prompt=prompt, size=size, account=account),
-            )
+        return await _run_with_account_rotation(
+            form,
+            chain,
+            lambda model, account: _edits_once(
+                files, form, model, prompt=prompt, size=size, account=account
+            ),
+        )
     except GatewayError as exc:
         logger.warning("图片编辑上游失败: %s %s", exc.code, exc)
         # 同生图：只有连不上上游才降级，业务错误（含格式异常）如实失败

@@ -40,7 +40,10 @@ def classify_status(status: int, body_text: str = "") -> GatewayError:
         # 这里标记为可重试（不换模型——换模型不会凭空多出账号），
         # 由 `resilience` 用更长的退避等待，避免用户刚点一次就直接失败。
         return GatewayError(
-            ErrorCode.POOL_UNAVAILABLE, "上游号池无可用账号", retryable=True, switch_model=False
+            ErrorCode.POOL_UNAVAILABLE,
+            "上游号池繁忙：已自动轮换账号重试，暂未拿到可用额度，请稍后再试",
+            retryable=True,
+            switch_model=False,
         )
     if status in (401, 403):
         return GatewayError(

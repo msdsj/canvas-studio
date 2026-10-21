@@ -1744,7 +1744,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
         各列之间不用 gap：收起的列宽度为 0，gap 会留下一道空缝；
         间距改由每列内容自带的右外边距承担，跟着列一起被裁掉。
       */}
-      <div className="relative flex min-h-0 flex-1 p-2.5 pt-0 md:pt-2.5">
+      <div className="relative flex min-h-0 flex-1 p-1.5 pt-0 md:p-2 md:pt-2">
         {/* 左：Agent 对话（唯一的实例：靠 CSS 控制移动端/桌面端形态，避免双份轮询） */}
         <div
           ref={agentPanelRef}
@@ -1758,7 +1758,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
           <div
             data-panel
             data-agent-composer
-            className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[16px] bg-surface shadow-sheet md:mr-2.5 md:w-[340px] xl:w-[392px]"
+            className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[16px] bg-surface shadow-sheet md:mr-2 md:w-[318px] lg:w-[330px] xl:w-[368px]"
           >
             <AgentPanelHeader onCreateSession={() => void handleCreateSession()} />
             <div className="min-h-0 flex-1">
@@ -1796,7 +1796,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
           ref={drawerRef}
           className="invisible absolute inset-y-2.5 left-2.5 z-40 flex min-h-0 overflow-hidden opacity-0 md:top-2.5 lg:visible lg:static lg:z-auto lg:w-0 lg:opacity-100"
         >
-          <div className="flex h-full min-h-0 flex-col lg:mr-2.5">
+          <div className="flex h-full min-h-0 flex-col lg:mr-2">
             <StudioSidebar
               className="shadow-float lg:shadow-sheet"
               currentSessionId={sessionId || null}
@@ -1846,7 +1846,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
               // 底色用 --color-canvas（比纸底深一档），让图片浮起来；
               // 不靠 1px 描边定义边界——层级靠明度差 + 阴影表达
               // @container：画布内浮层（dock 文字标签、右下导航器位置）按画布宽度而不是视口宽度响应
-              'cs-canvas-card @container relative min-h-0 flex-1 overflow-hidden rounded-[16px] bg-canvas shadow-sheet',
+              'cs-canvas-card @container relative min-h-0 flex-1 overflow-hidden rounded-[18px] bg-canvas shadow-sheet',
               // 选中图片时隐藏 Excalidraw 原生「双击裁剪」提示：
               // 本平台的图片编辑统一由单击进入编辑层，避免两个冲突的图片编辑入口
               selectedImage && 'cs-has-image-selected'

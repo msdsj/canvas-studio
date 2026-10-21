@@ -226,9 +226,10 @@ class AccountPool:
         must never silently fall back to a shared administrator/provider key.
         """
         await self._ensure_loaded()
-        if batch_total == 1 and not self._accounts:
-            # A single request needs only the configured image provider; no
-            # cross-task isolation is claimed or required in this case.
+        if not self._accounts:
+            # 本地号池为空：账号在上游自己的号池里，取号与轮询由上游完成。
+            # 不能因为「本地没有可独立路由的账号」就拒绝整批任务——上游每个请求
+            # 会各自分配账号，这正是「自动使用可用账号额度」的正常路径。
             return None
         if not batch_id:
             account = await self.select(kind="image")
@@ -251,23 +252,14 @@ class AccountPool:
                     and item["id"] not in reserved
                 ]
                 candidates.sort(key=lambda item: float(item.get("last_used") or 0))
-                if len(candidates) < batch_total:
-                    message = (
-                        "当前远端账号池未提供按账号路由能力，无法为此批次保证独立账号；请配置可路由账号池"
-                        if not self._accounts else
-                        f"本批次需要 {batch_total} 个不同账号，当前可独立调度 {len(candidates)} 个；请补充账号或稍后重试"
-                    )
-                    raise GatewayError(
-                        ErrorCode.POOL_UNAVAILABLE,
-                        message,
-                        {
-                            "reason": "independent_routing_unavailable" if not self._accounts else "insufficient_accounts",
-                            "required_accounts": batch_total, "available_accounts": len(candidates),
-                        },
-                    )
+                # 账号不够时不再整批拒绝：能独立路由的任务各占一个账号，
+                # 剩余任务交给上游号池调度（None 槽位）。可用性优先于严格隔离，
+                # 否则 3 个任务 / 2 个账号这种常态会直接让整批失败。
+                slots = [item["id"] for item in candidates[:batch_total]]
+                slots.extend([None] * (batch_total - len(slots)))
                 batch = {
                     "total": batch_total,
-                    "accounts": [item["id"] for item in candidates[:batch_total]],
+                    "accounts": slots,
                     "tasks": {}, "active": set(), "done": set(),
                     "expires_at": now + max(600, settings.read_timeout * 2),
                 }
@@ -279,16 +271,108 @@ class AccountPool:
             if len(batch["tasks"]) >= batch_total:
                 raise GatewayError(ErrorCode.VALIDATION_ERROR, "图片批次任务数超过预留账号数量")
             account_id = batch["accounts"][len(batch["tasks"])]
-            account = self._accounts.get(account_id)
-            if account is None or not self._healthy(account, now):
-                raise GatewayError(ErrorCode.POOL_UNAVAILABLE, "为该图片任务预留的账号已不可用，请重新提交")
+            account = self._accounts.get(account_id) if account_id else None
+            if account_id and (account is None or not self._healthy(account, now)):
+                # 预留账号在排队期间进入冷却：就地换一个本轮未占用的健康账号，
+                # 没有可用账号则退化为上游默认调度，而不是让任务失败。
+                used = {value for value in batch["accounts"] if value}
+                reserved = self._reserved_accounts()
+                replacement = next(
+                    (
+                        item for item in self._accounts.values()
+                        if self._healthy(item, now)
+                        and not int(item.get("in_flight") or 0)
+                        and item["id"] not in used
+                        and item["id"] not in reserved
+                    ),
+                    None,
+                )
+                account = replacement
+                account_id = replacement["id"] if replacement else None
             batch["tasks"][task_id] = account_id
             batch["active"].add(task_id)
             batch["expires_at"] = now + max(600, settings.read_timeout * 2)
+            if account is None:
+                return None
             account["last_used"] = now
             account["last_kind"] = "image"
             account["in_flight"] = int(account.get("in_flight") or 0) + 1
             return dict(account)
+
+    async def rotate_image(
+        self, account_id: str | None, *, batch_id: str = "", task_id: str = "", batch_total: int = 1
+    ) -> dict[str, Any] | None:
+        """单个账号失败后，为同一任务换一个当前可用的账号。
+
+        `select()` 只在请求开始时选一次号；上游账号额度/限流是按账号独立的，
+        第一次选中的账号恰好没额度时，继续在同一账号上重试必然继续失败。
+        这里在失败后释放旧租约并换号，让重试真正落到另一个可用账号上。
+        """
+        await self._ensure_loaded()
+        now = time.time()
+        async with self._lock:
+            self._reclaim_batches(now)
+            old = self._accounts.get(account_id) if account_id else None
+
+            batch = self._batches.get(batch_id) if batch_id else None
+            if batch is not None and task_id in batch["tasks"]:
+                used = {value for key, value in batch["tasks"].items() if value and key != task_id}
+                reserved = self._reserved_accounts()
+                replacement = next(
+                    (
+                        item for item in self._accounts.values()
+                        if self._healthy(item, now)
+                        and int(item.get("in_flight") or 0) < int(item.get("max_concurrency") or 2)
+                        and item["id"] != account_id
+                        and item["id"] not in used
+                        and item["id"] not in reserved
+                    ),
+                    None,
+                )
+                if replacement is None:
+                    return None
+                if old and old is not replacement:
+                    # 旧账号的租约在这里释放；换到新账号后才减，换不到时交给
+                    # `_image_lease` 的 finally 释放一次，避免并发位被重复归还。
+                    old["in_flight"] = max(0, int(old.get("in_flight") or 0) - 1)
+                batch["tasks"][task_id] = replacement["id"]
+                if account_id in batch["accounts"]:
+                    batch["accounts"][batch["accounts"].index(account_id)] = replacement["id"]
+                replacement["last_used"] = now
+                replacement["last_kind"] = "image"
+                replacement["in_flight"] = int(replacement.get("in_flight") or 0) + 1
+                return dict(replacement)
+
+            if not self._accounts:
+                return None
+            siblings = set()
+            if batch is not None:
+                siblings = {value for value in batch["tasks"].values() if value}
+            reserved = self._reserved_accounts()
+            candidates = [
+                item for item in self._accounts.values()
+                if self._healthy(item, now)
+                and item["id"] != account_id
+                and item["id"] not in siblings
+                and item["id"] not in reserved
+                and int(item.get("in_flight") or 0) < int(item.get("max_concurrency") or 2)
+            ]
+            if batch_id and batch is not None and len(batch["tasks"]) < batch_total:
+                candidates = [
+                    item for item in candidates
+                    if int(item.get("in_flight") or 0) == 0
+                ]
+            if not candidates:
+                return None
+            item = min(candidates, key=lambda value: int(value.get("in_flight") or 0))
+            if old and old is not item:
+                old["in_flight"] = max(0, int(old.get("in_flight") or 0) - 1)
+            item["last_used"] = now
+            item["last_kind"] = "image"
+            item["in_flight"] = int(item.get("in_flight") or 0) + 1
+            if batch is not None:
+                batch["tasks"][task_id] = item["id"]
+            return dict(item)
 
     async def release_image(self, account_id: str, *, batch_id: str = "", task_id: str = "") -> None:
         """Finish a request after all model retries; free completed batches."""
@@ -298,7 +382,7 @@ class AccountPool:
             if item:
                 item["in_flight"] = max(0, int(item.get("in_flight") or 0) - 1)
             batch = self._batches.get(batch_id)
-            if batch and batch["tasks"].get(task_id) == account_id:
+            if batch and batch["tasks"].get(task_id) == (account_id or None):
                 batch["active"].discard(task_id)
                 batch["done"].add(task_id)
                 # Retain a brief tombstone after completion so a duplicate task
