@@ -77,6 +77,19 @@ interface CanvasMinimapProps {
  * 为什么用 canvas 而不是 SVG + React state：取景框要跟着主画布的平移/缩放每帧变化。
  * 走 state 意味着工作台在拖动时整棵重渲染（画布拖动必然掉帧），
  * 所以这里在 rAF 里直接画，并在「场景签名没变」时跳过重绘。
+ *
+ * 何时画：订阅 Excalidraw 的 onChange（平移 / 缩放 / 元素变化都会触发），
+ * 有变化才排一帧。旧版是常驻 60fps 轮询：即便场景签名没变、最后只是 return，
+ * 每帧也已经先取了一次全量元素、算了一次包围盒。API 不支持订阅时退回轮询。
+ *
+ * 注意（2026-10 实测）：这项改动省掉的是「每帧的取元素 + 算包围盒」这点浅成本，
+ * 页面级空闲 CPU 上看不出差异（大头是 GSAP ticker / ScrollTrigger / Excalidraw
+ * 本来就常驻的循环）。价值在于不再做无用功，不要拿它当性能优化的主要理由。
+ *
+ * 补充实测：**选中一张图时**，Excalidraw 的 onChange 会以 ~59 次/秒 触发，
+ * 于是这里即便订阅了也会每帧重画一次（trace 里 draw 稳定 176 次/3s），
+ * 与旧版轮询的实际绘制频率相同。真正的开销源头在 Excalidraw 对选中元素的重渲染，
+ * 不在本组件。
  */
 export function CanvasMinimap({ api, className }: CanvasMinimapProps) {
   const { t } = useTranslation('canvas')
@@ -98,12 +111,20 @@ export function CanvasMinimap({ api, className }: CanvasMinimapProps) {
    */
   const thumbsRef = useRef(new Map<string, HTMLImageElement>())
   const dirtyRef = useRef(false)
+  /** 请求下一帧重画一次（由 effect 注入；拖拽 / 位图解码完成时调用） */
+  const requestDrawRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     let raf = 0
     let lastSig = ''
-    const draw = () => {
+    const canSubscribe = typeof api?.onChange === 'function'
+    const schedule = () => {
+      if (raf) return
       raf = requestAnimationFrame(draw)
+    }
+    const draw = () => {
+      // 不支持订阅时保持旧的逐帧轮询；支持时只画这一帧
+      raf = canSubscribe ? 0 : requestAnimationFrame(draw)
       const canvas = canvasRef.current
       if (!canvas) return
       const instance = api
@@ -195,6 +216,7 @@ export function CanvasMinimap({ api, className }: CanvasMinimapProps) {
               thumb = new Image()
               thumb.onload = () => {
                 dirtyRef.current = true
+                requestDrawRef.current()
               }
               thumb.src = dataURL
               thumbsRef.current.set(fileId, thumb)
@@ -234,8 +256,17 @@ export function CanvasMinimap({ api, className }: CanvasMinimapProps) {
       }
       ctx.restore()
     }
-    raf = requestAnimationFrame(draw)
-    return () => cancelAnimationFrame(raf)
+    requestDrawRef.current = schedule
+    const unsubscribe = canSubscribe ? api!.onChange!(schedule) : undefined
+    // 窗口缩放 / 换屏（DPR 变化）不一定触发画布 onChange
+    window.addEventListener('resize', schedule, { passive: true })
+    schedule()
+    return () => {
+      unsubscribe?.()
+      window.removeEventListener('resize', schedule)
+      requestDrawRef.current = () => {}
+      if (raf) cancelAnimationFrame(raf)
+    }
   }, [api])
 
   /** 把缩略图上的一个点映射回 scene 坐标并把视口移过去。 */
@@ -259,6 +290,7 @@ export function CanvasMinimap({ api, className }: CanvasMinimapProps) {
     frozenRef.current = worldRef.current
     event.currentTarget.setPointerCapture(event.pointerId)
     locate(event.clientX, event.clientY)
+    requestDrawRef.current()
   }
 
   const onPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -269,6 +301,8 @@ export function CanvasMinimap({ api, className }: CanvasMinimapProps) {
   const onPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     draggingRef.current = false
     frozenRef.current = null
+    // 解冻后按新范围重算映射（签名里带 frozen/free，会触发一次重画）
+    requestDrawRef.current()
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }

@@ -62,8 +62,21 @@ AI 生图 + 画布协作平台。`frontend`（React 19 + Vite 6 + Tailwind 4 + Z
 - **点图收气泡的容差**用 `e.pointerType === 'touch' ? 12 : 6`，不要用 `pointer: coarse` 媒体查询
   （触屏笔记本上它返回 fine，手指反而按 6px 判，反向失效）。
 - 产出规则：整图类合并 1 张；素材类每区域 1 张；混合 = 1 整图 + N 素材（先整图后素材）。
+- **素材类必须先把底图裁到该区域再送上游**（`_crop_region_input`，外扩 6%、长边 ≤1024），
+  且**不传 mask、不传引导图**（`_call_region_cutout`）。整图 + 全图引导图送上去时，
+  上游把红框当"参考位置"自己挑主体重画 → 框哪两处都返回同一个居中主体，两张素材一模一样。
+  这是输入侧的语义问题，后处理修不了。
+- 素材后处理 `_sprite_from_provider` 三级降级：真有 alpha → alpha bbox 裁；
+  上游把透明**画成棋盘格像素**（实测 mode=RGB）→ 本机 `chroma` 抠图；再不行原样返回 + warning。
+- **上游不稳定行为备忘**：edits 可能重画居中单主体并换尺寸（1536×1024 → 1254×1254）；
+  也可能返回 RGB 且棋盘格是画死的像素。任何"按原坐标对齐 alpha"的假设都会崩。
+- `_compose_prompt(sprite=True)` 不能要求"与原图同尺寸同坐标"（输入已是裁块），
+  必须显式禁止"用棋盘格表示透明"。
 - `run_task` 公共落库段期望 `{images:[bytes], demo}`，所有分支入口必须转换到该契约。
 - 接口：`POST /api/generate/plan`、`GET /api/generate/capabilities`、`POST /api/generate/edit`（`ops` 表单字段，兼容旧 `region`）。
+- 并发：上游单账号 `image_account_concurrency` 默认 3，平台 `EDIT_CONCURRENCY` 默认 3 夹 1~6，**实测可并发**。
+  看着像串行多半是上游内部任务队列的 10s 首轮询等待，不是平台串行。
+  ⚠️ 网关 `/gw/pool/capacity` 的 `total` 只数网关本地 `data/pool.json`，账号实际在上游时会显示 0，别被它误导。
 
 ## Excalidraw 集成（易踩坑）
 1. **禁止在 `onChange` 里无条件 setState**（新数组引用 → `Maximum update depth exceeded`）：
@@ -126,4 +139,49 @@ AI 生图 + 画布协作平台。`frontend`（React 19 + Vite 6 + Tailwind 4 + Z
 ## 测试资产
 - `e2e/mock_upstream.py`（**故意返回 JPEG**，验证 PNG 归一化）、`e2e/verify_flow.py`（API 全流程，自带清理）、
   `e2e/ui_verify.mjs`（零依赖 CDP：真实鼠标拖拽 + 文件注入 + 下载魔数校验）、`e2e/qa_full_flow_e2e.py`。
+- `e2e/canvas_interaction.assert.mjs`：画布交互边界静态断言（源码级，无需起服务）。
+  路径按脚本位置推导，**不要再硬编码绝对路径**；断言锁「行为契约」，交互改版时要同步改它。
+- 性能探测 `scripts/`：`probe-quiet.mjs`（**结论首选**，零注入）、`probe-interaction.mjs`（连续缩放）、
+  `probe-cpu.mjs`（采样热点）、`probe-idle.mjs`（按调用栈归因）。
 - 浏览器自动化需 `--no-sandbox`；本机代理需 `NO_PROXY=localhost,127.0.0.1`。
+
+## 性能测量铁律（2026-10-21 血的教训）
+- **必须先校验落地 URL**：`admin@canvas.studio` 的 `onboarding_completed_at` 为 null 时，
+  访问 `/workspace` 会被重定向到 `/onboarding`，探测脚本若只 sleep 就会把引导页当工作台测。
+  先查 `location.href` + 关键 DOM（`.cs-canvas-card`）。
+- **探测脚本不要自己注入 rAF 循环**去数帧数：那会让页面永远无法空闲，A/B 差异被固定负载淹掉。
+  只读 CDP `Performance.getMetrics`，并等「连续 3 个 1s 窗口 TaskDuration < 60ms」再采。
+- **`git stash` 做 A/B 会触发 Vite HMR 重编译**，测量窗口里混入编译尾巴；
+  `stash pop` 若被信号打断，改动会留在 stash 里（先 `git stash list` 抢救）。
+- 已知常驻但合理的开销：GSAP ticker、ScrollTrigger `_rafBugFix`（Firefox 重绘补丁）、
+  Excalidraw `AnimationFrameHandler`。画布组件的 rAF **静止时因签名未变会直接 return**，
+  优化它们对空闲 CPU 几乎没有影响——别在这上面找收益。
+- **数据安全铁律**：探针里调 `api.updateScene({ elements })` / `addFiles` 会触发画布自动保存，
+  **直接覆盖真实内容且不可恢复**（`backend/data/` 未入库、默认无 WAL）。
+  一律新建临时画布再播种：`POST /api/projects/{project_id}/canvases`（**没有** `/api/canvases`），
+  用完 `DELETE`。曾经这样毁掉 `cb00feb9` 的 29221 字节真实布局。
+- 归因纪律：改代码前先把「现象」和「因果」分开写。本轮两次把「选中图片 CPU 高」误归因到自家的
+  `viewTick` / `selectedImageInfo` effect，实际关掉它们只降 2 个百分点，真凶在上游库内部
+  （Excalidraw 对选中 image 的每帧整树重渲染，纯 HEAD 也有 82.2%）。**先做归零实验再下结论**。
+
+
+## 后端并发（2026-10-21 实测口径）
+- **单进程 asyncio，任何阻塞 CPU/文件操作都会停掉所有请求**：Pillow 后处理（裁块/抠图/合成/转 PNG）
+  一律走 `app/utils/offload.py` 的 `run_sync()`，**不要在协程里直接调图片同步函数**。
+  实测 16 并发下未 offload 会让事件循环卡 **8.59s**；offload 后延迟 1.1ms、总耗时快 5.2 倍。
+- **连接池要小不要大**：`db_pool_size=4 / max_overflow=2`。aiosqlite 每条连接独占一个 worker 线程，
+  连接数≈并发数时全在等线程调度。`pool=2` 在 32 并发是 `pool=20` 的 **3.7 倍快**。
+  要真上量加 `uvicorn --workers`，**不要加连接**。
+- **高频读路径必须走复合索引**：`generation_tasks` 用 `(user_id, created_at)` 与
+  `(user_id, status, created_at)`。缺了就会 `USE TEMP B-TREE FOR ORDER BY`，
+  且 `status` 单列索引会让 `list_unread` 扫全库所有用户。加索引后 32 并发 p95 -64%。
+- 分页/列表查询**只取需要的列**返回 `dict`，不要实体化：16 并发下 1774/s vs 471/s。
+  ⚠️ 维护 `_LIST_COLUMNS` 时必须覆盖 `GenerationTaskOut` 全部必填字段，
+  漏一列（如 `idempotency_key`）会让整个接口 500 —— 已用 `test_task_list_contract.py` 锁死。
+- SSE 轮询不要每秒全行 SELECT：只取需要的 5 列 + 0.5/1.5/3.0s 退避。
+- httpx 客户端要复用（`gateway_client._shared_client`），且 `_client()` 是
+  `@asynccontextmanager` 只借不关——**退出时关闭会掐掉其它并发请求的连接**。
+- 当前容量参考（单进程，32 并发）：`/api/tasks/active` 670/s、`/api/tasks/unread` 720/s、
+  `/api/generate/tasks?size=20` 666/s。业务层已接近单事件循环上限，剩余差距在 ASGI 序列化。
+- 跑测试用 `backend/.venv/bin/python -m pytest`（直接调 `.venv/bin/pytest` 会因 shebang 指向旧路径
+  `canvas-studio` 报 `bad interpreter`）。整套会 OOM（exit 137），必须分组跑。

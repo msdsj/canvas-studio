@@ -23,6 +23,11 @@ GW_PORT=27182
 BE_PORT=27181
 FE_PORT=27180
 
+# 上游生图/生文服务（chatgpt2api）。不在本仓库内，默认取同级的 chatgpt2api-main。
+# 未提供 UPSTREAM_DIR 或目录不存在时自动跳过，不影响三个主服务。
+UPSTREAM_PORT="${UPSTREAM_PORT:-3000}"
+UPSTREAM_DIR="${UPSTREAM_DIR:-$ROOT/../chatgpt2api-main}"
+
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
 is_alive() {  # $1=pidfile
@@ -70,18 +75,20 @@ start_one() {  # $1=name  $2=workdir  $3..=cmd
 do_start() {
   echo "==> 启动 canvas-studio"
 
-  # 确保上游容器在运行（生图必需，容器不跑则号池/生图全部不可用）
-  if port_busy 3000; then
-    echo "  ✓ 上游服务已在运行 (3000)"
+  # 上游只在这里做一次探测：真正拉起放在三个主服务之后（见下方 start_if_needed up），
+  # 因为界面能不能打开不依赖它，只有号池/生图依赖。本机 Docker 通常不可用，
+  # 走 .venv 直启；Docker 可用时才用容器。
+  if port_busy "$UPSTREAM_PORT"; then
+    echo "  ✓ 上游服务已在运行 ($UPSTREAM_PORT)"
   elif command -v docker >/dev/null 2>&1 \
-       && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx chatgpt2api; then
+       && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx chatgpt2api; then
     echo "  … 正在启动上游容器 chatgpt2api"
     docker start chatgpt2api >/dev/null 2>&1
     sleep 5
-    port_busy 3000 && echo "  ✓ 上游服务已启动 (3000)" \
-                  || echo "  ! 上游容器启动失败，生图不可用"
+    port_busy "$UPSTREAM_PORT" && echo "  ✓ 上游容器已启动 ($UPSTREAM_PORT)" \
+                              || echo "  ! 上游容器启动失败，号池/生图不可用"
   else
-    echo "  ! 未找到 chatgpt2api 容器，生图不可用（画布/编辑正常）"
+    echo "  … 上游将由 .venv 直接拉起（Docker 不可用）"
   fi
 
   # 端口预检：区分「本脚本自己启动的」与「外部进程占用」
@@ -113,6 +120,14 @@ do_start() {
   start_if_needed fe "$FE_PORT" "$ROOT/frontend" \
     env -u NODE_OPTIONS -u PYTHONPATH PATH="$NODE_BIN:$PATH" npm run dev -- --port "$FE_PORT" --host 127.0.0.1 || return 1
 
+  # 上游最后启动：前端/后端/网关就绪即可浏览界面，上游只影响实际生图生文。
+  if [ -d "$UPSTREAM_DIR" ] && [ -x "$UPSTREAM_DIR/.venv/bin/python" ]; then
+    start_if_needed up "$UPSTREAM_PORT" "$UPSTREAM_DIR" \
+      "$UPSTREAM_DIR/.venv/bin/python" -m uvicorn main:app --host 127.0.0.1 --port "$UPSTREAM_PORT" --log-level info
+  else
+    echo "  · 上游未配置（UPSTREAM_DIR=$UPSTREAM_DIR），跳过；生图/生文将不可用"
+  fi
+
   echo ""
   echo "==> 就绪（等待约 5 秒后访问）"
   echo "    前端http://localhost:$FE_PORT"
@@ -124,18 +139,22 @@ do_start() {
 
 do_stop() {
   echo "==> 停止 canvas-studio"
-  for n in fe be gw; do stop_one "$n"; done
+  for n in fe be gw up; do stop_one "$n"; done
   # 兜底：按端口清理残留
   for p in "$FE_PORT" "$BE_PORT" "$GW_PORT"; do
     local pids; pids="$(lsof -tiTCP:"$p" -sTCP:LISTEN 2>/dev/null)"
     if [ -n "$pids" ]; then kill -9 $pids 2>/dev/null; echo "  ✓ 清理端口 $p 残留进程"; fi
   done
+  # 上游可能不是你启动的（外部进程），只在 pidfile 存在时才动它，避免误杀。
+  if [ -f "$PID_DIR/up.pid" ]; then
+    echo "  · 上游已按 pidfile 停止（端口 $UPSTREAM_PORT 未强制清理）"
+  fi
 }
 
 do_status() {
   echo "==> 服务状态"
   printf "  %-10s %-8s %-10s %s\n" 服务 端口 PID 状态
-  for spec in "网关:$GW_PORT:gw" "后端:$BE_PORT:be" "前端:$FE_PORT:fe"; do
+  for spec in "上游:$UPSTREAM_PORT:up" "网关:$GW_PORT:gw" "后端:$BE_PORT:be" "前端:$FE_PORT:fe"; do
     local name="${spec%%:*}" rest="${spec#*:}"
     local port="${rest%%:*}" key="${rest##*:}"
     local st="未运行"

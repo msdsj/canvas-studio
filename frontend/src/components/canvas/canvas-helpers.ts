@@ -13,6 +13,10 @@ export interface ExcalidrawApiLike {
   updateScene: (scene: { elements?: CanvasElement[]; appState?: Record<string, unknown> }) => void
   addFiles: (files: Array<{ id: string; dataURL: string; mimeType: string; created: number }>) => void
   scrollToContent: (target?: unknown) => void
+  /** 订阅场景 / 视口变化（Excalidraw 0.18 提供），返回取消订阅函数 */
+  onChange?: (callback: () => void) => () => void
+  /** 订阅平移 / 缩放（Excalidraw 0.18 提供），返回取消订阅函数 */
+  onScrollChange?: (callback: (scrollX: number, scrollY: number, zoom: { value: number }) => void) => () => void
 }
 
 /** 归一化选区（相对原图 0-1）。 */

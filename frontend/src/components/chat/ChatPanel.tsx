@@ -587,16 +587,50 @@ export function ChatPanel({
     })
   }, [orderedTasks])
 
-  // 时间线：消息与任务按创建时间统一排序，任务卡挂在对应提示词气泡下面
+  /*
+   * 时间线：消息与任务按创建时间统一排序，任务卡挂在对应提示词气泡下面。
+   *
+   * ⚠️ 不能只按 created_at 排。任务的 created_at 是「开始生图」那一刻，
+   * 而解释这次生图的助手正文是**等模型返回后**才落库的，两者能差好几秒
+   * （实测 07:37:30 建任务、07:37:35 正文入库）。纯按时间排会让结果卡
+   * 插到正文上面去，看起来像「先出结果再解释」。
+   *
+   * 正确做法：任务属于「它之前最近的那条用户消息」这一回合，应排在该回合
+   * 全部消息之后。排序键取 `max(本回合最后一条消息时间, 任务时间)`：
+   * - 正文已入库 → 排在正文下面（用户要的效果）
+   * - 正文还没入库（正在流式）→ 退回任务时间，即当前内容末尾，
+   *   不会越过后续回合的消息，也不会浮到本轮对话的最上方
+   */
   const timeline = useMemo<TimelineEntry[]>(() => {
-    const entries: TimelineEntry[] = [
-      ...messages.map((message) => ({
-        kind: 'message' as const,
-        at: timeOf(message.created_at),
-        message,
-      })),
-      ...orderedTasks.map((task) => ({ kind: 'task' as const, at: timeOf(task.created_at), task })),
-    ]
+    const entries: TimelineEntry[] = []
+    const messageTimes = messages.map((message) => timeOf(message.created_at))
+
+    /** 任务所属回合的结束时刻（该回合最后一条消息）；找不到回合时返回 -1。 */
+    const turnEndFor = (taskAt: number): number => {
+      let seenUser = false
+      let turnEnd = -1
+      for (let i = 0; i < messages.length; i += 1) {
+        const at = messageTimes[i]
+        const isUser = messages[i].role === 'user'
+        if (at <= taskAt) {
+          if (isUser) seenUser = true
+          continue
+        }
+        // 越过任务时间后遇到用户消息 = 进入下一回合，本回合到此为止
+        if (isUser) break
+        turnEnd = at
+      }
+      return seenUser ? turnEnd : -1
+    }
+
+    messages.forEach((message, index) => {
+      entries.push({ kind: 'message', at: messageTimes[index], message })
+    })
+    orderedTasks.forEach((task) => {
+      const taskAt = timeOf(task.created_at)
+      entries.push({ kind: 'task', at: Math.max(turnEndFor(taskAt), taskAt), task })
+    })
+    // 同刻时任务排在消息之后：卡片是这一回合的产出，应该跟在文字下面。
     return entries.sort((a, b) => a.at - b.at || (a.kind === 'message' ? -1 : 1))
   }, [messages, orderedTasks])
 

@@ -527,6 +527,8 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   /** 视口版本号：平移 / 缩放时自增（rAF 节流），驱动操作条跟随 */
   const [viewTick, setViewTick] = useState(0)
   const viewTickRaf = useRef(0)
+  /** 上一次驱动 viewTick 的「视口 + 选中图片几何」签名：没变就不重渲染工作台 */
+  const viewSigRef = useRef('')
   /** 正在拖动 / 缩放 / 旋转元素：此时操作条让开，免得挡住手上的动作 */
   const [interacting, setInteracting] = useState(false)
   /** 正在提交的一键操作（按钮转圈，防连点重复扣费） */
@@ -810,7 +812,44 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
         appState.selectedElementsAreBeingDragged || appState.isResizing || appState.isRotating
       )
       setInteracting((prev) => (prev === busy ? prev : busy))
-      if (image && !viewTickRaf.current) {
+      /*
+       * 只有视口或选中图片的几何真的变了才推进 viewTick。
+       *
+       * ⚠️ 归因修正（2026-10 实测）：这里原本写着「旧版静止时也在空转、
+       * 整个工作台重渲染」，实测**不成立**。选中一张图后 Excalidraw 的 onChange
+       * 本身就以 ~59 次/秒 触发（每帧一次），把 onChange 换成 no-op 后 CPU
+       * 从 106.6% 只降到 93.4%——说明负载来自 Excalidraw 内部对选中元素的重渲染，
+       * 与本处的 viewTick 无关。选中矩形时只有 5.7%，可见是 image 这条路径特有。
+       * 所以这段签名比较的真实价值是：签名不变时不推进一个本来就无意义的计数器，
+       * 而**不是**消除了可观的开销。别拿它当"优化选中图片卡顿"的理由。
+       */
+      let viewChanged = false
+      if (image) {
+        const zoom = (appState.zoom as { value?: number } | undefined)?.value ?? 1
+        const img = image as { x?: number; y?: number; width?: number; height?: number; angle?: number }
+        const viewSig = [
+          image.id,
+          appState.scrollX,
+          appState.scrollY,
+          zoom,
+          appState.width,
+          appState.height,
+          appState.offsetLeft,
+          appState.offsetTop,
+          img.x,
+          img.y,
+          img.width,
+          img.height,
+          img.angle,
+        ].join('|')
+        if (viewSig !== viewSigRef.current) {
+          viewSigRef.current = viewSig
+          viewChanged = true
+        }
+      } else {
+        viewSigRef.current = ''
+      }
+      if (image && viewChanged && !viewTickRaf.current) {
         viewTickRaf.current = requestAnimationFrame(() => {
           viewTickRaf.current = 0
           setViewTick((value) => value + 1)
@@ -1042,6 +1081,25 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   }, [editTarget, exitEdit])
 
   // 选中图片变化时同步右栏预览（dataUrl + 原图尺寸）
+  //
+  // 依赖用「稳定指纹」而不是 selectedImage 对象本身：selectedImage 来自 elements，
+  // 而 elements 每次 onChange 都是 Excalidraw 给的新数组、元素对象也是新的，
+  // 直接依赖对象会让这个 effect 在每一帧 onChange 后重跑一次。
+  //
+  // ⚠️ 归因修正（2026-10 实测）：最初以为这里就是「选中图片 85%CPU」的自激循环源头，
+  // **不成立**。把这个 effect 整个短路（不再 probe、不再 setState）后，
+  // 选中图片的空闲 CPU 从 89.8% 只降到 87.8%——它不是主因。
+  // 主因在 Excalidraw 内部：onChange 换成 no-op 仍有 93.4%（对照组 106.6%），
+  // ImageActionBar / ImagePreviewPanel 全关掉仍有 ~89.8%，0 次 unmount、纯重复渲染。
+  // 所以这段指纹化的真实收益只是「不再每帧重复解码同一张图的 dataUrl」，
+  // 属于消除无用功，**不要**当成修复选中卡顿的方案。
+  const selectedImageSig = selectedImage
+    ? [
+        selectedImage.id,
+        (selectedImage as { fileId?: string }).fileId ?? '',
+        (selectedImage as { version?: number }).version ?? 0,
+      ].join('|')
+    : ''
   useEffect(() => {
     let alive = true
     if (!selectedImage) {
@@ -1056,7 +1114,13 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     void (async () => {
       try {
         const { w, h } = await probeSize(dataUrl)
-        if (alive) setSelectedImageInfo({ dataUrl, width: w, height: h })
+        if (!alive) return
+        // 值相同就复用旧对象：否则每次都是新引用，setState 必然再触发一轮渲染
+        setSelectedImageInfo((prev) =>
+          prev && prev.dataUrl === dataUrl && prev.width === w && prev.height === h
+            ? prev
+            : { dataUrl, width: w, height: h }
+        )
       } catch {
         if (alive) setSelectedImageInfo(null)
       }
@@ -1064,7 +1128,8 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     return () => {
       alive = false
     }
-  }, [selectedImage])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedImageSig])
 
   const openAssetPicker = async () => {
     setAssetPickerOpen(true)

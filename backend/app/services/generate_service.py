@@ -49,6 +49,7 @@ from app.services.edit_handlers import (
 from app.utils.errors import AppError, ErrorCode
 from app.utils.logging import get_logger
 from app.utils.ids import new_id
+from app.utils import offload
 
 logger = get_logger("app.generate_service")
 
@@ -286,16 +287,19 @@ async def run_task(task_id: str) -> None:
 
         urls: list[str] = []
         total = len(images)
-        for index, raw in enumerate(images, start=1):
+
+        async def persist(index: int, raw: bytes) -> str | None:
+            """归一化 + 落库（含缩略图）。返回 url，失败返回 None。
+
+            整段都是同步重活：Pillow 解码/重编码、生成缩略图、写两个文件。
+            一单多图时这些操作串起来能占住事件循环好几秒，必须挪出循环。
+            """
             # 平台统一 PNG 输出：无论来源是上游、本地抠图还是合成，落库前一律归一化为 PNG
-            normalized = to_png(raw)
+            normalized = await offload.run_sync(to_png, raw)
             # to_png 在解码失败时会原样返回原始字节——这里必须拦住，
             # 否则损坏的图会以「已完成」的身份落库，用户看到的是破图。
             if not normalized.startswith(b"\x89PNG\r\n\x1a\n"):
-                await task_service.fail_and_refund(
-                    db, task_id, ErrorCode.UPSTREAM_ERROR.value, "返回的图片已损坏，额度已退回"
-                )
-                return
+                return None
             filename = "result.png" if total == 1 else f"result-{index}.png"
             asset = await asset_service.create_from_bytes(
                 db,
@@ -308,7 +312,16 @@ async def run_task(task_id: str) -> None:
                 is_demo=demo,
                 generation_task_id=task.id,
             )
-            urls.append(asset.url)
+            return asset.url
+
+        for index, raw in enumerate(images, start=1):
+            url = await persist(index, raw)
+            if url is None:
+                await task_service.fail_and_refund(
+                    db, task_id, ErrorCode.UPSTREAM_ERROR.value, "返回的图片已损坏，额度已退回"
+                )
+                return
+            urls.append(url)
 
         await task_service.succeed(db, task_id, urls, demo=demo)
 
@@ -387,7 +400,14 @@ async def _run_edit_task(db: AsyncSession, task: GenerationTask) -> dict[str, An
                 task, base_bytes, composite_ops, prompt, variants=variants
             )
             demo = demo or bool(result.get("demo"))
-            images.extend(_composite_with_mask(base_bytes, raw, task, composite_ops) for raw in _result_bytes(result)[:variants])
+            # 合成是逐像素 Pillow 运算（每张 ~0.3s），同样不能占着事件循环
+            composed = [
+                await offload.run_sync(
+                    _composite_with_mask, base_bytes, raw, task, composite_ops
+                )
+                for raw in _result_bytes(result)[:variants]
+            ]
+            images.extend(composed)
             thinking.append("整图修改完成")
         except AppError:
             raise
@@ -416,30 +436,20 @@ async def _run_edit_task(db: AsyncSession, task: GenerationTask) -> dict[str, An
                 if handler.prompt_prefix:
                     prompt = f"{handler.prompt_prefix}\n{prompt}"
                 try:
-                    # 素材类**不用全局掩码**：这次调用只处理这一个区域，
-                    # 用前端那张「所有选区并集」的掩码会把别的区域也一起交给上游。
-                    result = await _call_edit_ops(
-                        task, base_bytes, [op], prompt, variants=1, use_uploaded_mask=False
-                    )
+                    # **先把底图裁到「这一个区域」再送上游。**
+                    # 整张底图送过去时，上游会把框选当成「参考位置」，然后自己挑一个主体重画：
+                    # 实测 6×4 九宫格里框了第 1 个和第 3 个机器人，两次都返回同一个居中机器人，
+                    # 于是两个区域拿到一模一样的素材。裁到区域后输入里只剩这一块内容，
+                    # 它没有第二个主体可选，产出天然按区域区分。
+                    #
+                    # 裁块与抠图都是 Pillow 重活（单次 ~0.5s），必须走线程池：
+                    # 多区域并发时留在事件循环里会把整个进程钉死好几秒。
+                    crop_bytes = await offload.run_sync(_crop_region_input, base_bytes, op.region)
+                    result = await _call_region_cutout(task, crop_bytes, prompt)
                     found = _result_bytes(result)
                     if not found:
                         raise AppError(ErrorCode.UPSTREAM_ERROR, "未返回素材图片")
-                    with Image.open(io.BytesIO(base_bytes)) as source:
-                        target_size = source.size
-                    if not _has_transparency(found[0]):
-                        raise AppError(ErrorCode.UPSTREAM_ERROR, "图像服务未返回透明素材，额度已退回，请重试")
-                    with Image.open(io.BytesIO(base_bytes)) as original:
-                        original_rgba = original.convert("RGBA")
-                    with Image.open(io.BytesIO(found[0])) as provider:
-                        provider_alpha = provider.convert("RGBA").getchannel("A").resize(target_size, Image.Resampling.LANCZOS)
-                    mask_bytes, _ = _resolve_mask_bytes(task, base_bytes, [op])
-                    with Image.open(io.BytesIO(mask_bytes)) as mask:
-                        selected_alpha = ImageChops.invert(mask.convert("RGBA").getchannel("A"))
-                    provider_alpha = ImageChops.multiply(provider_alpha, selected_alpha)
-                    original_rgba.putalpha(ImageChops.multiply(original_rgba.getchannel("A"), provider_alpha))
-                    buffer = io.BytesIO()
-                    original_rgba.save(buffer, format="PNG")
-                    sprite = _crop_to_region(buffer.getvalue(), op.region, target_size=target_size)
+                    sprite = await offload.run_sync(_sprite_from_provider, found[0])
                     return op.index, sprite, bool(result.get("demo"))
                 except AppError:
                     raise
@@ -469,6 +479,107 @@ async def _run_edit_task(db: AsyncSession, task: GenerationTask) -> dict[str, An
     return {"images": images, "demo": demo}
 
 
+# 素材类图片的目标边长：上游对超大图会自行缩放重绘，裁块后统一到 1024 更稳
+_SPRITE_INPUT_EDGE = 1024
+
+
+def _crop_region_input(base_bytes: bytes, region: dict[str, Any]) -> bytes:
+    """把底图裁到指定选区（含少量外扩余量），作为素材类调用的唯一输入。
+
+    ⚠️ 为什么必须裁：素材类要的是「这一块主体」。整张底图送上去时，上游把红框
+    当成「参考位置」，然后从图里挑一个它认为最像的主体重画。一张九宫格里有 12 个
+    机器人，框第 1 个和第 3 个都会返回同一个居中机器人——这不是后处理能修的语义错。
+
+    外扩 6% 是为了给上游留出主体完整轮廓（贴边主体被切断会让它"补脑"重画）；
+    上限仍夹在原图内，绝不越界。
+    """
+    with Image.open(io.BytesIO(base_bytes)) as opened:
+        source = opened.convert("RGB")
+    width, height = source.size
+    x, y, w, h = cutout_service.region_to_pixels(region, width, height)
+    pad_x = round(w * 0.06)
+    pad_y = round(h * 0.06)
+    left = max(0, x - pad_x)
+    top = max(0, y - pad_y)
+    right = min(width, x + w + pad_x)
+    bottom = min(height, y + h + pad_y)
+    crop = source.crop((left, top, right, bottom))
+
+    # 统一到较短边 ≤ _SPRITE_INPUT_EDGE，避免上游因尺寸过大触发整体缩放
+    longest = max(crop.size)
+    if longest > _SPRITE_INPUT_EDGE:
+        scale = _SPRITE_INPUT_EDGE / longest
+        crop = crop.resize(
+            (max(1, round(crop.width * scale)), max(1, round(crop.height * scale))),
+            Image.Resampling.LANCZOS,
+        )
+    buffer = io.BytesIO()
+    crop.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+async def _call_region_cutout(
+    task: GenerationTask, crop_bytes: bytes, prompt: str
+) -> dict[str, Any]:
+    """素材类上游调用：只发裁好的区域图 + 纯文字指令（不传 mask/引导图）。
+
+    不传 mask 是刻意的：mask 的语义是「只改这一块、其余保留」，而上游拿到 mask 后
+    走的是整图编辑路径，输出仍是整张画布；素材类要的是单主体，两者目标不同。
+    这里连引导图一起省掉——裁块里已经没有第二个主体了，画红框只会被画进结果。
+    """
+    files: list[tuple[str, tuple[str, bytes, str]]] = [
+        ("image", ("region.png", crop_bytes, "image/png")),
+    ]
+    form = {
+        **_pool_metadata(task),
+        "prompt": prompt,
+        "model": "gpt-image-2",
+        "size": "1024x1024",
+        "quality": "standard",
+        "n": 1,
+        "response_format": "b64_json",
+    }
+    return await gw_module.gateway_client.image_edits(files, form)
+
+
+def _sprite_from_provider(provider_bytes: bytes) -> bytes:
+    """把上游返回的一张图归一成透明背景素材（三级降级，绝不返回带背景的方块）。
+
+    1. 上游真的给了 alpha（RGBA 且 alpha 未全满）→ 直接按 alpha 包围盒裁切，
+       这条路径逐像素保留上游产物，质量最高；
+    2. 上游把透明"画"成了棋盘格像素（实测发生过：mode=RGB、无 alpha，浅灰格子画死
+       在图里）→ 交给本地 chroma 抠图，按边缘采样背景色反解出主体；
+    3. 抠图失败（背景不规整）→ 原样返回整块并记 warning，让用户至少拿到内容，
+       再由前端提示重试。
+
+    ⚠️ 第 2 步不要试图"识别棋盘格然后置透明"：棋盘格会随画布缩放改变格子大小，
+    且主体本身可能是灰白配色，硬判定必然误伤主体边缘。
+    """
+    if _has_transparency(provider_bytes):
+        with Image.open(io.BytesIO(provider_bytes)) as opened:
+            sprite = opened.convert("RGBA")
+        bbox = (
+            sprite.getchannel("A")
+            .point(lambda value: 255 if value > 8 else 0)
+            .getbbox()
+        )
+        if bbox is not None:
+            sprite = sprite.crop(bbox)
+        buffer = io.BytesIO()
+        sprite.save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    try:
+        return cutout_service.extract_sprite(
+            provider_bytes,
+            {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0},
+            strategy="auto",
+        )
+    except Exception:  # noqa: BLE001 - 抠图失败不应让整单失败
+        logger.warning("素材本地抠图失败，回退为原样返回", exc_info=True)
+        return provider_bytes
+
+
 def _composite_with_mask(base_bytes, edited_bytes, task, ops):
     """Keep every pixel outside the actual rectangle/lasso/brush mask unchanged."""
     mask_bytes, _ = _resolve_mask_bytes(task, base_bytes, ops)
@@ -495,10 +606,10 @@ def _compose_prompt(global_prompt: str, instruction: str, *, sprite: bool) -> st
     head = "\n".join(part for part in (global_prompt, instruction) if part).strip()
     if sprite:
         tail = (
-            "输出与第一张原图完全相同尺寸、相同坐标的PNG，选区外全部透明；不要缩放、居中、裁剪或移动主体。"
-            "只保留选区内的主体，纯透明背景（alpha 通道），"
-            "主体内容、细节、颜色、光影与原图完全一致；不重绘、不美化、不加背景或阴影；"
-            "不要画出红框、编号或任何标注。"
+            "这张图里只有一个主体，请把它完整抠出来做成独立素材："
+            "主体内容、细节、颜色、光影与原图完全一致，不重绘、不美化、不添加背景或阴影。"
+            "输出纯透明背景的 PNG（真正的 alpha 通道），"
+            "**不要用灰白棋盘格图案来表示透明**，也不要画出红框、编号或任何标注。"
         )
     else:
         tail = (
@@ -545,15 +656,16 @@ async def _call_edit_ops(
         拿全局并集掩码等于让上游把其它区域也一起处理，
         产出会从「这一块主体」变成「整张图去掉其它区域」。
     """
-    mask_bytes, mask_source = _resolve_mask_bytes(
-        task, base_bytes, ops, use_uploaded_mask=use_uploaded_mask
+    mask_bytes, mask_source = await offload.run_sync(
+        _resolve_mask_bytes, task, base_bytes, ops, use_uploaded_mask=use_uploaded_mask
     )
     logger.info(
         "编辑掩码来源=%s task=%s 区域数=%d", mask_source, task.id, len(ops)
     )
+    guide_bytes = await offload.run_sync(_render_ops_guide, base_bytes, ops)
     files: list[tuple[str, tuple[str, bytes, str]]] = [
         ("image", ("base.png", base_bytes, "image/png")),
-        ("image", ("edit-guide.png", _render_ops_guide(base_bytes, ops), "image/png")),
+        ("image", ("edit-guide.png", guide_bytes, "image/png")),
         ("mask", ("mask.png", mask_bytes, "image/png")),
     ]
     form = {
@@ -1086,7 +1198,16 @@ def _crop_to_region(
 ) -> bytes:
     """把上游返回的整图裁到选区范围（素材类产出用：只保留框选内容）。
 
-    上游返回的永远是整图尺寸，素材必须裁到用户框选的范围才符合预期。
+    ⚠️ 上游并不会「在原位置抠出原像素」，它常常重新画一个**居中单主体**，
+    尺寸也换掉（实测：1536×1024 的九宫格输入，返回 1254×1254 的居中小机器人）。
+    直接把这张图的 alpha 按原图坐标求交，选区里会一个像素都不剩，
+    于是被误判成「未在选区内返回有效主体」——这就是「框了两个区域却报错」的根因。
+
+    所以分两种情况：
+    1. 上游 alpha 在选区内有内容 → 裁选区（形状最准，原位置对齐）；
+    2. 落空 → 说明上游重画了主体，改为**按上游自己的 alpha 包围盒裁切**。
+       那才是一张真正的透明素材；不要退回原图选区，原图背景是画死的棋盘格像素，
+       裁出来只会得到一张「带格子背景的方块」，不是素材。
     """
     image = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     if target_size and image.size != target_size:
@@ -1099,8 +1220,15 @@ def _crop_to_region(
     crop = image.crop((x, y, x + w, y + h))
     bbox = crop.getchannel("A").point(lambda value: 255 if value > 8 else 0).getbbox()
     if bbox is None:
-        raise AppError(ErrorCode.UPSTREAM_ERROR, "图像服务未在选区内返回有效主体，额度已退回，请重试")
-    crop = crop.crop(bbox)
+        # 上游把主体画到别处了：改用它自己那张图的不透明范围
+        whole = image.getchannel("A").point(lambda value: 255 if value > 8 else 0).getbbox()
+        if whole is None:
+            raise AppError(
+                ErrorCode.UPSTREAM_ERROR, "图像服务未在选区内返回有效主体，额度已退回，请重试"
+            )
+        crop = image.crop(whole)
+    else:
+        crop = crop.crop(bbox)
     buffer = io.BytesIO()
     crop.save(buffer, format="PNG")
     return buffer.getvalue()

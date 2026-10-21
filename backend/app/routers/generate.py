@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -39,8 +40,12 @@ logger = logging.getLogger(__name__)
 _TERMINAL = ("succeeded", "failed", "cancelled", "timeout")
 
 
-def _serialize(task: GenerationTask) -> dict:
-    """序列化任务输出。"""
+def _serialize(task: GenerationTask | dict[str, Any]) -> dict:
+    """序列化任务输出。
+
+    列表接口返回的是普通 dict（绕开 ORM 实体化，见 task_service.list_tasks），
+    详情接口返回实体；Pydantic 两种都能校验。
+    """
     return GenerationTaskOut.model_validate(task).model_dump()
 
 
@@ -271,31 +276,43 @@ async def stream_task(
     await task_service.get_task(db, user.id, task_id)  # 校验归属
 
     async def event_gen() -> AsyncIterator[str]:
+        # 只取推送需要的 5 个列，**不要** select 整个 ORM 对象：
+        # `params` 里装着 ops、thinking、引导图 URL 等大字段，每秒反序列化一次纯属浪费。
+        # 一个 330s 的生图任务在旧实现下要读 330 次整行，高并发时这里是隐形热点。
+        stmt = select(
+            GenerationTask.status,
+            GenerationTask.progress,
+            GenerationTask.demo,
+            GenerationTask.result_urls,
+            GenerationTask.error_code,
+        ).where(GenerationTask.id == task_id)
+
+        # 退避：前 10s 密集（进度从 30→35→60 变化快，用户正盯着看），
+        # 之后逐步放宽到 3s。任务绝大多数时间都在等上游，没必要每秒打一次库。
+        started = time.monotonic()
         while True:
             async with AsyncSessionLocal() as session:
-                row = (
-                    await session.execute(
-                        select(GenerationTask).where(GenerationTask.id == task_id)
-                    )
-                ).scalar_one_or_none()
+                row = (await session.execute(stmt)).first()
             if row is None:
                 yield _chat.sse_chunk({"done": True, "error_code": ErrorCode.TASK_NOT_FOUND.value})
                 return
-            done = row.status in _TERMINAL
+            status, progress, demo, result_urls, error_code = row
+            done = status in _TERMINAL
             yield _chat.sse_chunk(
                 {
-                    "id": row.id,
-                    "status": row.status,
-                    "progress": row.progress,
-                    "demo": row.demo,
-                    "result_urls": row.result_urls,
-                    "error_code": row.error_code,
+                    "id": task_id,
+                    "status": status,
+                    "progress": progress,
+                    "demo": demo,
+                    "result_urls": result_urls,
+                    "error_code": error_code,
                     "done": done,
                 }
             )
             if done:
                 return
-            await asyncio.sleep(1)
+            elapsed = time.monotonic() - started
+            await asyncio.sleep(0.5 if elapsed < 10 else 1.5 if elapsed < 60 else 3.0)
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")
 

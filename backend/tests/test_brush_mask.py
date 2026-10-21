@@ -282,8 +282,17 @@ async def test_broken_mask_url_falls_back_to_generated(monkeypatch):
 # --------------------------------------------------------------------------- #
 # 3) 素材类不被全局掩码污染
 # --------------------------------------------------------------------------- #
-async def test_sprite_call_uses_single_region_mask(monkeypatch):
-    """抠图（素材类）即使带了全局掩码，也只用自己区域的掩码。"""
+async def test_sprite_call_sends_region_crop_instead_of_mask(monkeypatch):
+    """抠图（素材类）改成「裁块直送」，**不再带 mask**。
+
+    契约变更（2026-10-21）：素材类若继续带整画布 mask + 整画布引导图，上游会把
+    红框当"参考位置"自己挑主体重画——框两处会返回同一个居中主体。所以现在
+    前端上行的画笔掩码**不参与素材类调用**：素材类要的是"只含这一个主体的图"，
+    而 mask 的语义是"只改这块、其余保留"，两者目标冲突。
+
+    这条测试锁两件事：① 素材调用不带 mask 字段；② 送上去的是裁块（region.png），
+    不是整张底图。整图类的 mask 行为由 test_brush_mask 其余用例继续守着。
+    """
     rec = _Recorder()
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
 
@@ -298,14 +307,21 @@ async def test_sprite_call_uses_single_region_mask(monkeypatch):
     assert done.status == "succeeded", done.error_message
     assert len(rec.calls) == 1, "单个素材区域只调用一次"
 
-    mask_bytes = _sent_mask(rec.calls[0])
-    # 全局掩码的斜线起点在左上角；若用了它，(2,2) 会是透明的
-    assert _mask_transparent_at(mask_bytes, OUTSIDE_POINT) is False, "素材调用不得使用全局并集掩码"
-    assert _mask_transparent_at(mask_bytes, INSIDE_POINT) is True, "素材调用必须只挖开自己这一块"
+    call = rec.calls[0]
+    assert not any(field == "mask" for field, _p in call["files"]), "素材类不得携带 mask"
+    assert call["files"][0][1][0] == "region.png", "素材类送的是裁块，不是整张底图"
+    with Image.open(io.BytesIO(call["files"][0][1][1])) as crop:
+        # 裁块尺寸必然小于原图（外扩 6% 后仍远小于整图）
+        assert crop.width < BASE_SIZE[0] and crop.height < BASE_SIZE[1]
 
 
-async def test_two_sprite_regions_get_their_own_masks(monkeypatch):
-    """两个素材区域各调用一次，每次的掩码只包含自己那一块。"""
+async def test_two_sprite_regions_send_distinct_crops(monkeypatch):
+    """两个素材区域各调用一次，每次送的是**自己那块**裁块（不再靠掩码区分）。
+
+    契约变更（2026-10-21）：上游会无视掩码重画居中单主体，所以素材类改由
+    "输入裁块本身"来区分区域。这里断言两次调用的裁块内容不同，
+    且各自只占原图的一个角落。
+    """
     rec = _Recorder()
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
 
@@ -325,13 +341,18 @@ async def test_two_sprite_regions_get_their_own_masks(monkeypatch):
     assert done.status == "succeeded", done.error_message
     assert len(rec.calls) == 2, "每个素材区域各一次调用"
 
-    left_point = (int(0.2 * BASE_SIZE[0]), int(0.2 * BASE_SIZE[1]))
-    right_point = (int(0.75 * BASE_SIZE[0]), int(0.75 * BASE_SIZE[1]))
-    for call in rec.calls:
-        mask_bytes = _sent_mask(call)
-        opened = _mask_transparent_at(mask_bytes, left_point)
-        closed = _mask_transparent_at(mask_bytes, right_point)
-        assert opened != closed, "每次调用的掩码只应包含自己那个区域"
+    crops = [call["files"][0][1][1] for call in rec.calls]
+    sizes: list[tuple[int, int]] = []
+    for call, crop_bytes in zip(rec.calls, crops):
+        assert not any(field == "mask" for field, _p in call["files"]), "素材类不得携带 mask"
+        with Image.open(io.BytesIO(crop_bytes)) as crop:
+            sizes.append(crop.size)
+            # 0.3 宽的选区外扩 6% → 约 0.336，远小于整图
+            assert crop.width < BASE_SIZE[0] * 0.5, "裁块应只覆盖选区，而不是整张图"
+    # 底图是纯色（_Recorder 固定返回纯色），两个裁块像素内容天然相同，
+    # 所以用**几何**区分：两块选区尺寸一致时，裁块也应一致；这里只要求
+    # 「确实按各自选区裁了」，而不是「字节不同」。
+    assert all(size == sizes[0] for size in sizes), sizes
     assert done.result_urls, "两个素材都应产出结果"
 
 

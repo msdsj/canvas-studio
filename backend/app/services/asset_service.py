@@ -14,6 +14,7 @@ from app.config import settings
 from app.models.asset import Asset
 from app.models.user import User
 from app.services import access, storage_service
+from app.utils import offload
 from app.utils.errors import AppError, ErrorCode
 from app.utils.ids import new_id, utcnow
 
@@ -83,9 +84,14 @@ async def create_from_bytes(
     is_demo: bool = False,
     generation_task_id: str | None = None,
 ) -> Asset:
-    """把图片字节写入存储并登记资产。"""
+    """把图片字节写入存储并登记资产。
+
+    `save_image` 内部要解码读宽高 + 生成 JPEG 缩略图 + 写两个文件，全是同步重活。
+    上传接口与生成任务都会走这里，必须挪出事件循环，否则多用户同时上传/出图时
+    整个进程会卡在磁盘与 Pillow 上。
+    """
     ext = _guess_ext(filename, content_type)
-    saved = storage_service.save_image(user_id, data, ext)
+    saved = await offload.run_sync(storage_service.save_image, user_id, data, ext)
     mime = content_type or mimetypes.guess_type(f"x.{ext}")[0] or "image/png"
     asset = Asset(
         id=new_id(),

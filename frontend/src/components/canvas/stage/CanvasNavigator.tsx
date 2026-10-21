@@ -132,19 +132,28 @@ export function CanvasNavigator({ api, elements, selectionCard }: CanvasNavigato
     }
   }, [hasCard])
 
-  // 缩放百分比：rAF 里读 appState 直接写文本，滚轮缩放时不触发 React 重渲染
+  // 缩放百分比：读 appState 直接写文本，滚轮缩放时不触发 React 重渲染。
+  // 订阅画布变化再更新；旧版常驻 rAF 轮询，画布静止时也每帧跑。不支持订阅时退回轮询。
   useEffect(() => {
     let raf = 0
     let last = ''
-    const tick = () => {
-      raf = requestAnimationFrame(tick)
+    const update = () => {
       const text = `${Math.round(viewportZoom(api) * 100)}%`
       if (text !== last && zoomTextRef.current) {
         zoomTextRef.current.textContent = text
         last = text
       }
     }
-    tick()
+    update()
+    if (typeof api?.onChange === 'function') {
+      const unsubscribe = api.onChange(update)
+      return () => unsubscribe()
+    }
+    const tick = () => {
+      raf = requestAnimationFrame(tick)
+      update()
+    }
+    raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
   }, [api])
 

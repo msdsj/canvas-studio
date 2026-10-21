@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
@@ -28,23 +29,60 @@ _CODE_ALIASES: dict[str, ErrorCode] = {
 
 
 class GatewayClient:
-    """网关 HTTP 客户端。"""
+    """网关 HTTP 客户端。
+
+    连接复用说明
+    ------------
+    早先每次调用都 `httpx.AsyncClient(...)` 新建、用完即弃 —— 每个请求都要重新
+    TCP 握手，高并发下是纯粹的排队开销。现在改为**进程内共享客户端**，
+    靠 httpx 连接池复用 keep-alive 连接。
+
+    `_client()` 仍以「上下文管理器」的形式提供，但**不关闭底层客户端**：
+    调用方代码无需改缩进，语义也从「独占一个新客户端」变成「借用共享客户端」。
+    """
 
     def __init__(self) -> None:
         self._base_url = settings.gateway_base_url.rstrip("/")
         self._token = settings.gateway_internal_token
+        self._limits = httpx.Limits(
+            max_connections=settings.gw_max_connections,
+            max_keepalive_connections=max(10, settings.gw_max_connections // 4),
+            keepalive_expiry=30.0,
+        )
         self._timeout = httpx.Timeout(
             connect=settings.gw_connect_timeout,
             read=settings.gw_read_timeout,
             write=settings.gw_read_timeout,
             pool=settings.gw_connect_timeout,
         )
+        self._shared: httpx.AsyncClient | None = None
 
     def _headers(self) -> dict[str, str]:
         return {"X-Internal-Token": self._token, "Accept": "application/json"}
 
-    def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout)
+    @property
+    def _shared_client(self) -> httpx.AsyncClient:
+        """进程级共享客户端（惰性创建；被关闭后自动重建）。"""
+        if self._shared is None or self._shared.is_closed:
+            self._shared = httpx.AsyncClient(
+                base_url=self._base_url,
+                timeout=self._timeout,
+                limits=self._limits,
+                # 网关在本机/内网，环境变量里的 HTTP_PROXY 不该影响它
+                trust_env=False,
+            )
+        return self._shared
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[httpx.AsyncClient]:
+        """借用共享客户端（**退出时不关闭**，否则会掐掉其它并发请求的连接）。"""
+        yield self._shared_client
+
+    async def aclose(self) -> None:
+        """关闭共享连接池（应用退出时调用）。"""
+        if self._shared is not None and not self._shared.is_closed:
+            await self._shared.aclose()
+        self._shared = None
 
     @staticmethod
     def _unwrap(response: httpx.Response) -> Any:

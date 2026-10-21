@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import AsyncAdaptedQueuePool
 
 from app.config import settings
 
@@ -24,14 +25,33 @@ class Base(DeclarativeBase):
 
 # SQLite 需要关闭 check_same_thread 以配合 async + 多线程
 _connect_args: dict[str, object] = {}
+_engine_kwargs: dict[str, object] = {}
 if settings.database_url.startswith("sqlite"):
     _connect_args = {"check_same_thread": False}
+    # ⚠️ aiosqlite 的默认池是 NullPool：**每个请求都新建连接**，并重跑下面那组
+    # PRAGMA（其中 `journal_mode=WAL` 是一次需要加锁的写操作）。
+    # 实测并发取连接开销 NullPool 0.92ms/次 vs QueuePool 0.40ms/次。
+    #
+    # ⚠️ 反直觉但已实测（2026-10-21）：连接数**开大反而更慢**。
+    # aiosqlite 每条连接独占一个 worker 线程，执行靠事件循环↔线程投递；
+    # 连接数与并发数接近时，请求全在等线程唤醒，而不是在并行。
+    #   pool=2  → 32 并发 1696 req/s (p50 18.8ms)
+    #   pool=20 → 16 并发  462 req/s (p50 35.7ms)   ← 慢 3.7 倍
+    # 默认值在 config.py 里（db_pool_size=4），要更高吞吐请加 uvicorn --workers。
+    _engine_kwargs = {
+        "poolclass": AsyncAdaptedQueuePool,
+        "pool_size": settings.db_pool_size,
+        "max_overflow": settings.db_max_overflow,
+        # 本地文件不会出现「连接被网络断开」，pre_ping 只是白跑一次 SELECT
+        "pool_pre_ping": False,
+    }
 
 engine = create_async_engine(
     settings.database_url,
     echo=False,
     future=True,
     connect_args=_connect_args,
+    **_engine_kwargs,
 )
 
 
@@ -49,6 +69,9 @@ if settings.database_url.startswith("sqlite"):
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA busy_timeout=15000")
+        # 临时表/排序放在内存里（默认文件大小 0 = 关闭）：平台没有大结果集排序，
+        # 打开能让会话列表、资产分页这类 ORDER BY 少走磁盘。
+        cursor.execute("PRAGMA temp_store=MEMORY")
         cursor.close()
 
 

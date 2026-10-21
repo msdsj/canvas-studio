@@ -341,12 +341,17 @@
   }
 }
 
+/*
+ * 扫光轨迹与旧版 background-position: -140% → 240%（background-size 220%）逐像素等价：
+ * 光带图块起点从 +1.68W 移到 -2.88W。现在由 3 个图块宽（6.6W）的伪元素平移实现，
+ * 起点取 1.68W - 2.2W = -0.52W，终点 -5.08W，换算成自身宽度百分比即下面两个值。
+ */
 @keyframes cs-shimmer {
   0% {
-    background-position: -140% 0;
+    transform: translate3d(-7.8788%, 0, 0);
   }
   100% {
-    background-position: 240% 0;
+    transform: translate3d(-76.9697%, 0, 0);
   }
 }
 
@@ -374,14 +379,30 @@
 }
 
 /* 生成中的骨架：青柠光带扫过，表示「AI 正在动作」 */
+/*
+ * 只动伪元素的 transform，交给合成线程：旧版动 background-position，
+ * 每帧都要在主线程重绘（工作台头部的「升级 Pro」常驻，空闲时也停不下来）。
+ * 宿主都是 absolute inset-0，可直接作为伪元素的定位容器。
+ */
 .cs-shimmer {
+  overflow: hidden;
+}
+.cs-shimmer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 660%;
   background-image: linear-gradient(
     100deg,
     transparent 20%,
     color-mix(in srgb, var(--color-accent) 55%, transparent) 46%,
     transparent 72%
   );
-  background-size: 220% 100%;
+  background-size: calc(100% / 3) 100%;
+  pointer-events: none;
+  will-change: transform;
   animation: cs-shimmer 1.8s linear infinite;
 }
 

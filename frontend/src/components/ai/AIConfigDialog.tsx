@@ -52,6 +52,10 @@ interface FormState {
   extraText: string
 }
 
+/** 与服务端 `ProviderUpsertRequest.max_tokens` 的取值范围保持一致（64–32000）。 */
+const MIN_OUTPUT_TOKENS = 64
+const MAX_OUTPUT_TOKENS = 32000
+
 const EMPTY_FORM: FormState = {
   name: '',
   kind: 'compatible',
@@ -178,7 +182,10 @@ export function AIConfigDialog({ open, onOpenChange, onChanged }: AIConfigDialog
       api_key: form.api_key.trim(),
       model: form.model.trim(),
       temperature: form.temperature,
-      max_tokens: form.max_tokens,
+      // 夹到后端允许区间。输入框的 min/max 对受控组件不起作用，
+      // 超范围的值（比如把模型「上下文长度 65536」填进来）会直接被服务端
+      // 校验拒掉，用户只会看到「参数校验失败」却不知道是哪个字段。
+      max_tokens: Math.min(MAX_OUTPUT_TOKENS, Math.max(MIN_OUTPUT_TOKENS, Math.round(form.max_tokens) || 2048)),
       extra,
       supports_vision: form.supports_vision,
       clear_api_key: clearKey,
@@ -551,16 +558,25 @@ export function AIConfigDialog({ open, onOpenChange, onChanged }: AIConfigDialog
                         className={cn(INPUT_CLASS, 'font-mono text-[12px]')}
                       />
                     </Field>
-                    <Field label="最大输出 tokens">
+                    <Field label="单次最大输出 tokens" hint="不是模型上下文长度，别填 65536 这种">
                       <input
                         type="number"
-                        min={64}
-                        max={32000}
+                        min={MIN_OUTPUT_TOKENS}
+                        max={MAX_OUTPUT_TOKENS}
                         value={form.max_tokens}
                         onChange={(event) =>
                           setForm((prev) => ({
                             ...prev,
                             max_tokens: Number(event.target.value) || 2048,
+                          }))
+                        }
+                        onBlur={() =>
+                          setForm((prev) => ({
+                            ...prev,
+                            max_tokens: Math.min(
+                              MAX_OUTPUT_TOKENS,
+                              Math.max(MIN_OUTPUT_TOKENS, Math.round(prev.max_tokens) || 2048)
+                            ),
                           }))
                         }
                         className={INPUT_CLASS}

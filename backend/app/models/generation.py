@@ -9,6 +9,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -26,6 +27,16 @@ class GenerationTask(Base):
     __tablename__ = "generation_tasks"
     __table_args__ = (
         UniqueConstraint("user_id", "idempotency_key", name="uq_gen_task_user_idem"),
+        # ── 复合索引：把「过滤 + 排序」一次性走索引，消掉临时 B 树 ────────────
+        # 加之前（EXPLAIN QUERY PLAN 实测）：三条读路径全都
+        #   SEARCH ... USING INDEX (user_id=?) / (status=?)
+        #   USE TEMP B-TREE FOR ORDER BY      ← 每次查询都现排一遍
+        # `user_id` 单列索引无法同时满足 `ORDER BY created_at DESC`，
+        # 而 `list_unread` 更糟——优化器挑了 `status='succeeded'` 这个极低选择性的
+        # 索引，等于扫**所有用户**的成功任务。任务表是平台增长最快的表，必须修掉。
+        Index("ix_gen_task_user_created", "user_id", "created_at"),
+        # 活跃任务轮询（前端每 3s）：user_id + status 过滤，created_at 排序
+        Index("ix_gen_task_user_status_created", "user_id", "status", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)

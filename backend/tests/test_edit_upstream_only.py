@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import io
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -18,7 +19,7 @@ from sqlalchemy import select
 from app.database import AsyncSessionLocal, Base, engine
 from app.models.generation import GenerationTask
 from app.models.user import User
-from app.services import asset_service, generate_service
+from app.services import asset_service, generate_service, storage_service
 from app.utils.ids import new_id
 
 
@@ -57,12 +58,20 @@ async def _make_user(balance: int = 200) -> str:
         return user.id
 
 
-async def _make_asset(uid: str) -> str:
+def _make_asset_bytes() -> bytes:
     buf = io.BytesIO()
     Image.new("RGB", (64, 64), (255, 255, 255)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+async def _make_asset(uid: str) -> str:
+    return await _make_asset_from(uid, _make_asset_bytes())
+
+
+async def _make_asset_from(uid: str, raw: bytes) -> str:
     async with AsyncSessionLocal() as db:
         asset = await asset_service.create_from_bytes(
-            db, uid, buf.getvalue(), kind="uploaded", filename="base.png", content_type="image/png"
+            db, uid, raw, kind="uploaded", filename="base.png", content_type="image/png"
         )
         await db.commit()
         return asset.url
@@ -78,25 +87,44 @@ def _png_b64(color: tuple[int, int, int] = (200, 40, 40), *, alpha: Image.Image 
 
 
 class _Recorder:
-    """记录上游调用；素材按该次 mask 返回保留原坐标的透明主体。"""
+    """记录上游调用。
+
+    - 素材类请求（提示词带「纯透明背景」）→ 回显**输入裁块的透明版**：
+      主体取裁块中心椭圆，其余置透明。这样测试既能断言"每个区域送的是自己的裁块"，
+      也能断言后处理真的把 alpha 用起来了。
+    - 其它请求 → 返回纯色图，模拟整图重绘。
+    """
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
     async def __call__(self, files, form):
         self.calls.append({"files": files, "form": form})
-        alpha = None
-        if "只保留选区内的主体" in form["prompt"]:
-            mask_bytes = next(payload[1] for field, payload in files if field == "mask")
-            with Image.open(io.BytesIO(mask_bytes)) as mask:
-                editable = ImageChops.invert(mask.convert("RGBA").getchannel("A"))
-            alpha = Image.new("L", (64, 64), 0)
-            bounds = editable.getbbox()
-            assert bounds, "素材请求必须包含可处理的区域"
-            left, top, right, bottom = bounds
-            ImageDraw.Draw(alpha).ellipse((left + 1, top + 1, right - 2, bottom - 2), fill=255)
-            alpha = ImageChops.multiply(alpha, editable)
-        return {"data": [{"b64_json": _png_b64(alpha=alpha)}], "demo": False}
+        if "纯透明背景" in form["prompt"]:
+            image_bytes = files[0][1][1]
+            with Image.open(io.BytesIO(image_bytes)) as opened:
+                src = opened.convert("RGBA")
+            width, height = src.size
+            alpha = Image.new("L", src.size, 0)
+            ImageDraw.Draw(alpha).ellipse(
+                (round(width * 0.2), round(height * 0.2), round(width * 0.8), round(height * 0.8)),
+                fill=255,
+            )
+            src.putalpha(alpha)
+            buf = io.BytesIO()
+            src.save(buf, format="PNG")
+            return {
+                "data": [{"b64_json": base64.b64encode(buf.getvalue()).decode()}],
+                "demo": False,
+            }
+        return {"data": [{"b64_json": _png_b64()}], "demo": False}
+
+
+def _load(url: str) -> Image.Image:
+    """读取本地存储中的图片（URL → 磁盘路径）。"""
+    rel = asset_service.local_path_from_url(url)
+    assert rel, f"无法解析本地路径: {url}"
+    return Image.open(Path(storage_service.storage_root()) / rel)
 
 
 async def _create(uid: str, ops: list[dict], prompt: str) -> tuple[int, str]:
@@ -188,12 +216,85 @@ async def test_mixed_ops_use_composite_plus_per_sprite_call(monkeypatch):
     assert "区域2" in sprite_prompt and "透明背景" in sprite_prompt
     assert "换成蓝色" not in sprite_prompt, "素材类调用不应夹带整图类区域"
 
-    # 每次调用都必须带 mask（硬约束「只改选区」，而不是靠提示词自觉）
-    for call in rec.calls:
-        assert any(field == "mask" for field, _payload in call["files"])
+    # 整图类必须带 mask（硬约束「只改选区」，而不是靠提示词自觉）；
+    # 素材类**刻意不带** mask：它的输入已经是裁到该区域的单主体图，
+    # 再叠一张整画布尺寸的 mask 会让上游退回整图编辑，产出又变成整张画布。
+    composite_call, sprite_call = rec.calls
+    assert any(field == "mask" for field, _payload in composite_call["files"])
+    assert not any(field == "mask" for field, _payload in sprite_call["files"])
+    assert not any(
+        payload[0].startswith("edit-guide") for _f, payload in sprite_call["files"]
+    ), "素材类不应再送引导图：裁块里没有第二个主体，红框只会被画进结果"
+    # 素材类送上去的是**裁块**，不是整张底图
+    sprite_name = sprite_call["files"][0][1][0]
+    assert sprite_name == "region.png"
 
     # 产出数量：1 张修改图 + 1 张透明素材
     assert len(done.result_urls) == 2
+
+
+async def test_each_cutout_region_sends_its_own_crop(monkeypatch):
+    """两个抠图区域必须各自把「自己那一块」送上游，否则会拿到两张一模一样的素材。
+
+    回归（2026-10-21 实测）：整张底图 + 全图引导图送上去时，上游把红框当成
+    「参考位置」，然后自己挑一个主体重画——6×4 九宫格里框了第 1 个和第 3 个机器人，
+    两次都返回同一个居中机器人，用户看到的是「抠了两张，图却一样」。
+    正确做法是先把底图裁到该区域再送，输入里只剩这一个主体，它没有第二个可选。
+    """
+    rec = _Recorder()
+    monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
+
+    uid = await _make_user()
+    # 左半红、右半蓝：两个区域的裁块内容必然不同，可直接用像素断言
+    canvas = Image.new("RGB", (64, 64), (220, 30, 30))
+    ImageDraw.Draw(canvas).rectangle((32, 0, 63, 63), fill=(30, 60, 220))
+    buf = io.BytesIO()
+    canvas.save(buf, format="PNG")
+    base_url = await _make_asset_from(uid, buf.getvalue())
+
+    async with AsyncSessionLocal() as db:
+        task, _ = await generate_service.create_edit_task(
+            db,
+            uid,
+            prompt="把这两个都抠出来",
+            model="gpt-image-2",
+            size="64x64",
+            base_image_url=base_url,
+            session_id=None,
+            canvas_id=None,
+            idempotency_key=new_id(),
+            edit_ops=[
+                {"region": {"x": 0.0, "y": 0.0, "w": 0.25, "h": 1.0}, "handler": "cutout", "prompt": ""},
+                {"region": {"x": 0.75, "y": 0.0, "w": 0.25, "h": 1.0}, "handler": "cutout", "prompt": ""},
+            ],
+        )
+
+    done = await _finish(task.id)
+    assert done.status == "succeeded", done.error_message
+    assert len(done.result_urls) == 2, "两个区域必须各出一张素材"
+
+    sprite_calls = [c for c in rec.calls if "纯透明背景" in c["form"]["prompt"]]
+    assert len(sprite_calls) == 2, "素材类每区域各一次调用"
+    sent = [c["files"][0][1][1] for c in sprite_calls]
+    assert sent[0] != sent[1], "两个区域的输入裁块必须不同（否则上游只能重画同一个主体）"
+
+    # ⚠️ 素材类走并发（semaphore + gather），**调用先后顺序不保证**。
+    # 断言必须与顺序无关：收集两个裁块的中心色，再和两个期望色做无序匹配。
+    expected = [(220, 30, 30), (30, 60, 220)]  # 左半红 / 右半蓝
+    centers = []
+    for payload in sent:
+        with Image.open(io.BytesIO(payload)) as crop:
+            rgb = crop.convert("RGB")
+            centers.append(rgb.getpixel((rgb.width // 2, rgb.height // 2)))
+    for want in expected:
+        best = min(centers, key=lambda c: sum(abs(a - b) for a, b in zip(c, want)))
+        distance = sum(abs(a - b) for a, b in zip(best, want))
+        assert distance < 120, f"应有一个裁块对应 {want}，实际中心色集合 {centers}"
+        centers.remove(best)
+
+    # 两张素材本身也必须不同
+    first, second = (_load(url) for url in done.result_urls)
+    assert first.tobytes() != second.tobytes()
 
 
 async def test_transparent_calls_upstream(monkeypatch):

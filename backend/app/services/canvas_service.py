@@ -20,6 +20,7 @@ from app.models.chat import ChatMessage, ChatSession
 from app.models.user import User
 from app.security import generate_token
 from app.services import access
+from app.utils import offload
 from app.utils.errors import AppError, ErrorCode
 from app.utils.ids import new_id, utcnow
 
@@ -267,6 +268,7 @@ async def export_canvas(
         if rel:
             candidate = storage_root() / rel
             if candidate.exists():
-                local = candidate.read_bytes()
-    content = local if local else _render_placeholder_png(canvas)
+                # 画布导出可能几 MB，磁盘读 + Pillow 兜底都是同步重活，走线程池
+                local = await offload.run_sync(candidate.read_bytes)
+    content = local if local else await offload.run_sync(_render_placeholder_png, canvas)
     return content, "image/png", f"canvas-{canvas.id}.png"

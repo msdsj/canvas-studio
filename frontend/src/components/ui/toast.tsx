@@ -29,7 +29,8 @@ export function Toaster() {
     const seen = new WeakSet<Element>()
     const scan = () => {
       raf = 0
-      document.querySelectorAll<HTMLElement>('[data-cs-toast] .cs-toast-icon').forEach((icon) => {
+      // sonner 给每张卡片挂 data-sonner-toast（旧选择器 [data-cs-toast] 没有任何元素带，图标弹出从未生效）
+      document.querySelectorAll<HTMLElement>('[data-sonner-toast] .cs-toast-icon').forEach((icon) => {
         if (seen.has(icon)) return
         seen.add(icon)
         popIcon(icon)
@@ -40,7 +41,28 @@ export function Toaster() {
       // sonner 会先建节点再插进 DOM，等一帧确保节点已经挂好、能算到最终尺寸
       raf = requestAnimationFrame(scan)
     }
-    const observer = new MutationObserver(schedule)
+    /*
+     * 观察范围仍是 body（sonner 的容器只在有 toast 时才挂载，无法提前拿到），
+     * 但只有「新增节点落在 toast 容器里」才排一次扫描：
+     * 画布、流式对话每帧都在改 DOM，若每批变更都做一次全文档 querySelectorAll，
+     * 空闲时主线程也停不下来。
+     */
+    const inToaster = (node: Node | null) =>
+      node instanceof Element && Boolean(node.closest('[data-sonner-toaster]'))
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.addedNodes.length === 0) continue
+        if (inToaster(record.target)) return schedule()
+        for (const node of record.addedNodes) {
+          if (
+            node instanceof Element &&
+            (inToaster(node) || node.querySelector('[data-sonner-toaster]') !== null)
+          ) {
+            return schedule()
+          }
+        }
+      }
+    })
     observer.observe(document.body, { childList: true, subtree: true })
     schedule()
     return () => {

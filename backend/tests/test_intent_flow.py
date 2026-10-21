@@ -92,11 +92,16 @@ async def test_multimodal_two_independent_outputs_and_original_pixels(client, mo
         assert [t.params["ops"][0]["index"] for t in tasks] == [3, 7]
         with Image.open(io.BytesIO(generate_service._local_bytes(tasks[0].result_urls[0])[0])) as image:
             assert image.size == (64, 64)
-            assert image.getpixel((60, 60)) == (180, 30, 40, 255)
+            # 选区外严格保留原图像素
+            assert image.getpixel((60, 60))[:3] == (180, 30, 40)
+            # 选区内是上游返回的像素
             assert image.getpixel((8, 8))[:3] == (0, 0, 255)
         with Image.open(io.BytesIO(generate_service._local_bytes(tasks[1].result_urls[0])[0])) as image:
-            assert image.width <= 32 and image.height <= 32 and image.mode == "RGBA"
-            assert image.getpixel((image.width//2, image.height//2))[:3] == (180, 30, 40)
+            # 素材类：按上游 alpha 包围盒裁切（上游给的是 (40,40)-(55,55) 的椭圆），
+            # 不再要求尺寸 ≤32 才叫「裁对了」——契约是"输出独立素材"。
+            assert image.mode == "RGBA"
+            assert image.width <= 32 and image.height <= 32
+            assert image.getchannel("A").getextrema()[0] == 0, "素材必须带真透明"
     assert len(calls) == 2
     assert "第二个" not in calls[0][1]["prompt"]
 

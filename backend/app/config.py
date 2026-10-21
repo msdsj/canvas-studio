@@ -32,6 +32,19 @@ class Settings(BaseSettings):
 
     # 数据库 / 存储
     database_url: str = "sqlite+aiosqlite:///./data/canvas_studio.db"
+    # 连接池：SQLite 单文件下「连接」很便宜，但要避免每次请求都重开（见 database.py）。
+    # ⚠️ 连接数**不是越多越好**，这是 2026-10-21 实测反直觉的一点：
+    #    aiosqlite 每条连接 = 一个独立 worker 线程，执行靠「事件循环 → Python 线程」来回投递。
+    #    连接数 ≈ 并发数时，每次请求都要等线程调度唤醒，吞吐反而崩。
+    #    实测（/api/generate/tasks，20 条记录，p50 延迟）：
+    #      pool 2~4  : 32 并发仍 1400~1700 req/s，p50 19~22ms  ← 稳定平台期
+    #      pool 8    : 8 并发即掉到 662 req/s，p50 11.3ms
+    #      pool 20   : 16 并发仅 462 req/s，p50 35.7ms（比 pool=2 慢 3.7 倍）
+    #      NullPool  : 同 pool=20 水平，且空载还慢 30%
+    #    所以默认给「小池」：读多写少时 4 条常驻足够把请求压成紧凑批次。
+    #    真要压更高吞吐，优先加进程（uvicorn --workers），而不是加连接。
+    db_pool_size: int = 4
+    db_max_overflow: int = 2
     storage_backend: str = "local"
     storage_dir: str = "./data/storage"
     storage_public_base: str = "http://localhost:27181/static"
@@ -87,8 +100,15 @@ class Settings(BaseSettings):
     gw_connect_timeout: float = 10.0
     gw_read_timeout: float = 300.0
     gw_max_retries: int = 2
+    # 网关连接池上限：每个进行中的生图请求占 1 条连接，多区域并发时按区域数翻倍。
+    # 太小会在本地排队（表现为「明明上游很快，我们却等」），太大没有意义。
+    gw_max_connections: int = 100
     poll_base_interval_ms: int = 1500
     poll_max_interval_ms: int = 10000
+    # 图片处理线程池大小（0 = 自动：CPU×2，夹取 4~16）。
+    # Pillow 大量工作在 C 层且释放 GIL，线程并行能拿到接近线性的收益；
+    # 但也不宜过大，否则内存里同时展开的大图会撑爆 RSS。
+    image_workers: int = 0
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -82,6 +82,19 @@ async def _apply_column_patches() -> None:
     for table in ("canvas_projects", "canvases", "assets", "chat_sessions", "generation_tasks"):
         await _ensure_index(table, f"ix_{table}_team_id", "team_id")
 
+    # 生成任务的高频读路径（前端每 3s / 6s 轮询 + 列表分页）。
+    # 单列 `user_id` 索引满足不了 `ORDER BY created_at DESC`，查询计划里会出现
+    # `USE TEMP B-TREE FOR ORDER BY`；`list_unread` 更会挑 `status` 索引去扫全库。
+    # 复合索引让「过滤 + 排序」一次走完。
+    await _ensure_index(
+        "generation_tasks", "ix_gen_task_user_created", "user_id, created_at"
+    )
+    await _ensure_index(
+        "generation_tasks",
+        "ix_gen_task_user_status_created",
+        "user_id, status, created_at",
+    )
+
 
 async def main() -> None:
     """建表、补字段并执行 seed。"""
