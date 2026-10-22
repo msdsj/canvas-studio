@@ -3,8 +3,13 @@ import io
 from PIL import Image
 import pytest
 
-from app.services.generate_service import _render_union_mask
-from app.services.cutout_service import region_to_pixels
+from app.services.generate_service import _render_ops_mask
+from app.services.edit_ops import EditOp
+from app.services.edit_ops import region_to_pixels
+
+
+def _mask(base_bytes, regions):
+    return _render_ops_mask(base_bytes, [EditOp(region=region) for region in regions])
 
 
 def test_render_union_mask_single_region():
@@ -18,7 +23,7 @@ def test_render_union_mask_single_region():
     # 归一化区域：中心 50% 区域
     regions = [{"x": 0.25, "y": 0.25, "w": 0.5, "h": 0.5}]
 
-    mask_bytes = _render_union_mask(base_bytes, regions)
+    mask_bytes = _mask(base_bytes, regions)
     mask = Image.open(io.BytesIO(mask_bytes)).convert("RGBA")
 
     # 验证尺寸一致
@@ -46,7 +51,7 @@ def test_render_union_mask_multiple_regions():
         {"x": 0.6, "y": 0.6, "w": 0.3, "h": 0.3},  # 右下
     ]
 
-    mask_bytes = _render_union_mask(base_bytes, regions)
+    mask_bytes = _mask(base_bytes, regions)
     mask = Image.open(io.BytesIO(mask_bytes)).convert("RGBA")
     alpha = mask.getchannel("A")
 
@@ -73,7 +78,7 @@ def test_render_union_mask_edge_cases():
 
     # 全图区域
     regions = [{"x": 0, "y": 0, "w": 1, "h": 1}]
-    mask_bytes = _render_union_mask(base_bytes, regions)
+    mask_bytes = _mask(base_bytes, regions)
     mask = Image.open(io.BytesIO(mask_bytes)).convert("RGBA")
     alpha = mask.getchannel("A")
 
@@ -82,7 +87,7 @@ def test_render_union_mask_edge_cases():
     assert alpha.getpixel((10, 10)) == 0, "全图区域应该全透明"
 
     # 空区域列表
-    mask_bytes = _render_union_mask(base_bytes, [])
+    mask_bytes = _mask(base_bytes, [])
     mask = Image.open(io.BytesIO(mask_bytes)).convert("RGBA")
     alpha = mask.getchannel("A")
 
@@ -98,7 +103,7 @@ def test_mask_format_compatibility():
     base_bytes = buf.getvalue()
 
     regions = [{"x": 0.2, "y": 0.2, "w": 0.6, "h": 0.6}]
-    mask_bytes = _render_union_mask(base_bytes, regions)
+    mask_bytes = _mask(base_bytes, regions)
 
     # 验证是有效的 PNG
     assert mask_bytes.startswith(b"\x89PNG\r\n\x1a\n"), "mask 必须是有效的 PNG 格式"

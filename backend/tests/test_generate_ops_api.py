@@ -33,14 +33,10 @@ async def test_capabilities_lists_builtin_handlers(client):
     handlers = body["data"]["handlers"]
     ids = {item["id"] for item in handlers}
     assert {"restyle", "cutout", "transparent", "remove", "enhance"} <= ids
-    assert "chroma" in body["data"]["cutout_strategies"]
     cutout = next(item for item in handlers if item["id"] == "cutout")
-    # 产品口径（2026-10-21）：抠图走本地确定性像素处理，不送上游重绘
-    # （上游会按「完整人物」补画框外内容，实测把框到膝盖的人补上了腿和鞋）
     assert cutout["output"] == "sprite"
-    assert cutout["engine"] == "local"
-    assert cutout["executor"] == "cutout"
-    assert cutout["billable"] is False
+    assert cutout["billable"] is True
+    assert "engine" not in cutout and "executor" not in cutout
 
 
 async def test_edit_accepts_ops_and_plans_outputs(client):

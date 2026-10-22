@@ -73,6 +73,8 @@ import { useCanvasStore } from '@/stores/canvas'
 import { useUIStore } from '@/stores/ui'
 import { useComposerHandoff } from '@/stores/composer'
 import { useComposerRefs, MAX_COMPOSER_REFS } from '@/stores/composer-refs'
+import { useAuthStore } from '@/stores/auth'
+import { addPromptHistory } from '@/lib/prompt-history'
 import { useQuota } from '@/hooks/use-quota'
 import { useToast } from '@/hooks/use-toast'
 import { errorMessage } from '@/lib/errors'
@@ -1723,6 +1725,13 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   }) => {
     const target = editTargetRef.current
     if (!target) return
+    const currentUserId = useAuthStore.getState().user?.id || 'anonymous'
+    addPromptHistory(currentUserId, payload.prompt, {
+      model: 'gpt-image-2',
+      aspect: 'auto',
+      quality: 'standard',
+      negative_prompt: '',
+    })
     // 所有编辑操作（含抠图 / 透明化）都调用上游 gpt-image-2，必须校验并扣减额度
     if (!canAfford(prices.edit)) {
       setQuotaModalOpen(true)

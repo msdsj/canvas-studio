@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import func, select
 
 from app.database import AsyncSessionLocal
@@ -144,6 +146,34 @@ async def test_skill_library_catalog(client):
 
     searched = await client.get("/api/ai/skills?q=海报", headers=headers)
     assert len(searched.json()["data"]["items"]) >= 1
+
+
+async def test_skill_library_uses_admin_catalog_immediately(client):
+    headers = await _headers(client)
+    skills = [
+        {
+            "id": "custom.wallpaper",
+            "name": "自定义壁纸",
+            "category": "custom",
+            "description": "管理员配置的技能",
+            "prompt_scaffold": "保持用户指定的画幅与主体",
+            "style_tags": ["自定义"],
+        }
+    ]
+    saved = await client.put(
+        "/api/admin/config",
+        json={"DESIGN_SKILLS_JSON": json.dumps(skills, ensure_ascii=False)},
+        headers=headers,
+    )
+    assert saved.status_code == 200, saved.text
+
+    response = await client.get("/api/ai/skills", headers=headers)
+    data = response.json()["data"]
+    assert data["total"] == 1
+    assert data["items"][0]["id"] == "custom.wallpaper"
+    assert data["categories"] == [
+        {"id": "custom", "name": "custom", "description": "", "count": 1}
+    ]
 
 
 def test_shortlist_picks_poster_skill():

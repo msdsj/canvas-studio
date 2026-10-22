@@ -379,6 +379,26 @@ def test_verbatim_path_keeps_user_words_and_still_enforces_aspect_and_negative()
     plan_validator.assert_dispatchable(plan, assembled)  # 不因长度 <40 被拒
 
 
+def test_verbatim_plan_preserves_structured_aspect_and_configured_negative():
+    plan = plan_validator.normalize_plan(
+        {"final_prompt": TEXT, "aspect": "16:9"},
+        [],
+        prompt_source="verbatim",
+        default_negative="configured exclusion",
+    )
+    assert plan["aspect"] == "16:9"
+    assert plan["size"] == "1536x1024"
+    assert plan["negative"] == "configured exclusion"
+
+
+def test_dispatch_prompt_uses_runtime_quality_suffix():
+    prompt = plan_validator.assemble_dispatch_prompt(
+        TEXT, "configured negative", quality_suffix=" custom suffix"
+    )
+    assert "custom suffix" in prompt
+    assert "画面中避免出现：configured negative" in prompt
+
+
 def test_template_plan_is_always_dispatchable():
     """本地模板 / 兜底产出必须自己就满足 R06（否则等于把问题推给下游）。"""
     for text in ("做个图", "帮我弄好看点", TEXT):

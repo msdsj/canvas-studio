@@ -108,11 +108,10 @@ async def write_demo_mode(client: httpx.AsyncClient, admin_headers: dict, mode: 
 
 
 async def open_demo_mode(client: httpx.AsyncClient) -> tuple[dict, str]:
-    """把网关切到演示模式，返回 (admin_headers, 原值)。
+    """把对话模拟切到演示模式，返回 (admin_headers, 原值)。
 
     为什么必须走管理员接口：网关的 `demo_mode` 会被后端 `system_configs` 覆盖，
-    直接在网关进程上设 `CS_DEMO_MODE` 会被推回去。踩过这个坑——
-    脚本以为开了演示模式，实际每张图都在真的调上游。
+    直接在网关进程上设 `CS_DEMO_MODE` 会被推回去。图片任务不受此模式影响。
     """
     _, admin_headers, _ = await register(client, "smoke-admin", role="admin", onboard=None)
     original = await read_demo_mode(client, admin_headers)
@@ -131,10 +130,10 @@ async def open_demo_mode(client: httpx.AsyncClient) -> tuple[dict, str]:
 
 @asynccontextmanager
 async def demo_mode(client: httpx.AsyncClient) -> AsyncIterator[None]:
-    """确保这段代码在演示模式下执行，跑完还原。
+    """确保对话模拟在演示模式下执行，跑完还原。
 
     用 `try/finally` 而不是手工还原：脚本中途断言失败会抛异常，
-    忘了还原就等于在整个站点上留下了「所有出图都变成占位图」的配置。
+    演示模式会影响站点对话回复，因此脚本结束时必须还原配置。
     """
     admin_headers, original = await open_demo_mode(client)
     try:

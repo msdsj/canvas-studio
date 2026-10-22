@@ -23,7 +23,6 @@ import httpx
 from _smoke_common import (
     BACKEND,
     PREREQUISITE,
-    demo_mode,
     execute,
     fetch_one,
     register,
@@ -211,9 +210,8 @@ async def main() -> int:
         except Exception:  # noqa: BLE001
             print(PREREQUISITE)
             return 2
-        # 出图必须走演示模式，否则会真的调上游（这里不关心上游画得好不好）
-        async with demo_mode(client):
-            await _scenarios(client, failures)
+        # 图片任务走真实 provider；此脚本会消耗图片额度。
+        await _scenarios(client, failures)
 
     if failures:
         print("\n失败：")

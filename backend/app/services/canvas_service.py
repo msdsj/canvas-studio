@@ -6,11 +6,9 @@
 """
 from __future__ import annotations
 
-import io
 import json
 from typing import Any
 
-from PIL import Image, ImageDraw
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -237,17 +235,6 @@ async def fork_shared_session(
     return clone
 
 
-def _render_placeholder_png(canvas: Canvas) -> bytes:
-    """无缩略图时用 Pillow 渲染占位导出图。"""
-    img = Image.new("RGB", (1024, 768), color=(255, 255, 255))
-    draw = ImageDraw.Draw(img)
-    draw.text((40, 40), f"Canvas: {canvas.name}", fill=(30, 30, 30))
-    draw.text((40, 80), "（导出占位图：请在客户端使用画布导出获取精确渲染）", fill=(120, 120, 120))
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-
 async def export_canvas(
     db: AsyncSession, user: User, canvas_id: str, fmt: str
 ) -> tuple[bytes, str, str]:
@@ -259,7 +246,7 @@ async def export_canvas(
         ).encode("utf-8")
         return content, "application/json", f"canvas-{canvas.id}.json"
     # png
-    local = None
+    content = None
     if canvas.thumbnail_url:
         from app.services.asset_service import local_path_from_url
         from app.services.storage_service import storage_root
@@ -268,7 +255,8 @@ async def export_canvas(
         if rel:
             candidate = storage_root() / rel
             if candidate.exists():
-                # 画布导出可能几 MB，磁盘读 + Pillow 兜底都是同步重活，走线程池
-                local = await offload.run_sync(candidate.read_bytes)
-    content = local if local else await offload.run_sync(_render_placeholder_png, canvas)
+                # 画布缩略图可能较大，磁盘读取放到线程池，避免阻塞事件循环。
+                content = await offload.run_sync(candidate.read_bytes)
+    if content is None:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "画布暂无可导出的图片预览，请先保存画布")
     return content, "image/png", f"canvas-{canvas.id}.png"

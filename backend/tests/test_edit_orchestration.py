@@ -23,7 +23,7 @@ from app.models.asset import Asset
 from app.models.generation import GenerationTask
 from app.models.user import User
 from app.services import asset_service, config_service, generate_service, storage_service
-from app.services import cutout_service, edit_handlers, edit_ops, plan_service
+from app.services import edit_handlers, edit_ops, plan_service
 from app.utils.ids import new_id
 
 pytestmark = pytest.mark.skip(

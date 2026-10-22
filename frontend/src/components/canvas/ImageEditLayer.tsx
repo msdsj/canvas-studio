@@ -167,22 +167,18 @@ const FALLBACK_HANDLERS: EditCapability[] = [
     id: 'restyle',
     label: '改样式',
     description: '',
-    engine: 'upstream',
     output: 'composite',
     per_region: false,
     billable: true,
-    executor: '',
     has_builtin_prompt: false,
   },
   {
     id: 'cutout',
     label: '抠图',
     description: '',
-    engine: 'upstream',
     output: 'sprite',
     per_region: true,
     billable: true,
-    executor: '',
     has_builtin_prompt: true,
   },
 ]
@@ -434,7 +430,7 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
       (handlerId: string) => {
         const item = handlerById[handlerId]
         if (!item) return true
-        return item.engine === 'upstream' && !item.has_builtin_prompt
+        return !item.has_builtin_prompt
       },
       [handlerById]
     )
@@ -1970,8 +1966,7 @@ export const ImageEditLayer = forwardRef<ImageEditLayerHandle, ImageEditLayerPro
             .filter((item) => item.kind === 'brush' && (item.strokes?.length ?? 0) > 0)
             .map((item) => ({ region: item.region, strokes: item.strokes ?? [] })),
         })
-        // 纯涂鸦/纯标注没有矩形框时，使用它们的包围盒作为唯一的局部修改区域，
-        // 这样上游仍然只能改变标注附近，框外像素由后端从原图恢复。
+        // 纯涂鸦/纯标注没有矩形框时，用它们的包围盒告知图像模型处理范围。
         const finalOps =
           ops.length > 0
             ? ops

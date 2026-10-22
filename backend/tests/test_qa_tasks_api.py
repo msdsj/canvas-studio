@@ -150,7 +150,7 @@ async def test_qa_unread_result_lifecycle(client, monkeypatch):
     headers = await _headers(client, email)
 
     async def fake_generations(payload):
-        return {"data": [{"b64_json": _png_b64()}], "demo": True}
+        return {"data": [{"b64_json": _png_b64()}], "demo": False}
 
     monkeypatch.setattr(
         "app.services.gateway_client.gateway_client.image_generations", fake_generations
@@ -323,7 +323,7 @@ async def test_qa_edit_task_success(client, monkeypatch):
     asset_id = up.json()["data"]["id"]
 
     async def fake_edits(files_, form):
-        return {"data": [{"b64_json": _png_b64()}], "demo": True}
+        return {"data": [{"b64_json": _png_b64()}], "demo": False}
 
     monkeypatch.setattr(
         "app.services.gateway_client.gateway_client.image_edits", fake_edits

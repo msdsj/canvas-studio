@@ -364,6 +364,7 @@ async def relay_status(
     的预览，避免用户以为填了 3 个就会试 3 个。
     """
     ctx = await access.current_context(db, user)
+    skills_count = len(await design_skills.load_catalog(db))
     team_managed = ctx.team is not None
     team_fields = {
         "editable": not team_managed,
@@ -385,7 +386,7 @@ async def relay_status(
                 configured=False,
                 source="none",
                 reason=reason,
-                skills_count=len(design_skills.SKILLS),
+                skills_count=skills_count,
                 **{**team_fields, "can_manage": False},
             ).model_dump()
         )
@@ -398,7 +399,7 @@ async def relay_status(
             provider_name=target.name,
             model=target.model,
             kind=target.kind,
-            skills_count=len(design_skills.SKILLS),
+            skills_count=skills_count,
             # 团队成员即便「可编辑」，改的也是自己没在用的配置，提示语另算
             editable=target.source != "platform" and team_fields["editable"],
             can_manage=False,
@@ -475,18 +476,20 @@ async def list_models(
 @router.get("/skills")
 async def list_skills(
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     category: str | None = Query(default=None),
     q: str | None = Query(default=None),
 ) -> dict:
     """设计技能库（分类 / 关键词过滤）。"""
-    items = design_skills.list_skills(category, q)
+    catalog = await design_skills.load_catalog(db)
+    items = design_skills.filter_catalog(catalog, category, q)
     return envelope(
         {
             "items": [DesignSkillOut(**item.to_public()).model_dump() for item in items],
-            "total": len(design_skills.SKILLS),
+            "total": len(catalog),
             "categories": [
                 DesignSkillCategoryOut(**item).model_dump()
-                for item in design_skills.categories_with_count()
+                for item in design_skills.catalog_categories(catalog)
             ],
         }
     )

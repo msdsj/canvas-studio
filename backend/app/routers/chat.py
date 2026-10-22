@@ -186,6 +186,7 @@ async def compose(
             image_refs=payload.image_refs,
             selection=selection,
             model=payload.model,
+            generation_params=payload.generation_params,
         ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,

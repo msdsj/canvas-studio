@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -13,10 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings, upstream_settings
 from app.models.system_config import SystemConfig
+from app.utils.errors import AppError, ErrorCode
 from app.utils.ids import utcnow
 from app.utils.logging import get_logger
 
 logger = get_logger("app.config_service")
+_DEFAULT_DESIGN_SKILLS_JSON = Path(__file__).with_name("design_skills.json").read_text(
+    encoding="utf-8"
+)
 
 
 @dataclass(frozen=True)
@@ -93,23 +98,8 @@ DEFAULT_CONFIGS: list[ConfigDef] = [
         "[]",
         "json",
         "prompt",
-        "自定义编辑能力（JSON 数组）：纯声明式扩展，无需改代码；同 id 覆盖内置能力。"
-        "字段 id/label/description/engine(upstream|local)/output(composite|sprite)/"
-        "per_region/billable/prompt_prefix/executor",
-    ),
-    ConfigDef(
-        "CUTOUT_STRATEGY",
-        "auto",
-        "string",
-        "prompt",
-        "抠图兜底策略 auto|rembg|grabcut|chroma（仅在上游未返回 alpha 通道时启用）",
-    ),
-    ConfigDef(
-        "CUTOUT_LOCAL_FALLBACK",
-        "false",
-        "bool",
-        "prompt",
-        "抠图本地兜底：仅在图片上游返回结果但丢弃 alpha 时启用，默认关闭",
+        "自定义编辑能力（JSON 数组）：纯声明式扩展，无需改代码；所有图片修改都调用图像上游。"
+        "字段 id/label/description/output(composite|sprite)/per_region/prompt_prefix",
     ),
     ConfigDef(
         "EDIT_CONCURRENCY",
@@ -153,6 +143,27 @@ DEFAULT_CONFIGS: list[ConfigDef] = [
         "string",
         "prompt",
         "提示词润色提示词覆盖（留空则用 app/prompts/polish.md）",
+    ),
+    ConfigDef(
+        "DESIGN_SKILLS_JSON",
+        _DEFAULT_DESIGN_SKILLS_JSON,
+        "json",
+        "prompt",
+        "设计技能库（JSON 数组，保存后请求时动态加载；空数组表示禁用全部技能）",
+    ),
+    ConfigDef(
+        "COMPOSE_DEFAULT_NEGATIVE",
+        "低清晰度、模糊、畸变、多余手指、文字错乱、水印、裁切不当",
+        "string",
+        "prompt",
+        "生图默认负向约束；用户显式负向提示词始终保留",
+    ),
+    ConfigDef(
+        "COMPOSE_QUALITY_SUFFIX",
+        "，超高清画质，4K/8K 细节，清晰锐利，无噪点",
+        "string",
+        "prompt",
+        "生图质量约束后缀；留空则不追加",
     ),
 ]
 
@@ -214,6 +225,10 @@ async def ensure_defaults(db: AsyncSession) -> None:
                     by_key[new_key] = True
                     break
         await db.delete(old)
+    for obsolete_key in ("CUTOUT_STRATEGY", "CUTOUT_LOCAL_FALLBACK"):
+        obsolete = by_key.get(obsolete_key)
+        if obsolete is not None:
+            await db.delete(obsolete)
     present = set(by_key)
     for item in DEFAULT_CONFIGS:
         if item.key not in present:
@@ -227,6 +242,11 @@ async def ensure_defaults(db: AsyncSession) -> None:
                     description=item.description,
                 )
             )
+        elif item.key == "DESIGN_SKILLS_JSON":
+            row = by_key[item.key]
+            if not row.value.strip():
+                row.value = item.value
+                row.updated_at = utcnow()
     await db.flush()
 
 
@@ -302,6 +322,11 @@ async def set_many(
         str_value = _stringify(raw_value)
         if row.is_secret and "*" in str_value:
             continue  # 掩码值不覆盖真实 secret
+        if row.value_type == "json":
+            try:
+                json.loads(str_value)
+            except (TypeError, ValueError) as exc:
+                raise AppError(ErrorCode.VALIDATION_ERROR, f"配置 {key} 必须是合法 JSON") from exc
         row.value = str_value
         row.updated_at = utcnow()
         row.updated_by = operator_id

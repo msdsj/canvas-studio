@@ -32,6 +32,17 @@ MAX_OPS = 12
 _INTENSITIES = {"fine", "rebuild"}
 
 
+def region_to_pixels(
+    region: dict[str, Any], width: int, height: int
+) -> tuple[int, int, int, int]:
+    """Convert normalized selection geometry to a bounded pixel rectangle."""
+    x = max(0, min(width - 1, round(float(region.get("x", 0)) * width)))
+    y = max(0, min(height - 1, round(float(region.get("y", 0)) * height)))
+    w = max(1, min(width - x, round(float(region.get("w", 1)) * width)))
+    h = max(1, min(height - y, round(float(region.get("h", 1)) * height)))
+    return x, y, w, h
+
+
 @dataclass
 class EditOp:
     """一条编辑操作。"""
@@ -46,7 +57,7 @@ class EditOp:
     """能力 id（见 edit_handlers 注册表）。"""
 
     prompt: str = ""
-    """该区域的修改指令（本地能力可为空）。"""
+    """该区域的修改指令；内置能力可使用模型提示词前缀。"""
 
     intensity: str = "fine"
     """编辑强度：fine=精细修改（保结构）；rebuild=重新生成（可换主体）。"""
@@ -277,18 +288,16 @@ def composite_regions(ops: list[EditOp], handlers: dict[str, EditHandler]) -> li
 
 def upstream_ops(ops: list[EditOp], handlers: dict[str, EditHandler]) -> list[EditOp]:
     """取出需要调用上游的整图类操作。"""
-    from app.services.edit_handlers import ENGINE_UPSTREAM
-
     result: list[EditOp] = []
     for op in ops:
         handler = resolve_handler(handlers, op.handler)
-        if handler.engine == ENGINE_UPSTREAM and handler.output == OUTPUT_COMPOSITE:
+        if handler.output == OUTPUT_COMPOSITE:
             result.append(op)
     return result
 
 
 def sprite_ops(ops: list[EditOp], handlers: dict[str, EditHandler]) -> list[EditOp]:
-    """取出需要本地抠图产出独立素材的操作。"""
+    """取出需要独立素材输出的操作；执行仍由图片模型完成。"""
     return [
         op for op in ops if resolve_handler(handlers, op.handler).output == OUTPUT_SPRITE
     ]

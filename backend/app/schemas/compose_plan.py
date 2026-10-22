@@ -92,6 +92,7 @@ class ComposeAnalysis(StrictBase):
     """
 
     subject: str = Field(min_length=1, max_length=120)
+    aspect: str | None = Field(default=None, max_length=32)
     missing: list[
         Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
     ] = Field(default_factory=list, max_length=5)

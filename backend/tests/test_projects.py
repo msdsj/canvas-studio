@@ -76,6 +76,20 @@ async def test_canvas_export_json(client, auth_headers_factory):
     assert "application/json" in exp.headers["content-type"]
 
 
+async def test_canvas_png_export_does_not_return_generated_placeholder(client, auth_headers_factory):
+    """没有已保存缩略图时，不得伪造本地 PNG 导出结果。"""
+    token = await register_and_activate(client, "p5-png@example.com")
+    headers = auth_headers_factory(token)
+    resp = await client.post("/api/projects", json={"name": "PNG 导出"}, headers=headers)
+    pid = resp.json()["data"]["id"]
+    detail = await client.get(f"/api/projects/{pid}", headers=headers)
+    canvas_id = detail.json()["data"]["canvases"][0]["id"]
+
+    exp = await client.get(f"/api/canvases/{canvas_id}/export?format=png", headers=headers)
+    assert exp.status_code == 422
+    assert "暂无可导出的图片预览" in exp.json()["message"]
+
+
 async def test_asset_upload_and_list(client, auth_headers_factory):
     """上传图片入资产库并可查询。"""
     token = await register_and_activate(client, "p6@example.com")

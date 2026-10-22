@@ -2,8 +2,6 @@
 import base64
 import io
 import json
-from types import SimpleNamespace
-
 from PIL import Image, ImageDraw
 from sqlalchemy import select
 
@@ -76,11 +74,12 @@ async def test_multimodal_two_independent_outputs_and_original_pixels(client, mo
     calls = []
     async def edit(files, form):
         calls.append((files, form))
-        if form["pool_task_id"] == "1": raw = png((0, 0, 255, 255))
-        else:
+        if "纯透明背景" in form["prompt"]:
             image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
             ImageDraw.Draw(image).ellipse((40, 40, 55, 55), fill=(0, 255, 0, 255))
             out = io.BytesIO(); image.save(out, "PNG"); raw = out.getvalue()
+        else:
+            raw = png((0, 0, 255, 255))
         return {"data": [{"b64_json": base64.b64encode(raw).decode()}], "demo": False}
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", edit)
     for tid in spawned: await generate_service.run_task(tid)
@@ -92,19 +91,17 @@ async def test_multimodal_two_independent_outputs_and_original_pixels(client, mo
         assert [t.params["ops"][0]["index"] for t in tasks] == [3, 7]
         with Image.open(io.BytesIO(generate_service._local_bytes(tasks[0].result_urls[0])[0])) as image:
             assert image.size == (64, 64)
-            # 选区外严格保留原图像素
-            assert image.getpixel((60, 60))[:3] == (180, 30, 40)
-            # 选区内是上游返回的像素
+            # GPT Image returns the final pixels for the entire output.
+            assert image.getpixel((60, 60))[:3] == (0, 0, 255)
             assert image.getpixel((8, 8))[:3] == (0, 0, 255)
         with Image.open(io.BytesIO(generate_service._local_bytes(tasks[1].result_urls[0])[0])) as image:
-            # 素材类：本地按选区裁切，尺寸不得超出选区（0.5×64 = 32）
+            # 素材类结果直接来自模型，保留模型返回的透明通道。
             assert image.mode == "RGBA"
-            assert image.width <= 32 and image.height <= 32
-            # 底图是纯色，整块都算「背景」时保护逻辑回退为原样裁剪：
-            # 关键契约是**像素来自原图**，不会出现上游重绘的痕迹。
-            assert image.getpixel((8, 8))[:3] == (180, 30, 40)
-    assert len(calls) == 1, "只有整图类走上游；素材类本地处理"
+            assert image.getpixel((0, 0))[3] == 0
+            assert image.getpixel((48, 48))[3] > 200
+    assert len(calls) == 2, "整图修改和素材抠图都走图像模型"
     assert "第二个" not in calls[0][1]["prompt"]
+    assert "第二个" in calls[1][1]["prompt"]
 
 
 async def test_analysis_failure_never_dispatches_or_charges(client, monkeypatch):
@@ -123,9 +120,13 @@ async def test_hallucinated_region_never_dispatches(client, monkeypatch):
     async with AsyncSessionLocal() as db: assert (await db.get(User, uid)).balance == before
 
 
-def test_lasso_keeps_unselected_pixels_inside_bounding_box():
-    op = generate_service.ops_module.EditOp(region={"x": 0.1, "y": 0.1, "w": 0.7, "h": 0.7}, path=[{"x": 0.1, "y": 0.1}, {"x": 0.8, "y": 0.1}, {"x": 0.1, "y": 0.8}])
-    output = generate_service._composite_with_mask(png(), png((0, 0, 255, 255)), SimpleNamespace(params={"planned_output": True}), [op])
-    with Image.open(io.BytesIO(output)) as image:
-        assert image.getpixel((45, 45)) == (180, 30, 40, 255)
-        assert image.getpixel((14, 14)) == (0, 0, 255, 255)
+def test_lasso_mask_keeps_pixels_outside_selected_path():
+    op = generate_service.ops_module.EditOp(
+        region={"x": 0.1, "y": 0.1, "w": 0.7, "h": 0.7},
+        path=[{"x": 0.1, "y": 0.1}, {"x": 0.8, "y": 0.1}, {"x": 0.1, "y": 0.8}],
+    )
+    mask = generate_service._render_ops_mask(png(), [op])
+    with Image.open(io.BytesIO(mask)) as image:
+        alpha = image.getchannel("A")
+        assert alpha.getpixel((14, 14)) == 0
+        assert alpha.getpixel((45, 45)) == 255

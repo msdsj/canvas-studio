@@ -38,14 +38,11 @@ export interface EditCapability {
   id: string
   label: string
   description: string
-  /** upstream=消耗上游算力；local=本地确定性处理 */
-  engine: 'upstream' | 'local'
   /** composite=与原图同尺寸整图；sprite=独立透明素材 */
   output: 'composite' | 'sprite'
   /** 是否每个区域各产出一张 */
   per_region: boolean
   billable: boolean
-  executor: string
   /** 带内置提示词的能力（抠图/去物/增强）不需要用户再写指令 */
   has_builtin_prompt: boolean
 }
@@ -135,9 +132,7 @@ export const generateApi = {
 
   /** 拉取当前可用的编辑能力清单（注册表驱动）。 */
   capabilities: () =>
-    api.get<{ handlers: EditCapability[]; cutout_strategies: string[] }>(
-      '/generate/capabilities'
-    ),
+    api.get<{ handlers: EditCapability[] }>('/generate/capabilities'),
 
   listTasks: (query: TaskListQuery = {}) => {
     const params = new URLSearchParams()

@@ -23,7 +23,7 @@ async def _reclaim_job() -> None:
 
 async def _config_sync_job() -> None:
     """周期同步网关配置：网关重启后运行时配置会丢失（内部令牌/上游地址/Key/Demo 模式），
-    靠本任务在 60s 内自动恢复，避免"重启网关 → 上游 401 → 全部退化 demo 占位图"。"""
+    靠本任务在 60s 内自动恢复，避免网关重启后图片 provider 配置暂时丢失。"""
     async with AsyncSessionLocal() as db:
         await config_service.push_to_gateway(db)
 

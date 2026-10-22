@@ -221,6 +221,7 @@ export interface ComposeResult {
   final_prompt: string
   negative?: string
   size?: string
+  aspect?: string
   skill_id?: string
   prompt_source: 'relay' | 'template' | 'verbatim' | 'none'
   degraded: boolean
@@ -446,6 +447,15 @@ export const chatApi = {
       selection?: ChatSelectionPayload | null
       /** 生图模型：gpt-image-2 / gpt-image-2.5 */
       model?: string
+      generation_params?: {
+        aspect?: string
+        quality?: 'standard' | 'hd'
+        negative_prompt?: string
+        sampler?: string
+        steps?: number
+        cfg_scale?: number
+        seed?: number
+      }
     },
     handlers: {
       onStep: (step: ComposeStep) => void

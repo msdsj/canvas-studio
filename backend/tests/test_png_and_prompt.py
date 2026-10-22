@@ -1,4 +1,4 @@
-"""回归测试：统一 PNG 输出 + 上传内置提示词配置（本次功能优化新增）。"""
+"""回归测试：模型输出校验 + 上传内置提示词配置。"""
 from __future__ import annotations
 
 import io
@@ -6,7 +6,7 @@ import io
 import pytest
 from PIL import Image
 
-from app.services.generate_service import to_png
+from app.services.generate_service import _model_image_details
 from tests.conftest import register_and_activate
 
 
@@ -22,31 +22,29 @@ def _png_bytes(size=(24, 24), color=(10, 120, 220)) -> bytes:
     return buf.getvalue()
 
 
-class TestToPng:
-    """所有 AI 生成图片统一 PNG 输出。"""
+class TestModelImageDetails:
+    """验证模型图片格式而不重编码模型像素。"""
 
-    def test_jpeg_is_converted_to_png(self):
+    def test_jpeg_keeps_its_original_format(self):
         raw = _jpeg_bytes()
-        out = to_png(raw)
-        assert out[:8] == b"\x89PNG\r\n\x1a\n"
-        with Image.open(io.BytesIO(out)) as img:
-            assert img.format == "PNG"
+        assert _model_image_details(raw) == ("jpg", "image/jpeg")
+        with Image.open(io.BytesIO(raw)) as img:
+            assert img.format == "JPEG"
             assert img.size == (48, 32)
 
-    def test_png_passthrough_without_reencode(self):
+    def test_png_is_supported_without_reencoding(self):
         raw = _png_bytes()
-        assert to_png(raw) is raw
+        assert _model_image_details(raw) == ("png", "image/png")
 
-    def test_invalid_bytes_fallback(self):
+    def test_invalid_bytes_are_rejected(self):
         raw = b"not-an-image"
-        assert to_png(raw) == raw
+        assert _model_image_details(raw) is None
 
-    def test_rgba_keeps_alpha(self):
+    def test_transparent_png_is_supported(self):
         buf = io.BytesIO()
         Image.new("RGBA", (16, 16), (0, 0, 0, 0)).save(buf, format="PNG")
-        # 先转成 JPEG 会丢 alpha，这里验证 PNG 原样返回
-        out = to_png(buf.getvalue())
-        with Image.open(io.BytesIO(out)) as img:
+        assert _model_image_details(buf.getvalue()) == ("png", "image/png")
+        with Image.open(io.BytesIO(buf.getvalue())) as img:
             assert img.mode == "RGBA"
 
 

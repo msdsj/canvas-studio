@@ -1,4 +1,4 @@
-"""生图全流程端到端 —— 真后端 + 真网关（演示模式）+ 真落盘。
+"""生图全流程端到端 —— 真后端 + 真网关 + 真图片模型 + 真落盘。
 
 为什么必须跑这个：生图这条链上有 5 个服务接力（generate_service → 网关
 → 图片解码 → 存储 → 资产入库），单测全部 mock 掉，任何一环接错都发现不了：
@@ -7,9 +7,7 @@
 * 扣了额度但图没存下来 → 用户被白扣一次；
 * 重试接口拿到的参数是旧快照 → 重试出来的图和原需求不一致。
 
-关于演示模式：网关的 `demo_mode` 由后端 `system_configs.DEMO_MODE` 在启动/保存配置时
-**覆盖**，所以直接在网关进程上设环境变量没用（会被推回去）。脚本用管理员接口把它
-改成 `on`，跑完再改回原值——否则这个脚本会在真实环境里悄悄把整个站点的出图变成占位图。
+脚本会调用已配置的真实图片模型并产生额度消耗；`DEMO_MODE` 只控制模拟对话，不影响图片生成。
 
 前置：
     cd gateway && ./.venv/bin/python -m uvicorn app.main:app --port 27182
@@ -48,36 +46,6 @@ async def _login(client: httpx.AsyncClient) -> tuple[str, dict]:
     return token, {"Authorization": f"Bearer {token}"}
 
 
-async def _admin_login(client: httpx.AsyncClient) -> tuple[str, dict]:
-    """注册/登录一个管理员账号（脚本专用，只用来改 DEMO_MODE）。"""
-    email = f"gen-admin-{int(time.time())}@example.com"
-    reg = await client.post("/api/auth/register", json={"email": email, "password": PASS})
-    assert reg.status_code == 200, reg.text
-    conn = sqlite3.connect(str(DB))
-    try:
-        conn.execute("UPDATE users SET role = 'admin' WHERE email = ?", (email,))
-        conn.commit()
-    finally:
-        conn.close()
-    login = await client.post("/api/auth/login", json={"email": email, "password": PASS})
-    token = login.json()["data"]["access_token"]
-    return token, {"Authorization": f"Bearer {token}"}
-
-
-async def _read_demo_mode(client: httpx.AsyncClient, headers: dict) -> str:
-    resp = await client.get("/api/admin/config", headers=headers)
-    items = resp.json()["data"]["items"]  # 是 list[dict]，不是 dict
-    for item in items:
-        if item.get("key") == "DEMO_MODE":
-            return str(item.get("value") or "auto")
-    return "auto"
-
-
-async def _set_demo_mode(client: httpx.AsyncClient, headers: dict, mode: str) -> None:
-    resp = await client.put("/api/admin/config", json={"DEMO_MODE": mode}, headers=headers)
-    assert resp.status_code == 200, resp.text
-
-
 async def _wait_task(client, headers, task_id: str, timeout: float = 90.0) -> dict:
     """轮询到终态。"""
     deadline = time.time() + timeout
@@ -97,24 +65,11 @@ async def main() -> int:
     async with httpx.AsyncClient(base_url=BACKEND, timeout=120) as client:
         token, headers = await _login(client)
 
-        # 0) 通过管理员接口把 DEMO_MODE 切到 on（跑完还原）
-        admin_token, admin_headers = await _admin_login(client)
-        original = await _read_demo_mode(client, admin_headers)
-        if original != "on":
-            await _set_demo_mode(client, admin_headers, "on")
-            print(f"已临时开启演示模式（原值 {original}）")
-        restore = original != "on"
-
-        try:
-            return await _run_flow(client, headers)
-        finally:
-            if restore:
-                await _set_demo_mode(client, admin_headers, original)
-                print(f"已还原演示模式为 {original}")
+        return await _run_flow(client, headers)
 
 
 async def _run_flow(client: httpx.AsyncClient, headers: dict) -> int:
-    """真正的生图链路验证（调用方已把网关切到演示模式）。"""
+    """验证图片任务经过真实 provider 的生成链路。"""
     failures: list[str] = []
 
 

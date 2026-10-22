@@ -111,6 +111,31 @@ async def test_generation_and_edit_use_distinct_accounts_without_leaking_metadat
     assert all(item["in_flight"] == 0 for item in await account_pool.list())
 
 
+async def test_edit_forwards_transparent_png_options(client, headers, mock_upstream):
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"data": [{"b64_json": "QUJD"}]})
+
+    mock_upstream(handler)
+    response = await client.post(
+        "/gw/images/edits",
+        headers=headers,
+        data={
+            "prompt": "remove the background",
+            "model": "gpt-image-2",
+            "background": "transparent",
+            "output_format": "png",
+        },
+        files={"image": ("base.png", b"image-data", "image/png")},
+    )
+    assert response.status_code == 200, response.text
+    assert len(seen) == 1 and seen[0].url.path == "/images/edits"
+    assert b'name="background"\r\n\r\ntransparent' in seen[0].content
+    assert b'name="output_format"\r\n\r\npng' in seen[0].content
+
+
 async def test_retry_keeps_original_task_account_and_preserves_sibling_reservation(
     client, headers, mock_upstream, monkeypatch,
 ):
@@ -305,10 +330,6 @@ async def test_planned_batch_never_reports_demo_image_success(
     result = response.json()
     assert result["code"] != "OK" and result["data"] is None
     assert "b64_json" not in response.text and '"demo":true' not in response.text
-    if mode == "on":
-        assert result["code"] == ErrorCode.UPSTREAM_ERROR.value
-        assert "演示" in result["message"] and calls == []
-    else:
-        assert result["code"] == ErrorCode.PROXY_UNREACHABLE.value
-        assert calls == [f"/images/{endpoint}"]
+    assert result["code"] == ErrorCode.PROXY_UNREACHABLE.value
+    assert calls == [f"/images/{endpoint}"]
     assert all(item["in_flight"] == 0 for item in await account_pool.list())

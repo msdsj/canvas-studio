@@ -649,14 +649,16 @@ def _normalize_variants(
     return variants
 
 
-def _skill_block(context: dict[str, Any] | None) -> str:
+def _skill_block(
+    context: dict[str, Any] | None, catalog: list[design_skills.DesignSkill]
+) -> str:
     """把用户当前套用的技能带进润色，让术语与版式跟出图一致。"""
     if not context:
         return "（无）"
-    skill = design_skills.get_skill(str(context.get("skill_id") or ""))
+    skill = design_skills.get_skill(str(context.get("skill_id") or ""), catalog)
     if skill is None:
         return "（无）"
-    detail = design_skills.render_detail(skill.id)
+    detail = design_skills.render_detail(skill.id, catalog)
     aspect = str(context.get("aspect") or skill.aspect or "").strip()
     if aspect:
         detail += f"\n目标画幅：{aspect}"
@@ -696,11 +698,12 @@ async def polish(
 
     started = time.perf_counter()
     template = await prompt_service.load(db, "polish")
+    catalog = await design_skills.load_catalog(db)
     system_prompt = prompt_service.render(
         template,
         mode_instruction=_MODE_INSTRUCTION.get(mode, _MODE_INSTRUCTION["auto"]),
         scene_instruction=_SCENE_INSTRUCTION.get(scene, _SCENE_INSTRUCTION["composer"]),
-        skill_block=_skill_block(context),
+        skill_block=_skill_block(context, catalog),
         count=str(limit),
     )
     messages = [

@@ -6,7 +6,7 @@ import io
 import json
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
@@ -117,20 +117,22 @@ async def test_generate_job_can_explicitly_ignore_reference_and_use_generation_p
         assert len(task.result_urls) == 1
 
 
-async def test_sprite_is_local_crop_and_never_redrawn(client, monkeypatch):
-    """素材类走本地裁切：不调用上游、产出不超出选区。
-
-    契约变更（2026-10-21）：素材类此前送上游重画，实测上游会按「完整人物」
-    补出框外内容（框到膝盖却补出腿和鞋）。现在直接从原图按选区裁切并分离
-    背景，框外没有的内容不可能出现在结果里。
-    """
+async def test_sprite_uses_gpt_image_and_keeps_provider_alpha(client, monkeypatch):
+    """Cutout sends the selected original image to GPT Image and uses its PNG result."""
     headers, session, uid, aid, before = await prepare(client)
     spawned = _install_plan(monkeypatch, {"label": "提取素材", "output_kind": "sprite", "prompt": "只提取第二选区主体为独立透明素材", "ops": [{"region_index": 7, "handler": "cutout", "prompt": "保持主体原样"}]})
+    calls = []
 
-    async def unexpected_edits(files, form):
-        pytest.fail("抠图不得调用上游：上游会重绘并补出框外内容")
+    output = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    ImageDraw.Draw(output).ellipse((20, 18, 44, 48), fill=(40, 180, 90, 255))
+    raw = io.BytesIO()
+    output.save(raw, "PNG")
 
-    monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", unexpected_edits)
+    async def edits(files, form):
+        calls.append((files, form))
+        return _image_reply(raw.getvalue())
+
+    monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", edits)
     await _submit(client, headers, payload(session, aid))
     assert len(spawned) == 1
     async with AsyncSessionLocal() as db:
@@ -146,37 +148,29 @@ async def test_sprite_is_local_crop_and_never_redrawn(client, monkeypatch):
         assert len(generated) == 1
         raw = generate_service._local_bytes(task.result_urls[0])[0]
 
-    with Image.open(io.BytesIO(raw)) as output:
-        assert output.mode == "RGBA"
-        # payload 里第二个选区是右下角 0.5×0.5 → 32×32，结果不得超出这个框
-        assert output.width <= 32 and output.height <= 32, "素材不得超出选区"
+    with Image.open(io.BytesIO(raw)) as output_image:
+        assert output_image.mode == "RGBA"
+        assert output_image.getpixel((0, 0))[3] == 0
+        assert output_image.getpixel((32, 32)) == (40, 180, 90, 255)
+    assert len(calls) == 1
+    files, form = calls[0]
+    assert [field for field, _ in files] == ["image", "image", "mask"]
+    assert files[0][1][1] != b"", "模型请求必须包含原图"
+    assert form["background"] == "transparent" and form["output_format"] == "png"
 
 
-async def test_sprite_pixels_come_from_base_image(client, monkeypatch):
-    """素材像素取自**原图**，而不是上游重绘产物。
-
-    底图是纯色 (180,30,40)；抠图后所有不透明像素必须仍是这个颜色。
-    这直接排除「上游重画」——上游返回的图与本图颜色不同。
-    """
-    headers, session, uid, aid, _ = await prepare(client)
+async def test_opaque_cutout_response_fails_and_refunds(client, monkeypatch):
+    """A model response without alpha cannot silently fall back to local segmentation."""
+    headers, session, uid, aid, before = await prepare(client)
     spawned = _install_plan(monkeypatch, {"label": "套索素材", "output_kind": "sprite", "prompt": "原样提取套索内主体，套索外全部透明", "ops": [{"region_index": 7, "handler": "cutout", "prompt": "严格遵循自由选区轮廓"}]})
-    request = payload(session, aid)
-    request["selection"]["regions"] = [{"index": 7, "region": {"x": 0, "y": 0, "w": 1, "h": 1}, "path": [{"x": 0, "y": 0}, {"x": 1, "y": 0}, {"x": 0, "y": 1}]}]
+    async def edits(files, form):
+        return _image_reply(png((30, 90, 180, 255)))
 
-    async def unexpected_edits(files, form):
-        pytest.fail("抠图不得调用上游")
-
-    monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", unexpected_edits)
-    await _submit(client, headers, request)
+    monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", edits)
+    await _submit(client, headers, payload(session, aid))
     await generate_service.run_task(spawned[0])
     async with AsyncSessionLocal() as db:
         task = await db.get(GenerationTask, spawned[0])
-        assert task.status == "succeeded", task.error_message
-        assert len(task.result_urls) == 1
-        raw = generate_service._local_bytes(task.result_urls[0])[0]
-    with Image.open(io.BytesIO(raw)) as output:
-        assert output.mode == "RGBA"
-        opaque = [px for px in output.convert("RGBA").getdata() if px[3] > 200]
-        assert opaque, "素材必须有可见主体"
-        assert any(px[:3] == (180, 30, 40) for px in opaque), "素材 RGB 应取自原图"
-        assert all(px[:3] == (180, 30, 40) for px in opaque), "不得混入上游重绘像素"
+        assert task.status == "failed"
+        assert "透明背景" in task.error_message
+        assert (await db.get(User, uid)).balance == before

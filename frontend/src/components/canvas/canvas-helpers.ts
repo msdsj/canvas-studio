@@ -982,7 +982,7 @@ export function paintAnnotations(
 /**
  * 把「所有选区」画成一张并集掩码：**透明 = 可编辑，不透明 = 保留**。
  *
- * 口径与后端 ``_render_edit_mask`` 一致（OpenAI images/edits 的 inpainting 语义），
+ * 与后端掩码保持相同语义（OpenAI images/edits 的 inpainting 语义），
  * 因此前端生成的掩码可以直接顶替后端按包围盒自动生成的掩码——
  * 画笔 / 套索这些非矩形选区才不会退化成矩形。
  *
@@ -1148,7 +1148,7 @@ function paintRegionMarks(ctx: CanvasRenderingContext2D, marks: RegionMark[], w:
 }
 
 export interface EditPayload {
-  /** 原始底图（不含涂鸦），用于服务端严格像素合成 */
+  /** 原始底图（不含涂鸦），作为图像模型的参考输入 */
   baseFile: File
   /** 兼容旧接口的标记图字段 */
   maskFile: File | null
@@ -1172,8 +1172,7 @@ export async function buildEditPayload(params: {
   /**
    * 需要在标记图上画红框的区域下标（缺省 = 全部）。
    *
-   * 本地处理类区域（抠图 / 就地挖空）**不应画框**：标记图是给上游的视觉指令，
-   * 画了框就等于告诉上游「这里也要改」，会出现「要抠出来的地方反而被改了样式」。
+   * 这些红框与编号会随原图一起发送给图像模型，作为区域位置的视觉提示。
    * 编号仍按区域原始序号，保证与指令中的「区域N」严格对应。
    */
   markIndexes?: number[]
@@ -1190,7 +1189,7 @@ export async function buildEditPayload(params: {
    *
    * 它们**不进 `regions`、不进掩码**（PRD D3：不产出选区），只画进 guideFile
    * 给上游做视觉提示。纯标注无选区时，用它们的并集包围盒兜底 `regions`，
-   * 保证上游只改标注附近（框外像素由后端从原图恢复）。
+   * 让图像模型知道需要处理的大致范围。
    */
   annotations?: AnnotationObject[]
 }): Promise<EditPayload> {
@@ -1258,7 +1257,7 @@ export async function buildEditPayload(params: {
   }
 
   // 3) 并集掩码 = 矩形 + 套索 + 全部画笔笔迹的并集
-  //    语义：透明(alpha=0)=允许修改，不透明(alpha=255)=保留（与后端 _render_edit_mask 一致）
+  //    语义：透明(alpha=0)=建议修改，不透明(alpha=255)=建议保留
   const brushKeys = new Set(brushInputs.map((item) => regionKey(item.region)))
   const maskRegions = effectiveRegions.filter((region) => !brushKeys.has(regionKey(region)))
   const hasSelection =

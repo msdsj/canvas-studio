@@ -156,13 +156,17 @@ def aspect_to_size(aspect: Any) -> str:
 # --------------------------------------------------------------------------- #
 # 技能选取
 # --------------------------------------------------------------------------- #
-def _pick_skill(skill_id: Any, shortlisted: Iterable[Any] | None) -> Any:
+def _pick_skill(
+    skill_id: Any,
+    shortlisted: Iterable[Any] | None,
+    catalog: list[design_skills.DesignSkill] | None = None,
+) -> Any:
     """优先用声明的 `skill_id`，取不到就用初筛第一条；都没有则返回 `None`。
 
     不再回退到技能库第一条：那会把与用户需求无关的技能骨架（风格词、负向词）
     静默塞进提示词，导致画面风格被平台预设覆盖。
     """
-    candidate = design_skills.get_skill(str(skill_id or "").strip())
+    candidate = design_skills.get_skill(str(skill_id or "").strip(), catalog)
     if candidate is not None:
         return candidate
     for item in list(shortlisted or []):
@@ -181,10 +185,10 @@ def _skill_tags(skill: Any) -> list[str]:
     return tags[:5] or list(DEFAULT_STYLE_TAGS)
 
 
-def _skill_negative(skill: Any) -> str:
+def _skill_negative(skill: Any, fallback: str | None = None) -> str:
     """技能的负向词（非空，≤200）；没有就用兜底负向词。"""
     text = str(getattr(skill, "negative", "") or "").strip()
-    return (text or DEFAULT_NEGATIVE)[:200]
+    return (text or (DEFAULT_NEGATIVE if fallback is None else fallback))[:200]
 
 
 def _ensure_rich_prompt(prompt: str, tags: list[str]) -> str:
@@ -237,10 +241,12 @@ def _validate_model(raw: dict[str, Any]) -> tuple[ComposePlan | None, list[PlanI
         return None, [_issue_from_pydantic(item) for item in exc.errors()]
 
 
-def _cross_field_issues(plan: ComposePlan) -> list[PlanIssue]:
+def _cross_field_issues(
+    plan: ComposePlan, catalog: list[design_skills.DesignSkill] | None = None
+) -> list[PlanIssue]:
     """两条跨字段校验（字段级 Pydantic 表达不了的约束）。"""
     issues: list[PlanIssue] = []
-    if design_skills.get_skill(plan.skill_id) is None:
+    if design_skills.get_skill(plan.skill_id, catalog) is None:
         issues.append(
             PlanIssue(
                 path="skill_id",
@@ -264,6 +270,7 @@ def validate_plan(
     shortlisted: Iterable[Any] | None = None,
     *,
     allow_verbatim: bool = False,
+    catalog: list[design_skills.DesignSkill] | None = None,
 ) -> ValidationReport:
     """校验一份 plan。
 
@@ -285,12 +292,12 @@ def validate_plan(
         )
     source = str(raw.get("source") or "relay")
     if allow_verbatim and source == "verbatim":
-        plan = _verbatim_plan(raw, shortlisted)
+        plan = _verbatim_plan(raw, shortlisted, catalog=catalog)
         return ValidationReport(ok=True, plan=plan, errors=[], source=source)
 
     model, issues = _validate_model(raw)
     if model is not None:
-        issues.extend(_cross_field_issues(model))
+        issues.extend(_cross_field_issues(model, catalog))
     if issues:
         return ValidationReport(ok=False, plan=None, errors=issues, source=source)
     assert model is not None  # 类型收窄：走到这里必然校验通过
@@ -347,9 +354,14 @@ def build_repair_hint(errors: list[PlanIssue]) -> str:
 # --------------------------------------------------------------------------- #
 # 构造：verbatim / 模板兜底 / 归一
 # --------------------------------------------------------------------------- #
-def _verbatim_plan(raw: dict[str, Any], shortlisted: Iterable[Any] | None) -> dict[str, Any]:
+def _verbatim_plan(
+    raw: dict[str, Any],
+    shortlisted: Iterable[Any] | None,
+    default_negative: str | None = None,
+    catalog: list[design_skills.DesignSkill] | None = None,
+) -> dict[str, Any]:
     """`source='verbatim'`：用户原话直用，长度上限走派发兜底（3800）而不是契约 800。"""
-    skill = _pick_skill(raw.get("skill_id"), shortlisted)
+    skill = _pick_skill(raw.get("skill_id"), shortlisted, catalog)
     prompt = str(raw.get("final_prompt") or "").strip()
     truncated = len(prompt) > MAX_DISPATCH_PROMPT_CHARS
     if truncated:
@@ -360,7 +372,7 @@ def _verbatim_plan(raw: dict[str, Any], shortlisted: Iterable[Any] | None) -> di
         "title": _clip(raw.get("title"), 60, "按你的原话生成"),
         "subject": _clip(raw.get("subject"), 120, prompt[:120] or "用户原话"),
         "aspect": normalize_aspect(raw.get("aspect") or getattr(skill, "aspect", "")),
-        "negative": _clip(raw.get("negative"), 200, _skill_negative(skill)),
+        "negative": _clip(raw.get("negative"), 200, _skill_negative(skill, default_negative)),
         "final_prompt": prompt,
         "skill_id": str(getattr(skill, "id", "") or "")[:80] or "generic",
         "style_tags": tags,
@@ -382,9 +394,11 @@ def _assemble_plan(
     shortlisted: Iterable[Any] | None,
     *,
     source: str,
+    default_negative: str | None = None,
+    catalog: list[design_skills.DesignSkill] | None = None,
 ) -> dict[str, Any]:
     """把业务层的半成品拼成**契约形状**的 dict（构造，不校验）。"""
-    skill = _pick_skill(raw.get("skill_id"), shortlisted)
+    skill = _pick_skill(raw.get("skill_id"), shortlisted, catalog)
     tags = _skill_tags(skill)
     prompt = _ensure_rich_prompt(str(raw.get("final_prompt") or ""), tags)
     truncated = len(prompt) > MAX_PROMPT_CHARS
@@ -396,7 +410,7 @@ def _assemble_plan(
         "title": title,
         "subject": _clip(raw.get("subject"), 120, title),
         "aspect": normalize_aspect(raw.get("aspect") or getattr(skill, "aspect", "")),
-        "negative": _clip(raw.get("negative"), 200, _skill_negative(skill)),
+        "negative": _clip(raw.get("negative"), 200, _skill_negative(skill, default_negative)),
         "final_prompt": prompt,
         "skill_id": str(getattr(skill, "id", "") or "")[:80] or "generic",
         "style_tags": tags,
@@ -407,10 +421,13 @@ def _assemble_plan(
 
 
 def template_fallback_plan(
-    text: str, skills: Iterable[Any] | None = None
+    text: str,
+    skills: Iterable[Any] | None = None,
+    default_negative: str | None = None,
+    catalog: list[design_skills.DesignSkill] | None = None,
 ) -> dict[str, Any]:
     """模板兜底产出：3 次纠错仍不合法时用它，**保证合法且不阻塞建任务**（R05）。"""
-    skill = _pick_skill("", skills)
+    skill = _pick_skill("", skills, catalog)
     base = str(text or "").strip()
     scaffold = str(getattr(skill, "prompt_scaffold", "") or "").strip()
     if base and scaffold:
@@ -429,8 +446,10 @@ def template_fallback_plan(
         },
         [skill] if skill is not None else [],
         source="template_fallback",
+        default_negative=default_negative,
+        catalog=catalog,
     )
-    report = validate_plan(plan, [skill] if skill is not None else [])
+    report = validate_plan(plan, [skill] if skill is not None else [], catalog=catalog)
     if report.ok and report.plan is not None:
         return {**report.plan, "size": aspect_to_size(report.plan["aspect"]), "prompt_source": "template_fallback"}
 
@@ -442,7 +461,7 @@ def template_fallback_plan(
         "title": "技能模板方案",
         "subject": (base or "画面主体")[:120],
         "aspect": "1:1",
-        "negative": _skill_negative(skill),
+        "negative": _skill_negative(skill, default_negative),
         "final_prompt": _ensure_rich_prompt(scaffold or base or "画面主体清晰", tags)[:MAX_PROMPT_CHARS],
         "skill_id": str(getattr(skill, "id", "") or "")[:80] or "generic",
         "style_tags": tags,
@@ -458,6 +477,8 @@ def normalize_plan(
     shortlisted: Iterable[Any] | None = None,
     *,
     prompt_source: str = "relay",
+    default_negative: str | None = None,
+    catalog: list[design_skills.DesignSkill] | None = None,
 ) -> dict[str, Any]:
     """把业务层的半成品收敛成契约形状（并保证可用）。
 
@@ -469,12 +490,14 @@ def normalize_plan(
     """
     data = raw if isinstance(raw, dict) else {}
     if prompt_source == "verbatim":
-        plan = _verbatim_plan(data, shortlisted)
+        plan = _verbatim_plan(data, shortlisted, default_negative, catalog)
         return {**plan, "size": aspect_to_size(plan["aspect"]), "prompt_source": "verbatim"}
 
     source = "template_fallback" if prompt_source in {"template", "template_fallback"} else "relay"
-    assembled = _assemble_plan(data, shortlisted, source=source)
-    report = validate_plan(assembled, shortlisted)
+    assembled = _assemble_plan(
+        data, shortlisted, source=source, default_negative=default_negative, catalog=catalog
+    )
+    report = validate_plan(assembled, shortlisted, catalog=catalog)
     if report.ok and report.plan is not None:
         return {
             **report.plan,
@@ -486,7 +509,9 @@ def normalize_plan(
         prompt_source,
         report.paths,
     )
-    fallback = template_fallback_plan(str(data.get("final_prompt") or ""), shortlisted)
+    fallback = template_fallback_plan(
+        str(data.get("final_prompt") or ""), shortlisted, default_negative, catalog
+    )
     return {**fallback, "prompt_source": "template_fallback"}
 
 
@@ -498,6 +523,7 @@ def assemble_dispatch_prompt(
     negative: str,
     *,
     limit: int = MAX_DISPATCH_PROMPT_CHARS,
+    quality_suffix: str = QUALITY_SUFFIX,
 ) -> str:
     """拼装最终交给图像模型的提示词：`negative` 折进尾部（上游无独立负向参数）。
 
@@ -509,7 +535,7 @@ def assemble_dispatch_prompt(
     """
     body = str(final_prompt or "").strip()
     suffix = (
-        QUALITY_SUFFIX
+        quality_suffix
         if body and not any(mark in body for mark in ("4K", "8K", "超高清"))
         else ""
     )

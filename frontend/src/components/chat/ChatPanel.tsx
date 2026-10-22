@@ -3,20 +3,27 @@ import { useTranslation } from 'react-i18next'
 import {
   ArrowDown,
   Check,
+  History,
   Images,
   Loader2,
   Plus,
   Settings2,
   Sparkles,
+  Trash2,
   Upload,
   X,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { usePolling } from '@/hooks/use-polling'
@@ -45,6 +52,16 @@ import { loadPlacedUrls, readNotifiedResults, writeNotifiedResults } from '@/lib
 import { useUIStore } from '@/stores/ui'
 import { useComposerHandoff } from '@/stores/composer'
 import { useComposerRefs, MAX_COMPOSER_REFS, type ComposerRef } from '@/stores/composer-refs'
+import { useAuthStore } from '@/stores/auth'
+import {
+  addPromptHistory,
+  clearPromptHistory,
+  readPromptHistory,
+  updatePromptHistory,
+  PROMPT_HISTORY_EVENT,
+  type PromptGenerationParams,
+  type PromptHistoryEntry,
+} from '@/lib/prompt-history'
 import type { CanvasSelectionContext } from '@/types/selection'
 import { ChatMessage } from './ChatMessage'
 import { Markdown } from './Markdown'
@@ -250,6 +267,7 @@ export function ChatPanel({
   const { t: te } = useTranslation()
   const { t: ta } = useTranslation('agent')
   const toast = useToast()
+  const authUser = useAuthStore((state) => state.user)
   const setQuotaModalOpen = useUIStore((s) => s.setQuotaModalOpen)
   const handleQuotaError = useCallback((code?: string) => {
     if (code !== 'QUOTA_INSUFFICIENT') return
@@ -304,6 +322,27 @@ export function ChatPanel({
   const [imageModel, setImageModel] = useState(
     () => localStorage.getItem('cs.imageModel') || 'gpt-image-2'
   )
+  const [generationParams, setGenerationParams] = useState<PromptGenerationParams>(() => ({
+    model: localStorage.getItem('cs.imageModel') || 'gpt-image-2',
+    aspect: 'auto',
+    quality: 'standard',
+    negative_prompt: '',
+  }))
+  const [promptHistory, setPromptHistory] = useState<PromptHistoryEntry[]>([])
+  const historyUserId = authUser?.id || 'anonymous'
+
+  useEffect(() => {
+    setPromptHistory(readPromptHistory(historyUserId))
+  }, [historyUserId])
+
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      const changedUserId = (event as CustomEvent<{ userId?: string }>).detail?.userId
+      if (changedUserId === historyUserId) setPromptHistory(readPromptHistory(historyUserId))
+    }
+    window.addEventListener(PROMPT_HISTORY_EVENT, refresh)
+    return () => window.removeEventListener(PROMPT_HISTORY_EVENT, refresh)
+  }, [historyUserId])
   /*
    * 模型选项来源：
    * - 已配置（团队或个人的）→ 用服务端返回的清单，**成员不能自己加模型**；
@@ -321,6 +360,7 @@ export function ChatPanel({
   }, [catalog])
   const chooseModel = (value: string) => {
     setImageModel(value)
+    setGenerationParams((prev) => ({ ...prev, model: value }))
     localStorage.setItem('cs.imageModel', value)
   }
   const [relay, setRelay] = useState<RelayStatus | null>(null)
@@ -851,6 +891,8 @@ export function ChatPanel({
   /** 画布选区提交：走 `/chat/analyze`，实时展示区域判定。 */
   const submitSelection = async (prompt: string) => {
     if (!sessionId || submitting) return
+    addPromptHistory(historyUserId, prompt, { ...generationParams, model: imageModel })
+    setPromptHistory(readPromptHistory(historyUserId))
     const epoch = ++streamEpochRef.current
     analyzeCancelRef.current?.()
     cancelledRef.current = false
@@ -1006,6 +1048,9 @@ export function ChatPanel({
     composeCancelRef.current?.()
     cancelledRef.current = false
     lastComposeRef.current = content
+    const paramsSnapshot: PromptGenerationParams = { ...generationParams, model: imageModel }
+    const historyId = addPromptHistory(historyUserId, content, paramsSnapshot)
+    setPromptHistory(readPromptHistory(historyUserId))
     setComposing(true)
     setAnalysis(null)
     setComposeSteps([])
@@ -1033,6 +1078,7 @@ export function ChatPanel({
           ...(mentionIds ?? []),
         ],
         model: imageModel,
+        generation_params: paramsSnapshot,
       },
       {
         onStep: (step) => {
@@ -1058,6 +1104,14 @@ export function ChatPanel({
         onResult: (result) => {
           if (epoch !== streamEpochRef.current) return
           settled = true
+          updatePromptHistory(historyUserId, historyId, {
+            final_prompt: result.final_prompt,
+            system_negative: result.negative,
+            params: {
+              aspect: result.aspect || paramsSnapshot.aspect,
+            },
+          })
+          setPromptHistory(readPromptHistory(historyUserId))
           applyComposeResult(result)
         },
         onError: (message, code) => {
@@ -1843,12 +1897,38 @@ export function ChatPanel({
           )
         }
         topRightSlot={
-          <PolishPopover
-            text={input}
-            scene="composer"
-            onApply={(next) => updateInput(next)}
-            disabled={!input.trim()}
-          />
+          <div className="flex items-center gap-0.5">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" title="提示词历史" aria-label="提示词历史" className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-tertiary hover:bg-surface-hover hover:text-text">
+                  <History size={14} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" side="top" className="w-80 max-w-[calc(100vw-32px)]">
+                <DropdownMenuLabel>提示词历史</DropdownMenuLabel>
+                {promptHistory.length === 0 ? (
+                  <div className="px-2.5 py-3 text-xs text-text-tertiary">提交后保留在这里</div>
+                ) : promptHistory.map((entry) => (
+                  <DropdownMenuItem key={entry.id} onClick={() => {
+                    updateInput(entry.user_prompt)
+                    setGenerationParams({ ...entry.params })
+                    chooseModel(entry.params.model)
+                  }} className="flex min-w-0 flex-col items-start gap-1">
+                    <span className="w-full truncate text-xs text-text">{entry.user_prompt}</span>
+                    <span className="text-[10px] text-text-tertiary">{[entry.params.model, entry.params.aspect, entry.params.quality].filter(Boolean).join(' · ')}</span>
+                  </DropdownMenuItem>
+                ))}
+                {promptHistory.length > 0 && <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem danger onClick={() => {
+                    clearPromptHistory(historyUserId)
+                    setPromptHistory([])
+                  }}><Trash2 size={14} /> 清空历史</DropdownMenuItem>
+                </>}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <PolishPopover text={input} scene="composer" onApply={(next) => updateInput(next)} disabled={!input.trim()} />
+          </div>
         }
         attachSlot={
           onUpload || onPickAsset ? (
@@ -1876,6 +1956,34 @@ export function ChatPanel({
         rightSlot={
           /* 生图模型选择：贴在输入框底栏、发送键左边。
              放在面板顶部时它离"我要生成什么"太远，而且和标题抢一行。 */
+          <div className="flex items-center gap-1">
+          <Popover>
+            <PopoverTrigger asChild>
+              <button type="button" title="生成参数" aria-label="生成参数" className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-secondary hover:bg-surface-hover hover:text-text">
+                <Settings2 size={14} />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" side="top" className="w-80 max-w-[calc(100vw-24px)] space-y-3">
+              <div className="text-sm font-medium text-text">生成参数</div>
+              <label className="flex items-center justify-between gap-3 text-xs text-text-secondary">画幅
+                <select value={generationParams.aspect || 'auto'} onChange={(event) => setGenerationParams((prev) => ({ ...prev, aspect: event.target.value }))} className="h-8 w-36 rounded-md border border-border-strong bg-surface px-2 text-xs text-text">
+                  <option value="auto">自动分析</option><option value="1:1">1:1</option><option value="3:4">3:4</option><option value="4:3">4:3</option><option value="9:16">9:16</option><option value="16:9">16:9</option>
+                </select>
+              </label>
+              <label className="flex items-center justify-between gap-3 text-xs text-text-secondary">质量
+                <select value={generationParams.quality} onChange={(event) => setGenerationParams((prev) => ({ ...prev, quality: event.target.value as 'standard' | 'hd' }))} className="h-8 w-36 rounded-md border border-border-strong bg-surface px-2 text-xs text-text"><option value="standard">标准</option><option value="hd">高清</option></select>
+              </label>
+              <label className="block space-y-1 text-xs text-text-secondary">反向提示词
+                <Textarea rows={2} value={generationParams.negative_prompt} onChange={(event) => setGenerationParams((prev) => ({ ...prev, negative_prompt: event.target.value }))} placeholder="可选，描述不希望出现的内容" className="min-h-16 text-xs" />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-xs text-text-secondary">采样器<Input value={generationParams.sampler || ''} onChange={(event) => setGenerationParams((prev) => ({ ...prev, sampler: event.target.value || undefined }))} placeholder="由模型决定" className="h-8 text-xs" /></label>
+                <label className="space-y-1 text-xs text-text-secondary">步数<Input type="number" min={1} max={200} value={generationParams.steps ?? ''} onChange={(event) => setGenerationParams((prev) => ({ ...prev, steps: event.target.value ? Number(event.target.value) : undefined }))} placeholder="默认" className="h-8 text-xs" /></label>
+                <label className="space-y-1 text-xs text-text-secondary">CFG<Input type="number" min={0} max={30} step={0.1} value={generationParams.cfg_scale ?? ''} onChange={(event) => setGenerationParams((prev) => ({ ...prev, cfg_scale: event.target.value ? Number(event.target.value) : undefined }))} placeholder="默认" className="h-8 text-xs" /></label>
+                <label className="space-y-1 text-xs text-text-secondary">种子<Input type="number" min={0} value={generationParams.seed ?? ''} onChange={(event) => setGenerationParams((prev) => ({ ...prev, seed: event.target.value ? Number(event.target.value) : undefined }))} placeholder="随机" className="h-8 text-xs" /></label>
+              </div>
+            </PopoverContent>
+          </Popover>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -1903,6 +2011,7 @@ export function ChatPanel({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
         }
       />
 

@@ -4,6 +4,7 @@ import { Save, Plug } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import type { SystemConfigItem } from '@/types/models'
@@ -76,8 +77,9 @@ export function SystemConfigForm({ items, onSave, onTest, testing, testResult }:
           <h3 className="text-md font-semibold text-text">{t(`config.category.${category}`)}</h3>
           {list.map((item) => {
             const value = draft[item.key] ?? item.value
+            const multiline = item.value_type === 'json' || item.key.startsWith('PROMPT_')
             return (
-              <div key={item.key} className="flex items-center justify-between gap-4">
+              <div key={item.key} className={multiline ? 'flex flex-col gap-2' : 'flex items-start justify-between gap-4'}>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-sm text-text">{item.key}</span>
@@ -85,11 +87,20 @@ export function SystemConfigForm({ items, onSave, onTest, testing, testResult }:
                   </div>
                   <p className="text-xs text-text-tertiary">{item.description}</p>
                 </div>
-                <div className="w-64 shrink-0">
+                <div className={multiline ? 'w-full' : 'w-64 shrink-0'}>
                   {item.value_type === 'bool' ? (
                     <Switch
                       checked={value === 'true'}
                       onCheckedChange={(checked) => setValue(item.key, checked ? 'true' : 'false')}
+                    />
+                  ) : multiline ? (
+                    <Textarea
+                      value={value}
+                      rows={item.value_type === 'json' ? 10 : 7}
+                      spellCheck={false}
+                      className="font-mono text-xs"
+                      placeholder={item.is_secret ? t('config.secret_hint') : ''}
+                      onChange={(e) => setValue(item.key, e.target.value)}
                     />
                   ) : (
                     <Input

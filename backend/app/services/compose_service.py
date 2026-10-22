@@ -37,6 +37,7 @@ from app.schemas.compose_plan import (
 )
 from app.services import (
     asset_service,
+    config_service,
     design_skills,
     generate_service,
     plan_validator,
@@ -111,7 +112,11 @@ def _bigrams(text: str) -> set[str]:
     return {value[i : i + 2] for i in range(len(value) - 1)}
 
 
-def shortlist_skills(text: str, limit: int = 5) -> list[design_skills.DesignSkill]:
+def shortlist_skills(
+    text: str,
+    limit: int = 5,
+    catalog: list[design_skills.DesignSkill] | None = None,
+) -> list[design_skills.DesignSkill]:
     """按关键词 + 用途词 + 二元组重合度初筛技能（纯确定性，可单测）。
 
     约束：同一分类最多入选 2 条——否则「海报」一句话会把 4 张海报技能全塞给模型，
@@ -122,7 +127,7 @@ def shortlist_skills(text: str, limit: int = 5) -> list[design_skills.DesignSkil
         return []
     query_grams = _bigrams(query)
     scored: list[tuple[float, design_skills.DesignSkill]] = []
-    for skill in design_skills.SKILLS:
+    for skill in catalog if catalog is not None else design_skills.SKILLS:
         score = 0.0
         for tag in skill.style_tags:
             if tag and tag.lower() in query:
@@ -436,26 +441,28 @@ def _prompt_is_actionable(analysis: dict[str, Any], text: str) -> bool:
     return confidence >= 0.7
 
 
-_SKILL_NEGATIVES = {
-    str(skill.negative).strip()
-    for skill in design_skills.SKILLS
-    if str(skill.negative).strip()
-}
 _SKILL_NEGATIVE_TAIL = re.compile(r"\n*\s*画面中避免出现：([^\n]+)\s*$")
 
 
-def _strip_skill_negative_tails(text: str) -> str:
+def _strip_skill_negative_tails(
+    text: str, catalog: list[design_skills.DesignSkill] | None = None
+) -> str:
     """删掉用户输入末尾由技能模板注入的负向段（如「避免写实皮肤」）。
 
     这些负向段是平台自己的产物：用户从历史结果里复制、或旧版技能库插入后，
     会一直留在输入里，把「真人写实」反向压成 Q 版/3D 角色。只删与内置技能
     负向词**完全一致**的尾段，用户自己写的其它内容原样保留。
     """
+    skill_negatives = {
+        str(skill.negative).strip()
+        for skill in (catalog if catalog is not None else design_skills.SKILLS)
+        if str(skill.negative).strip()
+    }
     original = str(text or "").strip()
     cleaned = original
     while True:
         match = _SKILL_NEGATIVE_TAIL.search(cleaned)
-        if match is None or match.group(1).strip() not in _SKILL_NEGATIVES:
+        if match is None or match.group(1).strip() not in skill_negatives:
             break
         cleaned = cleaned[: match.start()].rstrip()
     return cleaned or original
@@ -480,6 +487,7 @@ async def _call_json(
     schema: type | None = None,
     stage: str = "generic",
     shortlisted: list[design_skills.DesignSkill] | None = None,
+    catalog: list[design_skills.DesignSkill] | None = None,
 ) -> tuple[dict[str, Any], relay_types.RelayOutcome, list[str]]:
     """调中转站并要求 JSON，返回 ``(plan_dict, outcome, repair_log)``。
 
@@ -551,7 +559,9 @@ async def _call_json(
                 repair_log,
             )
 
-        report = plan_validator.validate_plan(parsed, shortlisted, allow_verbatim=True)
+        report = plan_validator.validate_plan(
+            parsed, shortlisted, allow_verbatim=True, catalog=catalog
+        )
         if report.ok and report.plan is not None:
             return report.plan, outcome, repair_log
 
@@ -578,7 +588,9 @@ async def _call_json(
         )
 
     # 3 次仍不合法 → 模板兜底，不阻塞建任务（R05）
-    plan = plan_validator.template_fallback_plan(_last_user_text(messages), shortlisted)
+    plan = plan_validator.template_fallback_plan(
+        _last_user_text(messages), shortlisted, catalog=catalog
+    )
     logger.warning(
         "plan 连续 %s 次未通过校验，已用技能模板兜底：stage=%s issues=%s",
         attempts,
@@ -802,15 +814,35 @@ async def stream_compose(
     image_refs: list[str] | None = None,
     selection: dict[str, Any] | None = None,
     model: str | None = None,
+    generation_params: dict[str, Any] | None = None,
 ) -> AsyncIterator[str]:
     """SSE：把全链路思考实时吐给前端，最后给出结论（澄清 / 已提交 / 未配置）。"""
     trace = _Trace()
     raw_text = (content or "").strip()
+    requested = generation_params if isinstance(generation_params, dict) else {}
+    user_negative = str(requested.get("negative_prompt") or "").strip()[:200]
+    aspect_override = str(requested.get("aspect") or "").strip()
+    if aspect_override == "auto":
+        aspect_override = ""
+    quality = "hd" if str(requested.get("quality") or "standard").lower() == "hd" else "standard"
+    provider_params = {
+        key: requested[key]
+        for key in ("sampler", "steps", "cfg_scale", "seed")
+        if requested.get(key) not in (None, "")
+    }
     # 展示与留档保留用户原话；分析与出图用清理掉技能注入负向段的版本
-    text = _strip_skill_negative_tails(raw_text)
+    text = raw_text
     refs = [str(item) for item in (image_refs or []) if str(item).strip()][:4]
 
     async with AsyncSessionLocal() as db:
+        catalog = await design_skills.load_catalog(db)
+        text = _strip_skill_negative_tails(raw_text, catalog)
+        default_negative = await config_service.get_raw(
+            db, "COMPOSE_DEFAULT_NEGATIVE", plan_validator.DEFAULT_NEGATIVE
+        )
+        quality_suffix = await config_service.get_raw(
+            db, "COMPOSE_QUALITY_SUFFIX", plan_validator.QUALITY_SUFFIX
+        )
         session = (
             await db.execute(select(ChatSession).where(ChatSession.id == session_id))
         ).scalar_one_or_none()
@@ -947,6 +979,7 @@ async def stream_compose(
                     analyze_messages,
                     target=target,
                     stage="analyze",
+                    catalog=catalog,
                 )
             # Validate counts while still inside the visible analysis error path.
             resolve_jobs(analysis, text)
@@ -1074,8 +1107,23 @@ async def stream_compose(
                 status="clarify",
                 image_count=1,
                 confidence=int(round(100 - len(missing) * 12)) if missing else 60,
-                input={"content": text, "image_refs": [asset.id for asset in assets]},
-                plan={"image_refs": [asset.id for asset in assets], "size": "1024x1024"},
+                input={
+                    "content": text,
+                    "image_refs": [asset.id for asset in assets],
+                    "generation_params": requested,
+                    "model": model,
+                },
+                plan={
+                    "image_refs": [asset.id for asset in assets],
+                    "size": "1024x1024",
+                    "generation_params": {
+                        **provider_params,
+                        "aspect": aspect_override,
+                        "quality": quality,
+                        "negative_prompt": user_negative,
+                    },
+                    "quality_suffix": quality_suffix,
+                },
                 steps=list(trace.steps),
                 options=options,
                 task_ids=[],
@@ -1137,8 +1185,8 @@ async def stream_compose(
         prompt_source = "verbatim"
         plan_data = {
             "final_prompt": text.strip()[:_MAX_PROMPT],
-            "negative": "",
-            "size": "1024x1024",
+            "negative": user_negative,
+            "aspect": aspect_override or analysis.get("aspect") or "1:1",
             "title": "按你的原话生成",
             "reasoning": [
                 "原话已足够明确，不加字也不减字",
@@ -1155,12 +1203,25 @@ async def stream_compose(
         # 分析确认可执行的原话归一为 ComposePlan，补齐画幅等执行字段。
         # 用户提示词保留；不以本地模板替代前置模型分析。
         plan_data = plan_validator.normalize_plan(
-            plan_data, shortlisted, prompt_source=prompt_source
+            plan_data,
+            shortlisted,
+            prompt_source=prompt_source,
+            default_negative=default_negative,
+            catalog=catalog,
         )
+        if aspect_override:
+            plan_data["aspect"] = plan_validator.normalize_aspect(aspect_override)
+            plan_data["size"] = plan_validator.aspect_to_size(plan_data["aspect"])
         final_prompt = str(plan_data.get("final_prompt") or "").strip()
         negative = str(plan_data.get("negative") or "").strip()
         # size 是 aspect 的派生字段（C1）：只从 aspect 推，避免两个字段各说一套
         size = plan_validator.aspect_to_size(plan_data.get("aspect"))
+        provider_params = {
+            "aspect": plan_data.get("aspect"),
+            "quality": quality,
+            "negative_prompt": user_negative,
+            **provider_params,
+        }
         skill_id = str(plan_data.get("skill_id") or "").strip()
         prompt_source = str(plan_data.get("prompt_source") or prompt_source)
 
@@ -1246,7 +1307,7 @@ async def stream_compose(
             status="dispatching",
             image_count=len(jobs),
             confidence=_confidence(analysis.get("confidence")),
-            input={"content": text, "image_refs": [asset.id for asset in assets]},
+            input={"content": text, "image_refs": [asset.id for asset in assets], "model": model},
             plan={
                 "final_prompt": final_prompt,
                 "image_count": len(jobs),
@@ -1264,6 +1325,9 @@ async def stream_compose(
                 "source": plan_data.get("source") or "relay",
                 "skill_id": skill_id,
                 "image_refs": [asset.id for asset in assets],
+                "generation_params": provider_params,
+                "quality": quality,
+                "quality_suffix": quality_suffix,
                 "prompt_source": prompt_source,
                 "analysis": {k: analysis.get(k) for k in ("summary", "intent", "subject", "style", "constraints", "missing")},
             },
@@ -1276,7 +1340,9 @@ async def stream_compose(
 
         # 最终提示词只在这里拼装一次：`negative` 折进尾部（上游没有独立负向参数），
         # R06 的「尾部含负向段」校验对象就是这段拼装后的文本
-        assembled_prompt = plan_validator.assemble_dispatch_prompt(final_prompt, negative)
+        assembled_prompt = plan_validator.assemble_dispatch_prompt(
+            final_prompt, negative, quality_suffix=quality_suffix
+        )
 
         try:
             plan_validator.assert_dispatchable(plan_data, assembled_prompt)
@@ -1290,8 +1356,13 @@ async def stream_compose(
                 refs=[asset.id for asset in assets],
                 # 双击 / 重发同一句需求时，60 秒内复用同一个幂等键；
                 # 用 run.id 会让「每次都是新 run」，幂等形同虚设。
-                idempotency_key=_dedupe_key(session.id, text, [asset.id for asset in assets]),
+                idempotency_key=_dedupe_key(
+                    session.id, text, [asset.id for asset in assets], provider_params
+                ),
                 model=model,
+                quality=quality,
+                generation_params=provider_params,
+                quality_suffix=quality_suffix,
                 jobs=jobs,
                 keep=(session, user_message),
             )
@@ -1500,15 +1571,21 @@ def _template_plan(text: str, skills: list[design_skills.DesignSkill]) -> dict[s
     }
 
 
-def _dedupe_key(session_id: str, content: str, refs: list[str]) -> str:
+def _dedupe_key(
+    session_id: str,
+    content: str,
+    refs: list[str],
+    generation_params: dict[str, Any] | None = None,
+) -> str:
     """60 秒窗口内的幂等键：挡住双击与网络重试，又不影响用户过一会儿再生成一版。
 
     已知边界：跨分钟边界（12:00:59 与 12:01:01）会被算成两个窗口，
     同一句需求仍可能建两个任务。要彻底消除需要一张「请求指纹表」，
     对当前「防手抖双击」的目标来说不值得，这里刻意保留简单实现。
     """
+    normalized_params = json.dumps(generation_params or {}, sort_keys=True, ensure_ascii=False)
     digest = hashlib.sha1(
-        f"{session_id}|{content.strip()}|{','.join(refs)}".encode("utf-8")
+        f"{session_id}|{content.strip()}|{','.join(refs)}|{normalized_params}".encode("utf-8")
     ).hexdigest()[:16]
     bucket = int(time.time() // 60)
     return f"compose:{digest}:{bucket}"
@@ -1525,6 +1602,9 @@ async def _dispatch(
     refs: list[str],
     idempotency_key: str,
     model: str | None = None,
+    quality: str = "standard",
+    generation_params: dict[str, Any] | None = None,
+    quality_suffix: str = plan_validator.QUALITY_SUFFIX,
     jobs: list[dict[str, Any]] | None = None,
     keep: tuple[Any, ...] = (),
 ) -> list[dict[str, Any]]:
@@ -1541,8 +1621,11 @@ async def _dispatch(
     """
     jobs = jobs or [{"index": 1, "label": "", "prompt": final_prompt, "custom": False}]
     batch = len(jobs) > 1
+    generation_params = generation_params or {}
     from app.services import batch_service
-    unit_cost = await generate_service.resolve_cost(db, "edit" if refs else "generate")
+    unit_cost = await generate_service.resolve_cost(
+        db, "edit" if refs else "generate", quality=quality
+    )
     await batch_service.preflight(db, user.id, len(jobs), unit_cost * len(jobs))
     base_asset = await asset_service.get_asset(db, user, refs[0]) if refs else None
     base_url = base_asset.url if base_asset else None
@@ -1552,9 +1635,18 @@ async def _dispatch(
     payload: list[dict[str, Any]] = []
     first_error: AppError | None = None
     for job in jobs:
-        prompt = plan_validator.assemble_dispatch_prompt(str(job["prompt"]), negative)
+        prompt = plan_validator.assemble_dispatch_prompt(
+            str(job["prompt"]), negative, quality_suffix=quality_suffix
+        )
         key = f"{idempotency_key}:{job['index']}" if batch else idempotency_key
-        extra: dict[str, Any] = {"compose_run_id": run.id, "negative": negative, "pool_batch_id": run.id, "pool_task_id": str(job["index"]), "pool_batch_total": len(jobs)}
+        extra: dict[str, Any] = {
+            "compose_run_id": run.id,
+            "negative": negative,
+            "generation_params": generation_params,
+            "pool_batch_id": run.id,
+            "pool_task_id": str(job["index"]),
+            "pool_batch_total": len(jobs),
+        }
         if batch:
             extra.update({"batch_index": job["index"], "batch_total": len(jobs), "batch_label": job["label"]})
         try:
@@ -1565,11 +1657,12 @@ async def _dispatch(
                     prompt=prompt,
                     model=model or "gpt-image-2",
                     size=size,
+                    quality=quality,
                     base_image_url=base_url,
                     session_id=run.session_id,
                     canvas_id=run.canvas_id,
                     idempotency_key=key,
-                    extra={**extra, "n": 1},
+                    extra={**extra, "quality": quality, "n": 1},
                 )
             else:
                 task, is_new = await generate_service.create_image_task(
@@ -1578,7 +1671,7 @@ async def _dispatch(
                     prompt=prompt,
                     model=model or "gpt-image-2",
                     size=size,
-                    quality="standard",
+                    quality=quality,
                     n=1,
                     session_id=run.session_id,
                     canvas_id=run.canvas_id,
@@ -1672,6 +1765,14 @@ async def confirm_compose(
 
     plan = {**(run.plan or {})}
     plan["chosen_option_id"] = option_id
+    saved_params = (
+        plan.get("generation_params")
+        if isinstance(plan.get("generation_params"), dict)
+        else {}
+    )
+    preferred_aspect = str(saved_params.get("aspect") or "").strip()
+    if preferred_aspect == "auto":
+        preferred_aspect = ""
     # 选中的是「直接用我的原话」时如实标记，前端据此显示「按你写的这句生成」
     prompt_source = "verbatim" if option_id == VERBATIM_OPTION_ID else "relay"
     # 澄清路径同样要过契约归一（R04）与派发前硬约束（R06），否则「点选方案」会成为
@@ -1680,18 +1781,29 @@ async def confirm_compose(
         {
             **plan,
             "final_prompt": final_prompt,
-            "aspect": chosen.get("aspect") or plan.get("aspect"),
+            "aspect": preferred_aspect or chosen.get("aspect") or plan.get("aspect"),
             "title": chosen.get("label") or plan.get("title"),
         },
         [],
         prompt_source=prompt_source,
+        default_negative=await config_service.get_raw(
+            db, "COMPOSE_DEFAULT_NEGATIVE", plan_validator.DEFAULT_NEGATIVE
+        ),
     )
     plan["chosen_option_id"] = option_id
     plan["size"] = plan_validator.aspect_to_size(plan.get("aspect"))
     refs = [str(item) for item in (plan.get("image_refs") or []) if str(item)]
 
+    requested_negative = str(saved_params.get("negative_prompt") or "").strip()
+    if requested_negative and requested_negative not in str(plan.get("negative") or ""):
+        plan["negative"] = ", ".join(part for part in (requested_negative, str(plan.get("negative") or "")) if part)[:200]
+    quality_suffix = str(plan.get("quality_suffix") or await config_service.get_raw(
+        db, "COMPOSE_QUALITY_SUFFIX", plan_validator.QUALITY_SUFFIX
+    ))
     assembled_prompt = plan_validator.assemble_dispatch_prompt(
-        str(plan.get("final_prompt") or ""), str(plan.get("negative") or "")
+        str(plan.get("final_prompt") or ""),
+        str(plan.get("negative") or ""),
+        quality_suffix=quality_suffix,
     )
     plan_validator.assert_dispatchable(plan, assembled_prompt)
 
@@ -1722,6 +1834,10 @@ async def confirm_compose(
             refs=refs,
             # 幂等键必须随方案变化：同一 run 选不同方案是不同的产出
             idempotency_key=f"compose:{run.id}:{option_id}",
+            model=str((run.input or {}).get("model") or "") or None,
+            quality=str(saved_params.get("quality") or "standard"),
+            generation_params=saved_params,
+            quality_suffix=quality_suffix,
             jobs=jobs,
         )
     except AppError:

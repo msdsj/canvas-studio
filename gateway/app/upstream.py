@@ -30,8 +30,7 @@ def make_client(base_url: str, *, read_timeout: float | None = None) -> httpx.As
         write=settings.read_timeout,
         pool=settings.connect_timeout,
     )
-    # 代理仅用于"出外网"的调用；本地回环 provider 直连，
-    # 否则回环请求被劫持到 VPN 代理，代理不可用时整条生图链路退化为 demo 占位图。
+    # 代理仅用于"出外网"的调用；本地回环 provider 直连，避免代理劫持回环请求。
     proxy = None if _is_loopback(base_url) else (runtime_config.proxy_url or None)
     return httpx.AsyncClient(
         base_url=base_url.rstrip("/"),

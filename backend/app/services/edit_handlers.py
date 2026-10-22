@@ -10,7 +10,7 @@
 2. 管理员可在系统配置 ``EDIT_HANDLERS`` 里**纯声明式追加自定义能力**
    （只需给一段能力描述 + 上游提示词模板，不需要写任何执行代码）；
 3. 意图分析层（LLM）从注册表**动态生成能力清单**，按用户原话挑选合适能力；
-4. 编排器按能力声明的 ``engine`` / ``output`` / ``per_region`` 自动执行并汇总产出。
+4. 编排器按能力声明的 ``output`` / ``per_region`` 自动调用图像模型并汇总产出。
 
 新增一种能力 = 在注册表里加一条声明。**执行代码零改动。**
 """
@@ -25,21 +25,10 @@ from app.utils.logging import get_logger
 
 logger = get_logger("app.edit_handlers")
 
-# 能力引擎：upstream=消耗上游算力（需图生图）；local=本地确定性处理（不占算力）
-ENGINE_UPSTREAM = "upstream"
-ENGINE_LOCAL = "local"
-_ENGINES = {ENGINE_UPSTREAM, ENGINE_LOCAL}
-
 # 产出形态：composite=与原图同尺寸的整图；sprite=独立透明素材（尺寸=主体包围盒）
 OUTPUT_COMPOSITE = "composite"
 OUTPUT_SPRITE = "sprite"
 _OUTPUTS = {OUTPUT_COMPOSITE, OUTPUT_SPRITE}
-
-# 本地执行器标识 → generate_service 中的实现
-EXECUTOR_CUTOUT = "cutout"
-EXECUTOR_TRANSPARENT = "transparent"
-_LOCAL_EXECUTORS = {EXECUTOR_CUTOUT, EXECUTOR_TRANSPARENT}
-
 
 @dataclass(frozen=True)
 class EditHandler:
@@ -54,9 +43,6 @@ class EditHandler:
     description: str
     """面向 LLM 的能力说明：讲清「什么场景该选它」，越具体命中越准。"""
 
-    engine: str = ENGINE_UPSTREAM
-    """执行引擎。"""
-
     output: str = OUTPUT_COMPOSITE
     """产出形态。"""
 
@@ -64,13 +50,10 @@ class EditHandler:
     """True=每个区域各产出一张；False=该能力下所有区域合并产出一张。"""
 
     billable: bool = True
-    """是否计费（本地确定性能力免费）。"""
+    """图片编辑能力都会调用并计费图像上游。"""
 
     prompt_prefix: str = ""
     """上游能力的内置提示词前缀（自动拼在用户指令之前）。"""
-
-    executor: str = ""
-    """本地能力的执行器标识（engine=local 时必填）。"""
 
     def to_public(self) -> dict[str, Any]:
         """对外暴露的字段（供后台配置页与前端渲染）。"""
@@ -78,11 +61,9 @@ class EditHandler:
             "id": self.id,
             "label": self.label,
             "description": self.description,
-            "engine": self.engine,
             "output": self.output,
             "per_region": self.per_region,
             "billable": self.billable,
-            "executor": self.executor,
             # 带内置提示词的能力（抠图/去物/增强）不需要用户再写指令
             "has_builtin_prompt": bool(self.prompt_prefix),
         }
@@ -100,7 +81,6 @@ BUILTIN_HANDLERS: tuple[EditHandler, ...] = (
             "适用于换装、换表情/发型、换材质、调色、风格迁移、替换主体等绝大多数「把这里改成……」的需求。"
             "当用户需求无法明确归入其它能力时，一律选它。"
         ),
-        engine=ENGINE_UPSTREAM,
         output=OUTPUT_COMPOSITE,
         per_region=False,
         billable=True,
@@ -109,22 +89,14 @@ BUILTIN_HANDLERS: tuple[EditHandler, ...] = (
         id="cutout",
         label="抠出为透明素材",
         description=(
-            "把该区域的主体从背景中精确分离，输出透明背景的独立素材图片（PNG，带 alpha 通道）。"
+            "调用图像模型将该区域的主体从背景中分离，输出透明背景的独立素材图片（PNG，带 alpha 通道）。"
             "适用于「抠出来」「去背景」「做成贴纸/素材/图标」等需求。"
-            "【重要】本能力只产出独立素材，原图的该区域保持完全不变——"
-            "不做任何美化、重绘、改色或风格调整，也绝不补全框外内容。"
-            "用户要的是「把原图框选的那一块原样拿出来」，框外没有的内容不能凭空画出来。"
+            "保持主体外形、颜色和细节接近原图，不添加新主体，不画出红框、编号或棋盘格背景。"
+            "只输出这个主体，背景必须是真正透明的 alpha 像素。"
         ),
-        # 抠图必须走本地确定性像素处理：上游图生图会重绘画面，
-        # 实测会把框选到膝盖的人物补上腿和鞋，凭空「脑补」框外内容。
-        # 本地抠图逐像素保留原图，框外内容不可能出现在结果里。
-        engine=ENGINE_LOCAL,
-        executor=EXECUTOR_CUTOUT,
         output=OUTPUT_SPRITE,
-        # 每个素材区域各产出 1 张：两个区域都选抠图时必须给 2 张素材，
-        # 合并成 1 张会让「先抠左边、再抠右边」直接丢一半结果。
         per_region=True,
-        billable=False,
+        billable=True,
     ),
     EditHandler(
         id="transparent",
@@ -135,13 +107,10 @@ BUILTIN_HANDLERS: tuple[EditHandler, ...] = (
             "【与抠图的区别】抠图 = 把主体拿出来做成独立素材、原图不动；"
             "本能力 = 在原图上把这个位置挖空。两者语义相反，不可混用。"
         ),
-        # 透明化仍然是图片编辑操作：先交给图片上游理解和生成，
-        # 网关/编排层只负责 alpha 与选区外像素的确定性收口。
-        engine=ENGINE_UPSTREAM,
         output=OUTPUT_COMPOSITE,
         per_region=False,
         billable=True,
-        prompt_prefix="将该区域擦除为透明，保持整张图片尺寸、其余内容和原有 alpha 完全不变。",
+        prompt_prefix="由图像模型将该区域擦除为真正透明的像素，保持整张图片尺寸及其它内容。",
     ),
     EditHandler(
         id="remove",
@@ -150,7 +119,6 @@ BUILTIN_HANDLERS: tuple[EditHandler, ...] = (
             "移除该区域内的物体、人物或瑕疵，并用周围背景自然填补，保持画面连贯无痕。"
             "适用于「去掉这个人/水印/杂物/痘痘」等需求。"
         ),
-        engine=ENGINE_UPSTREAM,
         output=OUTPUT_COMPOSITE,
         per_region=False,
         billable=True,
@@ -163,7 +131,6 @@ BUILTIN_HANDLERS: tuple[EditHandler, ...] = (
             "提升该区域的清晰度、细节与分辨率，内容、构图与风格保持不变。"
             "适用于「变清晰」「修复模糊」「提高画质」「去噪」等需求。"
         ),
-        engine=ENGINE_UPSTREAM,
         output=OUTPUT_COMPOSITE,
         per_region=False,
         billable=True,
@@ -188,29 +155,19 @@ def _parse_handler(raw: dict[str, Any]) -> EditHandler | None:
     handler_id = str(raw.get("id") or "").strip()
     if not handler_id:
         return None
-    engine = str(raw.get("engine") or ENGINE_UPSTREAM).strip().lower()
-    if engine not in _ENGINES:
-        engine = ENGINE_UPSTREAM
+    # Legacy engine/executor fields are ignored: image changes always use the image provider.
     output = str(raw.get("output") or OUTPUT_COMPOSITE).strip().lower()
     if output not in _OUTPUTS:
         output = OUTPUT_COMPOSITE
-    executor = str(raw.get("executor") or "").strip()
-    if engine == ENGINE_LOCAL and executor not in _LOCAL_EXECUTORS:
-        # 本地能力必须绑定到已实现的执行器，否则静默降级为上游能力
-        logger.warning("自定义能力 %s 声明为 local 但 executor=%s 无效，已降级为 upstream", handler_id, executor)
-        engine = ENGINE_UPSTREAM
-        executor = ""
     base = BUILTIN_INDEX.get(handler_id)
     return EditHandler(
         id=handler_id,
         label=str(raw.get("label") or (base.label if base else handler_id)),
         description=str(raw.get("description") or (base.description if base else "")),
-        engine=engine,
         output=output,
         per_region=bool(raw.get("per_region", base.per_region if base else False)),
-        billable=bool(raw.get("billable", engine == ENGINE_UPSTREAM)),
+        billable=True,
         prompt_prefix=str(raw.get("prompt_prefix") or (base.prompt_prefix if base else "")),
-        executor=executor,
     )
 
 
@@ -256,8 +213,7 @@ def render_catalog(handlers: dict[str, EditHandler]) -> str:
     """
     lines: list[str] = []
     for handler in handlers.values():
-        suffix = "（本地处理，不计费）" if handler.engine == ENGINE_LOCAL else ""
-        lines.append(f"- `{handler.id}`（{handler.label}）{suffix}：{handler.description}")
+        lines.append(f"- `{handler.id}`（{handler.label}）：{handler.description}")
     return "\n".join(lines)
 
 

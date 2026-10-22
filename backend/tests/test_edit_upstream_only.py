@@ -1,10 +1,7 @@
-"""产品口径（2026-10-17）：所有编辑操作一律提交上游 gpt-image-2，并按编辑单价计费。
+"""产品契约：每种图片编辑（包括抠图和透明化）都调用图像模型并按编辑产出计费。
 
-这里锁死三条用户可见承诺：
-1. 透明化 / 改样式等重绘类操作先调用上游；**抠图走本地确定性像素处理**，
-   不送上游——上游会按「完整人物」补画框外内容（实测框到膝盖却补出了鞋）。
-2. 发出去的提示词必须包含区域编号与能力内置说明（否则上游不知道要干什么）。
-3. 编辑任务按产出数量计费；抠图不产生上游调用，也不应出现在上游调用里。
+选区掩码用于指导 GPT Image；编辑结果直接使用模型返回的图片。模型未返回抠图所需的
+透明通道时拒绝结果并退款，不运行本地分割或合成。
 """
 from __future__ import annotations
 
@@ -12,7 +9,6 @@ import base64
 import io
 from pathlib import Path
 
-import pytest
 import pytest_asyncio
 from PIL import Image, ImageChops, ImageDraw
 from sqlalchemy import select
@@ -30,18 +26,6 @@ async def _ensure_schema():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
-
-
-@pytest.fixture(autouse=True)
-def _stub_optimizer(monkeypatch):
-    """单测不联网：指令优化直接返回原指令。"""
-
-    async def fake_optimize(db, instruction, **kwargs):
-        return instruction, False
-
-    monkeypatch.setattr(
-        "app.services.generate_service.edit_prompt_service.optimize", fake_optimize
-    )
 
 
 async def _make_user(balance: int = 200) -> str:
@@ -88,20 +72,14 @@ def _png_b64(color: tuple[int, int, int] = (200, 40, 40), *, alpha: Image.Image 
 
 
 class _Recorder:
-    """记录上游调用。
-
-    - 素材类请求（提示词带「纯透明背景」）→ 回显**输入裁块的透明版**：
-      主体取裁块中心椭圆，其余置透明。这样测试既能断言"每个区域送的是自己的裁块"，
-      也能断言后处理真的把 alpha 用起来了。
-    - 其它请求 → 返回纯色图，模拟整图重绘。
-    """
+    """记录 GPT Image 请求，并返回明确可识别的透明结果。"""
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
     async def __call__(self, files, form):
         self.calls.append({"files": files, "form": form})
-        if "纯透明背景" in form["prompt"]:
+        if form.get("background") == "transparent":
             image_bytes = files[0][1][1]
             with Image.open(io.BytesIO(image_bytes)) as opened:
                 src = opened.convert("RGBA")
@@ -154,8 +132,8 @@ async def _finish(task_id: str) -> GenerationTask:
         ).scalar_one()
 
 
-async def test_cutout_is_local_and_never_redraws(monkeypatch):
-    """抠图 = 本地像素处理，**不调用上游**，结果只含框内原像素。"""
+async def test_cutout_calls_image_model_and_keeps_alpha(monkeypatch):
+    """Cutout is an image-model operation and its transparent output is used directly."""
     rec = _Recorder()
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
 
@@ -167,21 +145,54 @@ async def test_cutout_is_local_and_never_redraws(monkeypatch):
     )
 
     done = await _finish(task_id)
-    assert not rec.calls, "抠图不得调用上游：上游会重绘并补出框外内容"
+    assert len(rec.calls) == 1
     assert done.status == "succeeded", done.error_message
     assert len(done.result_urls) == 1
+    assert rec.calls[0]["form"]["background"] == "transparent"
+    assert rec.calls[0]["form"]["output_format"] == "png"
+    assert [field for field, _ in rec.calls[0]["files"]] == ["image", "image", "mask"]
+    with _load(done.result_urls[0]) as output:
+        assert output.mode == "RGBA"
+        assert output.getpixel((0, 0))[3] == 0
     # 执行记录必须落库，前端据此在左侧展示
     thinking = (done.params or {}).get("thinking") or []
     assert len(thinking) >= 3
     assert any("素材" in step for step in thinking), thinking
 
 
-async def test_mixed_ops_use_composite_upstream_plus_local_sprites(monkeypatch):
-    """改样式 + 抠图：整图类合并 1 次上游，素材类每个区域本地各出一张。
+async def test_model_image_bytes_are_saved_without_transcoding(monkeypatch):
+    """The stored asset must retain the exact bytes and format returned by the model."""
+    output = io.BytesIO()
+    Image.new("RGB", (48, 32), (30, 80, 180)).save(output, format="JPEG", quality=91)
+    model_bytes = output.getvalue()
+
+    async def edits(_files, _form):
+        return {
+            "data": [{"b64_json": base64.b64encode(model_bytes).decode()}],
+            "demo": False,
+        }
+
+    monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", edits)
+    uid = await _make_user()
+    _, task_id = await _create(
+        uid,
+        [{"region": {"x": 0.2, "y": 0.2, "w": 0.5, "h": 0.5}, "handler": "restyle", "prompt": "调整色调"}],
+        "调整选区色调",
+    )
+
+    done = await _finish(task_id)
+    assert done.status == "succeeded", done.error_message
+    stored, extension = generate_service._local_bytes(done.result_urls[0])
+    assert stored == model_bytes
+    assert extension == "jpg"
+
+
+async def test_mixed_ops_use_upstream_for_composite_and_sprites(monkeypatch):
+    """改样式 + 抠图：整图编辑和透明素材都调用图片模型。
 
     产出契约（与产品口径一致）：
-    - 整图类（改样式/挖空/去物/增强）合并成 **1 次**调用，指令里含全部整图类区域；
-    - 素材类（抠图）**每个区域各 1 张**，全部本地处理，不夹带任何整图类指令。
+    - 整图类操作合并成 **1 次**调用；
+    - 素材类每个区域各调用一次，并单独输出透明素材。
     """
     rec = _Recorder()
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
@@ -198,7 +209,7 @@ async def test_mixed_ops_use_composite_upstream_plus_local_sprites(monkeypatch):
     assert cost > 0
     done = await _finish(task_id)
     assert done.status == "succeeded", done.error_message
-    assert len(rec.calls) == 1, "只有整图类需要上游；抠图本地完成"
+    assert len(rec.calls) == 2, "整图修改与抠图均须调用上游"
 
     composite_prompt = rec.calls[0]["form"]["prompt"]
     # 整图类：只带区域1，并保留「选区外像素不变」的约束
@@ -207,25 +218,22 @@ async def test_mixed_ops_use_composite_upstream_plus_local_sprites(monkeypatch):
     assert "mask 外的像素保持原样" in composite_prompt
     # 整图类必须带 mask（硬约束「只改选区」，而不是靠提示词自觉）
     assert any(field == "mask" for field, _payload in rec.calls[0]["files"])
+    assert "区域2" in rec.calls[1]["form"]["prompt"]
+    assert rec.calls[1]["form"]["background"] == "transparent"
 
-    # 产出数量：1 张修改图 + 1 张本地抠出的透明素材
+    # 产出数量：1 张修改图 + 1 张模型生成的透明素材
     assert len(done.result_urls) == 2
     outputs = (done.params or {}).get("outputs") or []
     assert any(item.get("kind") == "sprite" for item in outputs)
 
 
 async def test_each_cutout_region_yields_its_own_sprite(monkeypatch):
-    """两个抠图区域必须各自产出「自己那一块」，且不调用上游。
-
-    回归（2026-10-21 实测）：两张裁剪图分别送给上游时，上游会重画主体；
-    框了两处却返回同一个居中主体，还会按「完整人物」补画框外内容。
-    现在改为本地按区域逐像素裁切+分离背景，两个区域天然得到两张不同素材。
-    """
+    """每个抠图区域单独发送给模型，模型分别返回透明素材。"""
     rec = _Recorder()
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
 
     uid = await _make_user()
-    # 左半红、右半蓝：两个区域的裁块内容必然不同，可直接用像素断言
+    # 两个区域使用不同颜色，避免测试输入被意外替换为一个合并后的请求。
     canvas = Image.new("RGB", (64, 64), (220, 30, 30))
     ImageDraw.Draw(canvas).rectangle((32, 0, 63, 63), fill=(30, 60, 220))
     buf = io.BytesIO()
@@ -252,23 +260,16 @@ async def test_each_cutout_region_yields_its_own_sprite(monkeypatch):
     done = await _finish(task.id)
     assert done.status == "succeeded", done.error_message
     assert len(done.result_urls) == 2, "两个区域必须各出一张素材"
-    assert not rec.calls, "两个区域都在本地处理，不得调用上游"
-
-    colors = []
-    for url in done.result_urls:
-        with _load(url) as sprite:
-            opaque = [px[:3] for px in sprite.convert("RGBA").getdata() if px[3] > 200]
-        assert opaque, "每个区域都应有可见主体"
-        colors.append(max(set(opaque), key=opaque.count))
-    assert colors[0][0] > colors[0][2], colors
-    assert colors[1][2] > colors[1][0], colors
-    assert colors[0] != colors[1], "两个区域必须各自裁自己的那一块"
+    assert len(rec.calls) == 2
+    assert all(call["form"]["background"] == "transparent" for call in rec.calls)
+    assert [field for field, _ in rec.calls[0]["files"]] == ["image", "image", "mask"]
+    assert rec.calls[0]["files"][2][1][1] != rec.calls[1]["files"][2][1][1]
 
 
 
 
 async def test_transparent_calls_upstream(monkeypatch):
-    """就地透明化同样先提交上游，再按选区合成并保留外部原像素。"""
+    """透明化 requests a transparent PNG from the image model and uses it directly."""
     rec = _Recorder()
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
 
@@ -282,4 +283,36 @@ async def test_transparent_calls_upstream(monkeypatch):
     done = await _finish(task_id)
     assert len(rec.calls) == 1
     assert "透明" in rec.calls[0]["form"]["prompt"]
+    assert rec.calls[0]["form"]["background"] == "transparent"
+    assert rec.calls[0]["form"]["output_format"] == "png"
     assert done.status == "succeeded", done.error_message
+    with _load(done.result_urls[0]) as output:
+        assert output.mode == "RGBA"
+        assert output.getpixel((32, 32))[3] > 200
+
+
+async def test_opaque_cutout_result_fails_and_refunds(monkeypatch):
+    """模型未返回透明像素时失败退款，不运行本地抠图兜底。"""
+    opaque = io.BytesIO()
+    Image.new("RGB", (64, 64), (200, 40, 40)).save(opaque, format="PNG")
+    returned = base64.b64encode(opaque.getvalue()).decode()
+
+    async def edits(_files, form):
+        assert form["background"] == "transparent"
+        return {"data": [{"b64_json": returned}], "demo": False}
+
+    monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", edits)
+    uid = await _make_user()
+    cost, task_id = await _create(
+        uid,
+        [{"region": {"x": 0.2, "y": 0.2, "w": 0.5, "h": 0.5}, "handler": "cutout", "prompt": ""}],
+        "把主体抠出来",
+    )
+
+    done = await _finish(task_id)
+    assert cost > 0
+    assert done.status == "failed"
+    assert "透明背景" in (done.error_message or "")
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, uid)
+        assert user is not None and user.balance == 200

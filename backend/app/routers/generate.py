@@ -22,7 +22,6 @@ from app.schemas.task import GenerationTaskOut
 from app.services import (
     access,
     asset_service,
-    cutout_service,
     generate_service,
     plan_service,
     task_service,
@@ -111,7 +110,7 @@ async def generate_edit(
     - `annotation_stats`：标注计数（JSON 字符串，如 `{"border":2,"marker":3,"doodle":1}`）。
       **只写日志、不入库**（R09 的验收就是日志里有这行）——标注是「未提交的临时意图」，
       提交时已被合成进 guideFile，原对象没有复用价值，落库只会带来迁移与清理成本。
-    - `edit_mode=transparent`：对全部选区做就地透明化（免费，不消耗上游算力）；
+    - `edit_mode=transparent`：请求图像模型把选区处理为透明像素，按编辑单价计费；
     - `edit_intensity`：fine=精细修改（保结构，默认）；rebuild=重新生成（换主体）。
     """
     # 标注计数：容错解析，绝不因为一个统计字段让整次编辑失败
@@ -231,7 +230,6 @@ async def list_capabilities(
     return envelope(
         {
             "handlers": [item.to_public() for item in handlers.values()],
-            "cutout_strategies": cutout_service.available_strategies(),
         }
     )
 

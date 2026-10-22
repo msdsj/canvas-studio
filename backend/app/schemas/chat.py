@@ -75,6 +75,8 @@ class ChatComposeRequest(BaseModel):
     selection: ChatSelection | None = None
     # 生图模型：gpt-image-2（2.0）/ gpt-image-2.5（2.5）
     model: str | None = None
+    # 生成参数快照：标准参数由编排层执行，provider-specific 参数由适配层透传。
+    generation_params: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChatConfirmRequest(BaseModel):

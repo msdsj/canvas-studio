@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     mail_log_path: str = "./data/mail.log"
 
     # Demo / 任务状态机 / 网关超时
-    demo_mode: str = "off"  # auto | on | off; keep fake images disabled by default
+    demo_mode: str = "off"  # auto | on | off; applies to chat responses only
     max_active_tasks_per_user: int = 12
     idempotency_window_seconds: int = 300
     # 任务超时必须大于网关读超时，否则「上游还在画」会被我们自己判成失败

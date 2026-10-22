@@ -6,7 +6,7 @@
    后端必须直接用它（否则画笔与套索的精度会被包围盒抹平）；
 2. **失败不阻断**：掩码缺失或损坏时回退到自动生成，任务仍然能出图；
 3. **素材类不被全局掩码污染**：per-region（抠图）每个区域各调用一次，
-   每次只能带「这一个区域」的掩码。
+   每次只能带「这一个区域」的反向掩码，并使用模型返回的透明素材。
 """
 from __future__ import annotations
 
@@ -98,10 +98,10 @@ def _sent_mask(call: dict) -> bytes:
     raise AssertionError("本次上游调用没有携带 mask")
 
 
-def _png_b64(*, alpha: Image.Image | None = None) -> str:
+def _png_b64(*, color=(200, 40, 40), alpha: Image.Image | None = None) -> str:
     """整图返回 RGB；素材模拟原图坐标系内、带主体 alpha 的 PNG。"""
     buf = io.BytesIO()
-    image = Image.new("RGB", BASE_SIZE, (200, 40, 40))
+    image = Image.new("RGB", BASE_SIZE, color)
     if alpha is not None:
         image.putalpha(alpha)
     image.save(buf, format="PNG")
@@ -109,7 +109,7 @@ def _png_b64(*, alpha: Image.Image | None = None) -> str:
 
 
 class _Recorder:
-    """记录真实请求；素材响应按该次 mask 生成透明背景主体。"""
+    """记录 GPT 请求；透明素材响应跟随真实底图和本次选区掩码。"""
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
@@ -118,16 +118,25 @@ class _Recorder:
         call = {"files": files, "form": form}
         self.calls.append(call)
         alpha = None
-        if "只保留选区内的主体" in form["prompt"]:
+        color = (200, 40, 40)
+        if form.get("background") == "transparent":
             with Image.open(io.BytesIO(_sent_mask(call))) as mask:
-                editable = ImageChops.invert(mask.convert("RGBA").getchannel("A"))
-            alpha = Image.new("L", BASE_SIZE, 0)
-            bounds = editable.getbbox()
-            assert bounds, "素材请求必须包含可处理的区域"
-            left, top, right, bottom = bounds
-            ImageDraw.Draw(alpha).ellipse((left + 1, top + 1, right - 2, bottom - 2), fill=255)
-            alpha = ImageChops.multiply(alpha, editable)
-        return {"data": [{"b64_json": _png_b64(alpha=alpha)}], "demo": False}
+                selected = mask.convert("RGBA").getchannel("A")
+            if "透明背景的独立素材图片" in form["prompt"]:
+                alpha = Image.new("L", BASE_SIZE, 0)
+                bounds = selected.getbbox()
+                assert bounds, "素材请求必须包含可处理的区域"
+                left, top, right, bottom = bounds
+                ImageDraw.Draw(alpha).ellipse((left + 1, top + 1, right - 2, bottom - 2), fill=255)
+                alpha = ImageChops.multiply(alpha, selected)
+            else:
+                alpha = selected
+            with Image.open(io.BytesIO(files[0][1][1])) as base:
+                bounds = selected.getbbox()
+                if bounds:
+                    left, top, right, bottom = bounds
+                    color = base.convert("RGB").getpixel(((left + right) // 2, (top + bottom) // 2))
+        return {"data": [{"b64_json": _png_b64(color=color, alpha=alpha)}], "demo": False}
 
 
 # --------------------------------------------------------------------------- #
@@ -295,18 +304,10 @@ async def test_broken_mask_url_falls_back_to_generated(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# 3) 素材类本地抠图，不参与上游掩码
+# 3) 素材类通过上游模型抠图，每区域仅发送自己的掩码
 # --------------------------------------------------------------------------- #
-async def test_sprite_region_is_cut_locally(monkeypatch):
-    """抠图（素材类）走本地像素处理，**不调用上游、不带掩码**。
-
-    契约变更（2026-10-21）：上游会按「完整人物」重绘并补出框外内容，
-    实测框到膝盖的人物被补上了腿和鞋。现在素材类直接从原图按选区裁切并
-    分离背景，框外内容没有来源，不可能被脑补出来。
-
-    这条测试锁三件事：① 不产生上游调用；② 产出是带 alpha 的 RGBA；
-    ③ 素材尺寸不超过选区，不会把框外内容带进来。
-    """
+async def test_sprite_region_uses_model_with_reversed_mask(monkeypatch):
+    """抠图将原图和反向选区掩码交给模型，并直接采用透明 PNG 结果。"""
     rec = _Recorder()
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
 
@@ -320,19 +321,25 @@ async def test_sprite_region_is_cut_locally(monkeypatch):
     )
     done = await _finish(task_id)
     assert done.status == "succeeded", done.error_message
-    assert not rec.calls, "抠图不得调用上游"
+    assert len(rec.calls) == 1
+    call = rec.calls[0]
+    assert [field for field, _ in call["files"]] == ["image", "image", "mask"]
+    assert call["form"]["background"] == "transparent"
+    assert call["form"]["output_format"] == "png"
+    sent_mask = _sent_mask(call)
+    assert not _mask_transparent_at(sent_mask, INSIDE_POINT)
+    assert _mask_transparent_at(sent_mask, OUTSIDE_POINT)
 
     with Image.open(io.BytesIO(_result_bytes(done))) as output:
         assert output.mode == "RGBA"
-        assert output.width <= round(BASE_SIZE[0] * CENTER_REGION["w"]), "素材不得超出选区"
-        assert output.height <= round(BASE_SIZE[1] * CENTER_REGION["h"]), "素材不得超出选区"
         alpha = output.getchannel("A")
         assert alpha.getextrema()[0] == 0, "背景必须透明"
         assert alpha.getextrema()[1] == 255, "主体必须保留"
+        assert alpha.getpixel(OUTSIDE_POINT) == 0
 
 
-async def test_two_sprite_regions_are_cut_separately(monkeypatch):
-    """两个素材区域各出一张，各自只含自己框到的主体，互不相同。"""
+async def test_two_sprite_regions_call_model_separately(monkeypatch):
+    """两个素材区域各自携带独立掩码调用模型并生成各自的透明素材。"""
     rec = _Recorder()
     monkeypatch.setattr("app.services.gateway_client.gateway_client.image_edits", rec)
 
@@ -356,8 +363,11 @@ async def test_two_sprite_regions_are_cut_separately(monkeypatch):
     )
     done = await _finish(task_id)
     assert done.status == "succeeded", done.error_message
-    assert not rec.calls, "抠图不得调用上游"
+    assert len(rec.calls) == 2
     assert len(done.result_urls) == 2, "两个区域必须各出一张素材"
+    masks = [_sent_mask(call) for call in rec.calls]
+    assert masks[0] != masks[1]
+    assert all(call["form"].get("background") == "transparent" for call in rec.calls)
 
     colors = []
     for url in done.result_urls:

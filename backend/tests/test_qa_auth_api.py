@@ -306,6 +306,10 @@ async def test_qa_admin_can_access_admin_endpoints(client):
     assert "users_total" in overview.json()["data"]
     assert users.status_code == 200
     assert "items" in users.json()["data"]
+    config = await client.get("/api/admin/config", headers=headers)
+    config_keys = {item["key"] for item in config.json()["data"]["items"]}
+    assert "CUTOUT_STRATEGY" not in config_keys
+    assert "CUTOUT_LOCAL_FALLBACK" not in config_keys
 
 
 async def test_qa_banned_user_login_forbidden(client):

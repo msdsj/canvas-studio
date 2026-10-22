@@ -2,7 +2,7 @@
 
 对照架构 §4.9 与 PRD P0-35/36：
 - `/gw/*` 无或错误 X-Internal-Token → 401 UNAUTHORIZED
-- Demo 模式（CS_DEMO_MODE=on）→ 占位图 + 模拟对话，响应标 demo:true
+- Demo 模式（CS_DEMO_MODE=on）→ 模拟对话；图片始终调用真实 provider
 - Demo 模式 off → 直连上游透传（demo:false）；不可达时**不降级**、返回统一错误
 - /gw/upstream/health 区分 PROXY_UNREACHABLE 与 UPSTREAM_ERROR
 - 号池无可用账号 → POOL_UNAVAILABLE
@@ -126,8 +126,8 @@ async def test_qa_demo_off_unreachable_no_fallback(client, headers, mock_upstrea
     assert resp.json()["data"] is None
 
 
-async def test_qa_demo_auto_fallback_on_unreachable(client, headers, mock_upstream, restore_runtime):
-    """demo=auto 且上游不可达 → 自动降级占位图 demo:true。"""
+async def test_qa_demo_auto_image_unreachable_does_not_return_placeholder(client, headers, mock_upstream, restore_runtime):
+    """demo=auto 且图像 provider 不可达时仍如实失败。"""
     runtime_config.demo_mode = "auto"
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -139,8 +139,8 @@ async def test_qa_demo_auto_fallback_on_unreachable(client, headers, mock_upstre
         headers=headers,
         json={"prompt": "自动降级", "size": "64x64", "n": 1},
     )
-    assert resp.status_code == 200
-    assert resp.json()["data"]["demo"] is True
+    assert resp.status_code >= 400
+    assert resp.json()["data"] is None
 
 
 # --------------------------------------------------------------------------

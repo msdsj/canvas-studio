@@ -15,7 +15,6 @@ from contextlib import asynccontextmanager
 import httpx
 
 from app.config import settings
-from app.services import demo_service
 from app.services.account_pool import account_pool
 from app.services.error_mapper import classify_exception, classify_status
 from app.services.resilience import run_with_fallback
@@ -25,11 +24,6 @@ from app.utils.errors import ErrorCode, GatewayError
 from app.utils.upstream_json import parse_json_body
 
 logger = logging.getLogger(__name__)
-
-#: 只有「上游根本连不上」才降级成演示占位图。格式异常 / 号池无额度 / 鉴权失败 / 限流
-#: 必须如实失败——把「没画出来」伪装成「画好了」，用户会以为产品在乱画，还白扣一次额度。
-_DEMO_FALLBACK_CODES = {ErrorCode.PROXY_UNREACHABLE}
-
 
 @asynccontextmanager
 async def _image_lease(payload: dict):
@@ -107,6 +101,18 @@ def _normalize(data: dict, images: list[str]) -> dict:
     }
 
 
+def _provider_generation_params(payload: dict) -> dict:
+    """Pass through the common diffusion controls without leaking UI-only fields."""
+    params = payload.get("generation_params")
+    if not isinstance(params, dict):
+        return {}
+    return {
+        key: params[key]
+        for key in ("sampler", "steps", "cfg_scale", "seed")
+        if params.get(key) not in (None, "")
+    }
+
+
 async def _generations_via_queue(
     payload: dict, model: str, *, prompt: str, size: str, n: int, account: dict | None = None
 ) -> dict | None:
@@ -136,6 +142,7 @@ async def _generations_via_queue(
                 "model": model,
                 "size": size,
                 "quality": quality,
+                **_provider_generation_params(payload),
             }
             resp = await client.post("/api/image-tasks/generations", headers=headers, json=body)
             if resp.status_code in (404, 405):
@@ -201,6 +208,7 @@ async def _generations_once(
         "n": n,
         "size": size,
         "quality": payload.get("quality", "standard"),
+        **_provider_generation_params(payload),
     }
     base_url = (account or {}).get("base_url") or None
     api_key = (account or {}).get("access_token") or None
@@ -272,17 +280,10 @@ async def _run_with_account_rotation(payload: dict, chain: list[str], attempt) -
 
 
 async def image_generations(payload: dict) -> dict:
-    """调用配置的生图 provider；模型链失败后才考虑演示降级。"""
+    """调用配置的图片模型；模型失败时如实返回错误。"""
     prompt = str(payload.get("prompt") or "")
     size = str(payload.get("size") or "1024x1024")
     n = int(payload.get("n") or 1)
-    mode = runtime_config.demo_mode
-
-    if mode == "on":
-        if payload.get("pool_batch_id"):
-            raise GatewayError(ErrorCode.UPSTREAM_ERROR, "真实图片任务不能使用演示结果，请关闭演示模式")
-        return demo_service.demo_image_result(prompt, size, n)
-
     chain = runtime_config.model_chain("image") or [
         runtime_config.image_model or str(payload.get("model") or "gpt-image-2")
     ]
@@ -296,8 +297,6 @@ async def image_generations(payload: dict) -> dict:
         )
     except GatewayError as exc:
         logger.warning("生图上游失败: %s %s", exc.code, exc)
-        if mode == "auto" and not payload.get("pool_batch_id") and exc.code in _DEMO_FALLBACK_CODES:
-            return demo_service.demo_image_result(prompt, size, n)
         raise
 
 
@@ -313,7 +312,12 @@ async def _edits_once(
         "quality": form.get("quality", "standard"),
         "n": max(1, min(int(form.get("n") or 1), 4)),
         "response_format": form.get("response_format", "b64_json"),
+        **_provider_generation_params(form),
     }
+    for key in ("background", "output_format"):
+        value = str(form.get(key) or "").strip()
+        if value:
+            data[key] = value
 
     base_url = (account or {}).get("base_url") or None
     api_key = (account or {}).get("access_token") or None
@@ -352,16 +356,9 @@ async def _edits_once(
 async def image_edits(
     files: list[tuple[str, tuple[str, bytes, str]]], form: dict
 ) -> dict:
-    """图生图 / 编辑转发；模型链失败后才考虑演示降级。"""
+    """图生图 / 编辑必须调用真实图像模型，不返回本地演示图片。"""
     prompt = str(form.get("prompt") or "")
     size = str(form.get("size") or "1024x1024")
-    mode = runtime_config.demo_mode
-
-    if mode == "on":
-        if form.get("pool_batch_id"):
-            raise GatewayError(ErrorCode.UPSTREAM_ERROR, "真实图片任务不能使用演示结果，请关闭演示模式")
-        return demo_service.demo_image_result(prompt, size, 1)
-
     # 日志：记录实际转发的文件清单（调试多图转发问题）。放在这里而不是单次调用里，
     # 免得重试时把同一份文件清单重复打 N 遍。
     file_summary = [
@@ -383,7 +380,5 @@ async def image_edits(
         )
     except GatewayError as exc:
         logger.warning("图片编辑上游失败: %s %s", exc.code, exc)
-        # 同生图：只有连不上上游才降级，业务错误（含格式异常）如实失败
-        if mode == "auto" and not form.get("pool_batch_id") and exc.code in _DEMO_FALLBACK_CODES:
-            return demo_service.demo_image_result(prompt, size, 1)
+        # Editing results must come from the configured image model in every mode.
         raise
