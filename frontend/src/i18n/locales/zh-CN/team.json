@@ -46,11 +46,16 @@
     "topup": "充值",
     "topup_amount": "充值数量",
     "shared_off": "共享额度未开启，成员生成时扣自己的额度。",
-    "enable_shared": "启用共享额度"
+    "enable_shared": "启用共享额度",
+    "shared": "共享",
+    "col_member": "成员",
+    "col_tasks": "任务",
+    "col_cost": "消耗"
   },
   "members": {
     "title": "成员管理",
     "invite": "邀请成员",
+    "invite_hint": "对方接受邀请后会占用一个席位，可在下方随时撤回。",
     "email_label": "对方邮箱",
     "role_label": "角色",
     "invite_submit": "发送邀请",

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, Loader2, Trash2 } from 'lucide-react'
+import { AlertTriangle, Loader2, Settings2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -93,7 +93,7 @@ function TeamSettingsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4 p-6">
+    <div className="flex flex-col gap-4 p-4 sm:p-6">
       {/* 模型配置放在最上面：这是管理员进来最常改的一项 */}
       <TeamModelConfigCard
         teamId={team.id}
@@ -101,8 +101,18 @@ function TeamSettingsPage() {
         onSaved={() => void loadTeams(true)}
       />
 
-      <Card className="flex flex-col gap-3 p-4">
-        <CardTitle className="text-ui">{t('settings.general')}</CardTitle>
+      <Card className="flex flex-col gap-4 p-4 sm:p-5">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-bg-subtle text-text-secondary ring-1 ring-inset ring-border/70">
+            <Settings2 size={15} />
+          </span>
+          <div className="flex flex-col">
+            <CardTitle className="text-ui">{t('settings.general')}</CardTitle>
+            <CardDescription className="text-caption text-text-tertiary">
+              {t('settings.name_label')} · {t('settings.seats_label')}
+            </CardDescription>
+          </div>
+        </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1">
@@ -139,11 +149,11 @@ function TeamSettingsPage() {
         )}
       </Card>
 
-      <Card className="flex flex-col gap-3 p-4">
-        <div className="flex items-start justify-between gap-4">
+      <Card className="flex flex-col gap-0 p-0">
+        <div className="flex items-start justify-between gap-4 p-4 sm:p-5">
           <div className="flex flex-col">
             <CardTitle className="text-ui">{t('settings.shared_quota')}</CardTitle>
-            <CardDescription className="mt-1">{t('settings.shared_quota_hint')}</CardDescription>
+            <CardDescription className="mt-1 text-caption">{t('settings.shared_quota_hint')}</CardDescription>
           </div>
           <Switch
             checked={team.shared_quota}
@@ -152,10 +162,10 @@ function TeamSettingsPage() {
           />
         </div>
 
-        <div className="flex items-start justify-between gap-4 border-t border-border/60 pt-3">
+        <div className="flex items-start justify-between gap-4 border-t border-border/60 p-4 sm:p-5">
           <div className="flex flex-col">
             <CardTitle className="text-ui">{t('settings.allow_personal_provider')}</CardTitle>
-            <CardDescription className="mt-1">
+            <CardDescription className="mt-1 text-caption">
               {t('settings.allow_personal_provider_hint')}
             </CardDescription>
           </div>
@@ -170,12 +180,14 @@ function TeamSettingsPage() {
       <TeamSkillsCard teamId={team.id} editable={isOwner} />
 
       {isOwner && (
-        <Card className="flex flex-wrap items-center justify-between gap-3 border-danger/40 p-4">
-          <div className="flex items-start gap-2">
-            <AlertTriangle size={16} className="mt-0.5 text-danger" />
+        <Card className="flex flex-wrap items-center justify-between gap-3 border-danger/40 bg-danger/[0.03] p-4 sm:p-5">
+          <div className="flex items-start gap-2.5">
+            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-danger/10 text-danger">
+              <AlertTriangle size={15} />
+            </span>
             <div className="flex flex-col">
               <CardTitle className="text-ui text-danger">{t('settings.danger')}</CardTitle>
-              <CardDescription className="mt-0.5">{t('settings.delete_confirm')}</CardDescription>
+              <CardDescription className="mt-0.5 text-caption">{t('settings.delete_confirm')}</CardDescription>
             </div>
           </div>
           <Button variant="danger" size="sm" loading={deleting} onClick={() => void remove()}>

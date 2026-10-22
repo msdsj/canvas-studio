@@ -73,10 +73,17 @@ function TeamAuditPage() {
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
-    <div className="flex flex-col gap-3 p-6">
-      <header className="flex flex-col gap-0.5">
-        <h2 className="text-ui font-medium text-text">{t('audit.title')}</h2>
-        <p className="text-[11px] text-text-tertiary">{t('audit.subtitle')}</p>
+    <div className="flex flex-col gap-3 p-4 sm:p-6">
+      <header className="flex flex-wrap items-end justify-between gap-2">
+        <div className="flex flex-col gap-0.5">
+          <h2 className="text-ui font-semibold text-text">{t('audit.title')}</h2>
+          <p className="text-[11px] text-text-tertiary">{t('audit.subtitle')}</p>
+        </div>
+        {total > 0 && (
+          <span className="rounded-full bg-bg-subtle px-2.5 py-1 text-[10px] tabular-nums text-text-tertiary">
+            {total}
+          </span>
+        )}
       </header>
 
       {loading ? (
@@ -87,60 +94,65 @@ function TeamAuditPage() {
         <p className="py-12 text-center text-caption text-text-tertiary">{t('audit.empty')}</p>
       ) : (
         <Card className="overflow-hidden p-0">
-          <table className="w-full text-left text-caption">
-            <thead className="bg-bg-subtle text-[11px] text-text-tertiary">
-              <tr>
-                <th className="px-3 py-2 font-normal">{t('audit.time')}</th>
-                <th className="px-3 py-2 font-normal">{t('audit.actor')}</th>
-                <th className="px-3 py-2 font-normal">{t('audit.action')}</th>
-                <th className="px-3 py-2 font-normal">{t('audit.detail')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((entry) => (
-                <tr key={entry.id} className="border-t border-border/60">
-                  <td className="whitespace-nowrap px-3 py-2 tabular-nums text-text-tertiary">
-                    {entry.created_at
-                      ? new Date(entry.created_at).toLocaleString(
-                          i18n.language === 'zh-CN' ? 'zh-CN' : 'en-US',
-                          { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' },
-                        )
-                      : '—'}
-                  </td>
-                  <td className="max-w-[180px] truncate px-3 py-2 text-text-secondary">
-                    {entry.actor_email || '—'}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className="rounded-full bg-bg-subtle px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
-                      {entry.action}
-                    </span>
-                  </td>
-                  <td className="max-w-[320px] truncate px-3 py-2 text-text-tertiary">
-                    {entry.detail ? String(entry.detail) : entry.target_id || '—'}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-caption">
+              <thead className="sticky top-0 bg-bg-subtle text-[10px] uppercase tracking-[0.06em] text-text-tertiary">
+                <tr>
+                  <th className="px-4 py-2.5 font-medium">{t('audit.time')}</th>
+                  <th className="px-4 py-2.5 font-medium">{t('audit.actor')}</th>
+                  <th className="px-4 py-2.5 font-medium">{t('audit.action')}</th>
+                  <th className="px-4 py-2.5 font-medium">{t('audit.detail')}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {entries.map((entry) => (
+                  <tr
+                    key={entry.id}
+                    className="border-t border-border/50 transition-colors hover:bg-surface-hover/50"
+                  >
+                    <td className="whitespace-nowrap px-4 py-2.5 tabular-nums text-text-tertiary">
+                      {entry.created_at
+                        ? new Date(entry.created_at).toLocaleString(
+                            i18n.language === 'zh-CN' ? 'zh-CN' : 'en-US',
+                            { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' },
+                          )
+                        : '—'}
+                    </td>
+                    <td className="max-w-[200px] truncate px-4 py-2.5 text-text-secondary">
+                      {entry.actor_email || '—'}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="inline-flex items-center rounded-md bg-bg-subtle px-1.5 py-0.5 font-mono text-[10px] text-text-secondary ring-1 ring-inset ring-border/50">
+                        {entry.action}
+                      </span>
+                    </td>
+                    <td className="max-w-[360px] truncate px-4 py-2.5 text-text-tertiary">
+                      {entry.detail ? String(entry.detail) : entry.target_id || '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 
       {pages > 1 && (
-        <div className="flex items-center justify-center gap-2">
+        <div className="mx-auto mt-1 flex w-fit items-center gap-1 rounded-full border border-border/70 bg-surface p-1 shadow-xs">
           <Button
             size="sm"
-            variant="secondary"
+            variant="ghost"
             disabled={page <= 1}
             onClick={() => setPage((prev) => Math.max(1, prev - 1))}
           >
             {t('audit.prev')}
           </Button>
-          <span className="text-[11px] tabular-nums text-text-tertiary">
+          <span className="px-1 text-[11px] tabular-nums text-text-tertiary">
             {page} / {pages}
           </span>
           <Button
             size="sm"
-            variant="secondary"
+            variant="ghost"
             disabled={page >= pages}
             onClick={() => setPage((prev) => Math.min(pages, prev + 1))}
           >

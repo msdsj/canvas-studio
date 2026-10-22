@@ -46,11 +46,16 @@
     "topup": "Top up",
     "topup_amount": "Amount",
     "shared_off": "Shared quota is off — members pay from their own balance.",
-    "enable_shared": "Enable shared quota"
+    "enable_shared": "Enable shared quota",
+    "shared": "Shared",
+    "col_member": "Member",
+    "col_tasks": "Tasks",
+    "col_cost": "Spent"
   },
   "members": {
     "title": "Members",
     "invite": "Invite member",
+    "invite_hint": "Accepted invites take a seat — you can revoke them below at any time.",
     "email_label": "Email",
     "role_label": "Role",
     "invite_submit": "Send invite",

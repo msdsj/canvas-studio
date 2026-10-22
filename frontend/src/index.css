@@ -273,6 +273,24 @@
     var(--shadow-paper-edge);
 }
 
+/* 团队空间头部：一层很淡的品牌色氛围光，让「团队」和普通设置页拉开层次。
+ * 只用背景渐变，不额外叠元素，暗色下也不会发灰。 */
+.cs-team-hero {
+  background:
+    radial-gradient(
+      120% 150% at 0% 0%,
+      color-mix(in srgb, var(--color-accent-soft) 76%, transparent),
+      transparent 58%
+    ),
+    radial-gradient(
+      90% 130% at 100% 0%,
+      color-mix(in srgb, var(--color-brand-subtle) 62%, transparent),
+      transparent 62%
+    ),
+    var(--color-surface);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+}
+
 /* ---------------------------------------------------------------------------
  * 单色 logo：public/brand/logo-mark.svg 只用 currentColor 描边，但 <img> 引用
  * 独立 SVG 文档时拿不到父级颜色。用 mask 把它当作「形状」来染色。

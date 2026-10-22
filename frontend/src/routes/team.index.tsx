@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { Coins, Loader2, Plus, Users } from 'lucide-react'
+import { Activity, Coins, Loader2, Plus, UserRound, Users, Wallet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast'
 import { teamsApi, type TeamUsage } from '@/lib/api/teams'
 import { errorMessage } from '@/lib/errors'
 import { useTeamStore } from '@/stores/team'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/team/')({
   component: TeamOverview,
@@ -90,63 +91,61 @@ function TeamOverview() {
   const canTopup = isOwner || team.permissions?.includes('quota.adjust')
 
   return (
-    <div className="flex flex-col gap-4 p-6">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-4">
-          <CardDescription className="text-[11px] uppercase tracking-[0.08em]">
-            {t('overview.seats')}
-          </CardDescription>
-          <p className="mt-1 text-h2 font-semibold tabular-nums text-text">
-            {t('overview.seats_value', {
-              used: team.seat_used,
-              total: team.seat_limit,
-            })}
-          </p>
-        </Card>
+    <div className="flex flex-col gap-4 p-4 sm:p-6">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          icon={Users}
+          label={t('overview.seats')}
+          value={t('overview.seats_value', {
+            used: team.seat_used,
+            total: team.seat_limit,
+          })}
+          hint={
+            team.seat_used >= team.seat_limit ? t('members.seat_full') : undefined
+          }
+        />
 
-        <Card className="p-4">
-          <CardDescription className="text-[11px] uppercase tracking-[0.08em]">
-            {t('overview.balance')}
-          </CardDescription>
-          <p className="mt-1 flex items-baseline gap-2 text-h2 font-semibold tabular-nums text-text">
-            {loading && !usage ? (
+        <MetricCard
+          icon={Coins}
+          label={t('overview.balance')}
+          value={
+            loading && !usage ? (
               <Loader2 size={16} className="animate-spin text-text-tertiary" />
             ) : (
               (usage?.balance ?? team.balance ?? 0)
-            )}
-            {team.shared_quota && (
+            )
+          }
+          badge={
+            team.shared_quota ? (
               <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-medium text-accent-ink">
-                shared
+                {t('overview.shared')}
               </span>
-            )}
-          </p>
-        </Card>
+            ) : undefined
+          }
+          accent
+        />
 
-        <Card className="p-4">
-          <CardDescription className="text-[11px] uppercase tracking-[0.08em]">
-            {t('overview.tasks_today')}
-          </CardDescription>
-          <p className="mt-1 text-h2 font-semibold tabular-nums text-text">
-            {usage?.tasks_today ?? 0}
-          </p>
-        </Card>
+        <MetricCard
+          icon={Activity}
+          label={t('overview.tasks_today')}
+          value={usage?.tasks_today ?? 0}
+        />
 
-        <Card className="p-4">
-          <CardDescription className="text-[11px] uppercase tracking-[0.08em]">
-            {t('overview.spend_today')}
-          </CardDescription>
-          <p className="mt-1 text-h2 font-semibold tabular-nums text-text">
-            {usage?.spend_today ?? 0}
-          </p>
-        </Card>
+        <MetricCard
+          icon={Wallet}
+          label={t('overview.spend_today')}
+          value={usage?.spend_today ?? 0}
+        />
       </div>
 
       {/* 共享额度未启用：给出「为什么成员还在扣自己的钱」的解释与开关 */}
       {!team.shared_quota && isOwner && (
-        <Card className="flex flex-wrap items-center justify-between gap-3 border-dashed p-4">
-          <div className="flex items-start gap-2">
-            <Coins size={16} className="mt-0.5 text-text-tertiary" />
-            <CardDescription>{t('overview.shared_off')}</CardDescription>
+        <Card className="flex flex-wrap items-center justify-between gap-3 border-dashed bg-bg-subtle/40 p-4">
+          <div className="flex items-start gap-2.5">
+            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] bg-surface text-text-tertiary ring-1 ring-inset ring-border/70">
+              <Coins size={14} />
+            </span>
+            <CardDescription className="max-w-[62ch]">{t('overview.shared_off')}</CardDescription>
           </div>
           <Button size="sm" variant="secondary" onClick={() => void enableShared()}>
             {t('overview.enable_shared')}
@@ -154,36 +153,101 @@ function TeamOverview() {
         </Card>
       )}
 
-      <Card className="p-0">
-        <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
-          <CardTitle className="text-ui">{t('overview.members_today')}</CardTitle>
+      <Card className="overflow-hidden p-0">
+        <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-ui">{t('overview.members_today')}</CardTitle>
+            {team.shared_quota && (
+              <span className="rounded-full bg-bg-subtle px-2 py-0.5 text-[10px] text-text-tertiary">
+                {t('overview.shared')}
+              </span>
+            )}
+          </div>
           {canTopup && team.shared_quota && (
             <Button size="sm" variant="secondary" loading={topping} onClick={() => void topup()}>
               <Plus size={14} /> {t('overview.topup')}
             </Button>
           )}
         </div>
+
         {!usage?.members_today?.length ? (
-          <p className="px-4 py-8 text-center text-caption text-text-tertiary">
-            {t('overview.no_usage')}
-          </p>
+          <div className="flex flex-col items-center gap-1.5 px-4 py-10 text-center">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-bg-subtle text-text-faint">
+              <UserRound size={16} />
+            </span>
+            <p className="text-caption text-text-tertiary">{t('overview.no_usage')}</p>
+          </div>
         ) : (
-          <ul className="divide-y divide-border/60">
-            {usage.members_today.map((row) => (
-              <li
-                key={row.user_id}
-                className="flex items-center justify-between gap-3 px-4 py-2.5 text-ui"
-              >
-                <span className="truncate text-text">{row.email || row.user_id}</span>
-                <span className="flex shrink-0 items-center gap-4 text-caption text-text-secondary tabular-nums">
-                  <span>{row.tasks}</span>
-                  <span className="text-text-tertiary">{row.cost}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
+          <>
+            <div className="flex items-center gap-3 border-b border-border/50 px-4 py-2 text-[11px] uppercase tracking-[0.06em] text-text-tertiary">
+              <span className="flex-1">{t('overview.col_member')}</span>
+              <span className="w-16 text-right">{t('overview.col_tasks')}</span>
+              <span className="w-20 text-right">{t('overview.col_cost')}</span>
+            </div>
+            <ul className="divide-y divide-border/50">
+              {usage.members_today.map((row) => (
+                <li
+                  key={row.user_id}
+                  className="flex items-center gap-3 px-4 py-2.5 text-ui transition-colors hover:bg-surface-hover/60"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[11px] font-medium text-accent-ink">
+                    {(row.email || row.user_id).slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-text">
+                    {row.email || row.user_id}
+                  </span>
+                  <span className="w-16 shrink-0 text-right text-caption tabular-nums text-text-secondary">
+                    {row.tasks}
+                  </span>
+                  <span className="w-20 shrink-0 text-right text-caption tabular-nums text-text-tertiary">
+                    {row.cost}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </Card>
     </div>
+  )
+}
+
+/** 概览指标卡：图标做「弱底片」，数值是主角。 */
+function MetricCard({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  badge,
+  accent = false,
+}: {
+  icon: typeof Users
+  label: string
+  value: ReactNode
+  hint?: string
+  badge?: ReactNode
+  accent?: boolean
+}) {
+  return (
+    <Card
+      className={cn(
+        'group relative overflow-hidden p-4 transition-[border-color,box-shadow] duration-200 hover:border-border-strong hover:shadow-lift',
+        accent && 'bg-[linear-gradient(140deg,var(--color-accent-soft),var(--color-surface)_62%)]',
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <CardDescription className="text-[11px] font-medium uppercase tracking-[0.08em]">
+          {label}
+        </CardDescription>
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] bg-surface/80 text-text-tertiary ring-1 ring-inset ring-border/60 transition-colors group-hover:text-accent-ink">
+          <Icon size={14} />
+        </span>
+      </div>
+      <p className="mt-1.5 flex items-baseline gap-2 text-[26px] font-semibold leading-tight tabular-nums text-text">
+        {value}
+        {badge}
+      </p>
+      {hint && <p className="mt-1 text-[11px] text-danger">{hint}</p>}
+    </Card>
   )
 }

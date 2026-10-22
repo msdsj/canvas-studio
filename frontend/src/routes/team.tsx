@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { Building2, Loader2, Plus, Users } from 'lucide-react'
+import { Building2, ChevronDown, Loader2, Plus, Sparkles, Users } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute'
 import { Button } from '@/components/ui/button'
@@ -86,39 +86,52 @@ function TeamLayout() {
     <ProtectedRoute>
       <AppShell>
         <div className="flex h-full flex-col overflow-hidden">
-          <header className="flex flex-wrap items-center gap-3 border-b border-border/70 px-6 py-4">
-            <div className="flex min-w-0 flex-col">
-              <h1 className="flex items-center gap-2 text-h2 font-semibold tracking-[-0.01em] text-text">
-                <Building2 size={18} className="text-accent-ink" />
-                {t('title')}
-              </h1>
-              <p className="truncate text-caption text-text-tertiary">{t('subtitle')}</p>
+          <header className="cs-team-hero relative flex flex-wrap items-center gap-3 px-4 py-4 sm:px-6 sm:py-5">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-surface text-accent-ink shadow-xs ring-1 ring-inset ring-border/70">
+                <Building2 size={18} />
+              </span>
+              <div className="flex min-w-0 flex-col">
+                <h1 className="flex items-center gap-2 truncate text-h2 font-semibold tracking-[-0.01em] text-text">
+                  {t('title')}
+                </h1>
+                <p className="truncate text-caption text-text-tertiary">{t('subtitle')}</p>
+              </div>
             </div>
             <div className="ml-auto flex items-center gap-2">
               {teams.length > 0 && (
-                <select
-                  aria-label={t('space.switch')}
-                  value={activeId ?? ''}
-                  onChange={(event) => void switchTo(event.target.value || null)}
-                  className="h-9 rounded-[10px] border border-border-strong bg-surface px-2 text-ui text-text"
-                >
-                  {teams.map((team) => (
-                    <option key={team.id} value={team.id}>
-                      {team.name}
-                    </option>
-                  ))}
-                </select>
+                <label className="relative flex items-center">
+                  <span className="pointer-events-none absolute left-2.5 text-text-tertiary">
+                    <Sparkles size={12} />
+                  </span>
+                  <select
+                    aria-label={t('space.switch')}
+                    value={activeId ?? ''}
+                    onChange={(event) => void switchTo(event.target.value || null)}
+                    className="h-9 max-w-[180px] appearance-none truncate rounded-full border border-border/70 bg-surface pl-7 pr-7 text-ui text-text shadow-xs transition-colors hover:border-border-strong focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
+                  >
+                    {teams.map((team) => (
+                      <option key={team.id} value={team.id}>
+                        {team.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown
+                    size={12}
+                    className="pointer-events-none absolute right-2.5 text-text-tertiary"
+                  />
+                </label>
               )}
-              <Button size="sm" onClick={() => setCreating((value) => !value)}>
+              <Button size="sm" className="shadow-xs" onClick={() => setCreating((value) => !value)}>
                 <Plus size={14} /> {t('list.create')}
               </Button>
             </div>
           </header>
 
           {creating && (
-            <div className="flex flex-wrap items-end gap-2 border-b border-border/70 bg-bg-subtle/50 px-6 py-3">
+            <div className="flex flex-wrap items-end gap-2 border-b border-border/70 bg-surface px-4 py-3 sm:px-6">
               <label className="flex min-w-[220px] flex-1 flex-col gap-1">
-                <span className="text-[11px] text-text-tertiary">{t('list.name_label')}</span>
+                <span className="text-[11px] font-medium text-text-tertiary">{t('list.name_label')}</span>
                 <Input
                   autoFocus
                   value={newName}
@@ -148,7 +161,7 @@ function TeamLayout() {
             />
           ) : (
             <>
-              <nav className="flex items-center gap-1 border-b border-border/70 px-4">
+              <nav className="mx-4 mt-3 flex w-fit max-w-[calc(100%-2rem)] items-center gap-1 overflow-x-auto rounded-full border border-border/70 bg-bg-subtle/70 p-1 sm:mx-6">
                 {TABS.map((tab) => {
                   const active = tab.exact ? pathname === tab.to : pathname.startsWith(tab.to)
                   return (
@@ -156,22 +169,21 @@ function TeamLayout() {
                       key={tab.to}
                       to={tab.to}
                       className={cn(
-                        'relative px-3 py-2.5 text-ui transition-colors',
+                        'shrink-0 rounded-full px-3.5 py-1.5 text-caption transition-colors',
                         active
-                          ? 'text-text'
+                          ? 'bg-surface text-text shadow-xs ring-1 ring-inset ring-border/60'
                           : 'text-text-tertiary hover:text-text-secondary',
                       )}
                     >
                       {t(tab.labelKey)}
-                      {active && (
-                        <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent-strong" />
-                      )}
                     </Link>
                   )
                 })}
               </nav>
-              <div className="flex-1 overflow-auto">
-                <Outlet />
+              <div className="mt-2 flex-1 overflow-auto">
+                <div className="mx-auto w-full max-w-[1120px]">
+                  <Outlet />
+                </div>
               </div>
             </>
           )}

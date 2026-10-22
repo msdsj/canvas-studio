@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { Crown, Loader2, Mail, ShieldCheck, Trash2, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardTitle } from '@/components/ui/card'
+import { Card, CardDescription, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/hooks/use-auth'
@@ -163,75 +163,99 @@ function TeamMembersPage() {
   const seatFull = team.seat_used >= team.seat_limit
 
   return (
-    <div className="flex flex-col gap-4 p-6">
+    <div className="flex flex-col gap-4 p-4 sm:p-6">
       {/* 邀请区：席位满了就直接说清楚，不要等提交后才报错 */}
       {canManage && (
-        <Card className="flex flex-wrap items-end gap-2 p-4">
-          <label className="flex min-w-[240px] flex-1 flex-col gap-1">
-            <span className="text-[11px] text-text-tertiary">{t('members.email_label')}</span>
-            <Input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="name@company.com"
-              disabled={seatFull}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void invite()
-              }}
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] text-text-tertiary">{t('members.role_label')}</span>
-            <select
-              value={role}
-              onChange={(event) => setRole(event.target.value as TeamRole)}
-              disabled={seatFull}
-              className="h-10 rounded-[10px] border border-border-strong bg-surface px-2 text-ui text-text"
-            >
-              <option value="member">{t('role.member')}</option>
-              {isOwner && <option value="admin">{t('role.admin')}</option>}
-            </select>
-          </label>
-          <Button loading={inviting} disabled={seatFull} onClick={() => void invite()}>
-            <UserPlus size={14} /> {t('members.invite_submit')}
-          </Button>
+        <Card className="flex flex-col gap-3 p-4">
+          <div className="flex items-start gap-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-accent-soft text-accent-ink ring-1 ring-inset ring-accent-strong/20">
+              <UserPlus size={15} />
+            </span>
+            <div className="flex min-w-0 flex-col">
+              <CardTitle className="text-ui">{t('members.invite')}</CardTitle>
+              <CardDescription className="mt-0.5 text-caption text-text-tertiary">
+                {t('members.invite_hint')}
+              </CardDescription>
+            </div>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_132px_auto] sm:items-end">
+            <label className="flex min-w-0 flex-col gap-1">
+              <span className="text-[11px] text-text-tertiary">{t('members.email_label')}</span>
+              <Input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="name@company.com"
+                disabled={seatFull}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void invite()
+                }}
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] text-text-tertiary">{t('members.role_label')}</span>
+              <select
+                value={role}
+                onChange={(event) => setRole(event.target.value as TeamRole)}
+                disabled={seatFull}
+                className="h-10 rounded-[10px] border border-border-strong bg-surface px-2.5 text-ui text-text transition-colors hover:border-border-strong focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10 disabled:cursor-not-allowed disabled:bg-bg-subtle disabled:text-text-tertiary"
+              >
+                <option value="member">{t('role.member')}</option>
+                {isOwner && <option value="admin">{t('role.admin')}</option>}
+              </select>
+            </label>
+            <Button className="sm:self-end" loading={inviting} disabled={seatFull} onClick={() => void invite()}>
+              {t('members.invite_submit')}
+            </Button>
+          </div>
+
           {seatFull && (
-            <p className="w-full text-[11px] text-danger">{t('members.seat_full')}</p>
+            <p className="text-[11px] text-danger">{t('members.seat_full')}</p>
           )}
         </Card>
       )}
 
-      <Card className="p-0">
-        <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
-          <CardTitle className="text-ui">{t('members.title')}</CardTitle>
+      <Card className="overflow-hidden p-0">
+        <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-ui">{t('members.title')}</CardTitle>
+            <span className="rounded-full bg-bg-subtle px-2 py-0.5 text-[10px] tabular-nums text-text-tertiary">
+              {members.length}
+            </span>
+          </div>
           <span className="text-caption text-text-tertiary tabular-nums">
             {t('overview.seats_value', { used: team.seat_used, total: team.seat_limit })}
           </span>
         </div>
 
         {loading && members.length === 0 ? (
-          <p className="flex items-center justify-center gap-2 px-4 py-8 text-caption text-text-tertiary">
+          <div className="flex items-center justify-center gap-2 px-4 py-10 text-caption text-text-tertiary">
             <Loader2 size={14} className="animate-spin" /> …
-          </p>
+          </div>
         ) : members.length === 0 ? (
-          <p className="px-4 py-8 text-center text-caption text-text-tertiary">
+          <p className="px-4 py-10 text-center text-caption text-text-tertiary">
             {t('members.empty')}
           </p>
         ) : (
-          <ul className="divide-y divide-border/60">
+          <ul className="divide-y divide-border/50">
             {members.map((member) => {
               const self = member.user_id === user?.id
+              const name = member.display_name || member.email || '?'
               return (
-                <li key={member.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-bg-subtle text-[12px] font-medium text-text-secondary">
-                    {(member.display_name || member.email || '?').slice(0, 1).toUpperCase()}
+                <li
+                  key={member.id}
+                  className="group flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-hover/50"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(140deg,var(--color-accent-soft),var(--color-brand-subtle))] text-[12px] font-semibold uppercase text-accent-ink ring-1 ring-inset ring-border/60">
+                    {name.slice(0, 1)}
                   </span>
-                  <span className="flex min-w-0 flex-col">
-                    <span className="flex items-center gap-1.5 truncate text-ui text-text">
-                      {member.display_name || member.email}
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="flex items-center gap-1.5 truncate text-ui font-medium text-text">
+                      {name}
                       {self && (
-                        <span className="text-[10px] text-text-tertiary">
-                          ({t('members.you')})
+                        <span className="rounded-full bg-bg-subtle px-1.5 py-px text-[10px] font-normal text-text-tertiary">
+                          {t('members.you')}
                         </span>
                       )}
                     </span>
@@ -256,7 +280,7 @@ function TeamMembersPage() {
                   )}
 
                   {canManage && member.role !== 'owner' && !self && (
-                    <span className="ml-auto flex shrink-0 items-center gap-1">
+                    <span className="ml-auto flex shrink-0 items-center gap-0.5 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                       {isOwner && (
                         <Button
                           size="icon-sm"
@@ -296,23 +320,33 @@ function TeamMembersPage() {
       </Card>
 
       {canManage && (
-        <Card className="p-0">
-          <div className="border-b border-border/70 px-4 py-3">
+        <Card className="overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
             <CardTitle className="text-ui">{t('members.pending')}</CardTitle>
+            {invites.length > 0 && (
+              <span className="rounded-full bg-bg-subtle px-2 py-0.5 text-[10px] tabular-nums text-text-tertiary">
+                {invites.length}
+              </span>
+            )}
           </div>
           {invites.length === 0 ? (
-            <p className="px-4 py-6 text-center text-caption text-text-tertiary">
+            <p className="px-4 py-8 text-center text-caption text-text-tertiary">
               {t('members.no_invites')}
             </p>
           ) : (
-            <ul className="divide-y divide-border/60">
+            <ul className="divide-y divide-border/50">
               {invites.map((invitation) => (
-                <li key={invitation.id} className="flex items-center gap-3 px-4 py-2.5">
-                  <Mail size={14} className="shrink-0 text-text-tertiary" />
+                <li
+                  key={invitation.id}
+                  className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-surface-hover/50"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-bg-subtle text-text-tertiary">
+                    <Mail size={13} />
+                  </span>
                   <span className="min-w-0 flex-1 truncate text-ui text-text">
                     {invitation.email}
                   </span>
-                  <span className="shrink-0 text-[11px] text-text-tertiary">
+                  <span className="shrink-0 rounded-full bg-bg-subtle px-2 py-0.5 text-[10px] text-text-secondary">
                     {t(`role.${invitation.role}`)}
                   </span>
                   <Button size="sm" variant="ghost" onClick={() => void revoke(invitation)}>

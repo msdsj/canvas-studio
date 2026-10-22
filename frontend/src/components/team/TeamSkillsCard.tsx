@@ -80,13 +80,15 @@ export function TeamSkillsCard({ teamId, editable }: TeamSkillsCardProps) {
   }
 
   return (
-    <Card className="flex flex-col gap-3 p-4">
-      <div className="flex flex-col">
-        <CardTitle className="flex items-center gap-1.5 text-ui">
-          <Package size={14} className="text-accent-ink" />
-          {t('settings.skills')}
-        </CardTitle>
-        <CardDescription className="mt-1">{t('settings.skills_hint')}</CardDescription>
+    <Card className="flex flex-col gap-3 p-4 sm:p-5">
+      <div className="flex items-start gap-2.5">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-bg-subtle text-text-secondary ring-1 ring-inset ring-border/70">
+          <Package size={15} />
+        </span>
+        <div className="flex flex-col">
+          <CardTitle className="text-ui">{t('settings.skills')}</CardTitle>
+          <CardDescription className="mt-1 text-caption">{t('settings.skills_hint')}</CardDescription>
+        </div>
       </div>
 
       <div className="grid max-h-[340px] gap-1.5 overflow-auto pr-1 sm:grid-cols-2">
@@ -99,10 +101,10 @@ export function TeamSkillsCard({ teamId, editable }: TeamSkillsCardProps) {
               disabled={!editable}
               onClick={() => toggle(pack.key)}
               className={cn(
-                'flex items-center justify-between gap-2 rounded-[10px] border px-2.5 py-2 text-left transition-colors',
+                'flex items-center justify-between gap-2 rounded-[10px] border px-3 py-2 text-left transition-[border-color,background-color] duration-150',
                 active
-                  ? 'border-accent-strong bg-accent-soft/40'
-                  : 'border-border/70 bg-surface hover:border-border-strong',
+                  ? 'border-accent-strong/60 bg-accent-soft/40'
+                  : 'border-border/70 bg-surface hover:border-border-strong hover:bg-surface-hover/50',
                 !editable && 'cursor-not-allowed opacity-70',
               )}
             >
@@ -112,7 +114,7 @@ export function TeamSkillsCard({ teamId, editable }: TeamSkillsCardProps) {
                   {pack.description || pack.category}
                 </span>
               </span>
-              <span className="shrink-0 text-[10px] tabular-nums text-text-tertiary">
+              <span className="shrink-0 tabular-nums text-[10px] text-text-tertiary">
                 {pack.count}
               </span>
             </button>

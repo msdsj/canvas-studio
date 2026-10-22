@@ -161,13 +161,15 @@ export function TeamModelConfigCard({ teamId, editable, onSaved }: TeamModelConf
 
   // ---- 超级管理员可编辑视图 ----
   return (
-    <Card className="flex flex-col gap-3 p-4">
-      <div className="flex flex-col">
-        <CardTitle className="flex items-center gap-1.5 text-ui">
-          <Server size={14} className="text-accent-ink" />
-          {t('settings.model')}
-        </CardTitle>
-        <CardDescription className="mt-1">{t('settings.model_hint')}</CardDescription>
+    <Card className="flex flex-col gap-3 p-4 sm:p-5">
+      <div className="flex items-start gap-2.5">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-bg-subtle text-text-secondary ring-1 ring-inset ring-border/70">
+          <Server size={15} />
+        </span>
+        <div className="flex flex-col">
+          <CardTitle className="text-ui">{t('settings.model')}</CardTitle>
+          <CardDescription className="mt-1 text-caption">{t('settings.model_hint')}</CardDescription>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
