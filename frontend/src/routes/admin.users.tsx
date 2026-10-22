@@ -165,7 +165,10 @@ function AdminUsersPage() {
         onSubmit={async (payload) => {
           try {
             await adminApi.createUser(payload)
-            toast.success(t('create_user_dialog.success'), payload.email)
+            toast.success(
+              t('create_user_dialog.success'),
+              payload.team_name ? `${payload.email} · ${payload.team_name}` : payload.email,
+            )
             void load()
           } catch (error) {
             toast.error(errorMessage(error, te))

@@ -9,8 +9,10 @@ import pytest
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
-from app.models.ai_provider import AIProvider
 from app.models.team import Team
+from app.models.user import User
+from app.security import decode_access_token
+from app.services import config_service, team_service
 from app.utils.errors import ErrorCode
 from tests.conftest import register_and_activate
 
@@ -22,9 +24,51 @@ async def _headers(token: str) -> dict[str, str]:
 
 
 async def _create_team(client, token: str, name: str = "示例科技") -> dict:
-    resp = await client.post("/api/teams", json={"name": name}, headers=await _headers(token))
-    assert resp.status_code == 200, resp.text
-    return resp.json()["data"]
+    """Build a team fixture directly; API authorization is covered separately."""
+    claims = decode_access_token(token)
+    async with AsyncSessionLocal() as db:
+        owner = await db.get(User, claims["sub"])
+        assert owner is not None
+        team = await team_service.create_team(db, owner, name)
+        await db.commit()
+        ctx = await team_service.get_context(db, owner, team.id)
+        return await team_service.get_team_detail(db, ctx)
+
+
+async def _configure_platform_chat_model() -> None:
+    async with AsyncSessionLocal() as db:
+        await config_service.set_many(
+            db,
+            {
+                "TEXT_API_BASE_URL": "https://chat.example.com/v1",
+                "TEXT_API_KEY": "sk-platform-chat",
+                "TEXT_MODEL": "platform-chat-v1",
+                "TEXT_MODEL_FALLBACKS": "platform-chat-backup",
+            },
+            operator_id=None,
+        )
+        await db.commit()
+
+
+async def _configure_legacy_team_model(team_id: str, token: str) -> None:
+    claims = decode_access_token(token)
+    async with AsyncSessionLocal() as db:
+        owner = await db.get(User, claims["sub"])
+        assert owner is not None
+        ctx = await team_service.get_context(db, owner, team_id)
+        await team_service.upsert_team_provider(
+            db,
+            ctx,
+            owner,
+            {
+                "name": "Legacy image relay",
+                "kind": "compatible",
+                "base_url": "https://image.example.com/v1",
+                "api_key": "sk-image",
+                "model": "legacy-image-v1",
+            },
+        )
+        await db.commit()
 
 
 async def _invite_and_join(client, owner_token: str, team_id: str, member_token: str, email: str) -> None:
@@ -66,8 +110,30 @@ async def test_create_team_makes_creator_owner(client):
     assert len(listed.json()["data"]["items"]) == 1
 
 
+async def test_only_platform_admin_can_create_team(client):
+    user = await register_and_activate(client, "team-create-denied@example.com")
+    denied = await client.post(
+        "/api/teams", json={"name": "不应创建"}, headers=await _headers(user)
+    )
+    assert denied.status_code == 403
+
+    login = await client.post(
+        "/api/auth/login", json={"email": "admin@canvas.studio", "password": "Admin@12345"}
+    )
+    assert login.status_code == 200
+    admin = login.json()["data"]["access_token"]
+    allowed = await client.post(
+        "/api/teams", json={"name": "平台创建"}, headers=await _headers(admin)
+    )
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["data"]["role"] == "owner"
+
+
 async def test_team_name_required(client):
-    token = await register_and_activate(client, "team-badname@example.com")
+    login = await client.post(
+        "/api/auth/login", json={"email": "admin@canvas.studio", "password": "Admin@12345"}
+    )
+    token = login.json()["data"]["access_token"]
     resp = await client.post("/api/teams", json={"name": "   "}, headers=await _headers(token))
     assert resp.status_code == 422
 
@@ -90,6 +156,39 @@ async def test_seat_limit_blocks_extra_invites(client):
     )
     assert resp.status_code == 422
     assert resp.json()["code"] == ErrorCode.SEAT_LIMIT_EXCEEDED.value
+
+
+async def test_link_invites_are_independent_and_join_after_login(client):
+    owner = await register_and_activate(client, "team-link-owner@example.com")
+    member = await register_and_activate(client, "team-link-member@example.com")
+    team = await _create_team(client, owner, "链接邀请")
+    headers = await _headers(owner)
+
+    created = []
+    for _ in range(2):
+        response = await client.post(
+            f"/api/teams/{team['id']}/invitations",
+            json={"role": "member"},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        created.append(response.json()["data"])
+    assert created[0]["token"] != created[1]["token"]
+
+    pending = await client.get(f"/api/teams/{team['id']}/invitations", headers=headers)
+    assert len(pending.json()["data"]) == 2
+    assert len({row["id"] for row in pending.json()["data"]}) == 2
+    assert {row["token"] for row in pending.json()["data"]} == {row["token"] for row in created}
+
+    preview = await client.get(f"/api/teams/invitations/{created[0]['token']}")
+    assert preview.status_code == 200
+    assert preview.json()["data"]["email"] is None
+    joined = await client.post(
+        f"/api/teams/invitations/{created[0]['token']}/accept", headers=await _headers(member)
+    )
+    assert joined.status_code == 200, joined.text
+    teams = await client.get("/api/teams", headers=await _headers(member))
+    assert teams.json()["data"]["active_team_id"] == team["id"]
 
 
 # --------------------------------------------------------------------------- #
@@ -202,7 +301,7 @@ async def test_owner_cannot_be_removed(client):
 # --------------------------------------------------------------------------- #
 # 模型统一配置
 # --------------------------------------------------------------------------- #
-async def test_owner_configures_model_and_member_cannot(client):
+async def test_enterprise_users_cannot_configure_models(client):
     owner = await register_and_activate(client, "team-e-owner@example.com")
     member = await register_and_activate(client, "team-e-member@example.com")
     team = await _create_team(client, owner, "戊团队")
@@ -215,93 +314,73 @@ async def test_owner_configures_model_and_member_cannot(client):
         "api_key": "sk-team-secret",
         "model": "gpt-image-2",
     }
-    saved = await client.put(
+    owner_write = await client.put(
         f"/api/teams/{team['id']}/model-config", json=payload, headers=await _headers(owner)
     )
-    assert saved.status_code == 200, saved.text
-    # 密钥永不回明文
-    assert "sk-team-secret" not in saved.text
-
-    view = await client.get(
-        f"/api/teams/{team['id']}/model-config", headers=await _headers(member)
-    )
-    assert view.status_code == 200
-    assert view.json()["data"]["model"] == "gpt-image-2"
-    assert view.json()["data"]["editable"] is False
-
     denied = await client.put(
         f"/api/teams/{team['id']}/model-config", json=payload, headers=await _headers(member)
     )
+    assert owner_write.status_code == 403
     assert denied.status_code == 403
 
 
-async def test_member_cannot_edit_personal_provider_when_team_managed(client):
-    """团队接管后，成员的个人配置入口必须被拦掉（否则「全员用统一模型」形同虚设）。"""
+async def test_enterprise_accounts_cannot_edit_personal_provider_even_for_legacy_teams(client):
+    """旧团队的自带模型开关不能 restore personal model writes."""
     owner = await register_and_activate(client, "team-f-owner@example.com")
     member = await register_and_activate(client, "team-f-member@example.com")
     team = await _create_team(client, owner, "己团队")
     await _invite_and_join(client, owner, team["id"], member, "team-f-member@example.com")
-    await client.put(
-        f"/api/teams/{team['id']}/model-config",
-        json={
-            "name": "公司中转",
-            "kind": "openai",
-            "base_url": "https://api.example.com/v1",
-            "api_key": "sk-x",
-            "model": "gpt-image-2",
-        },
-        headers=await _headers(owner),
-    )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Team, team["id"])
+        assert row is not None
+        row.settings = {**row.settings_dict(), "allow_personal_provider": True}
+        await db.commit()
 
-    resp = await client.post(
-        "/api/ai/providers",
-        json={
-            "name": "我的中转",
-            "kind": "openai",
-            "base_url": "https://my.example.com/v1",
-            "api_key": "sk-mine",
-            "model": "gpt-image-2",
-        },
-        headers=await _headers(member),
-    )
-    assert resp.status_code == 403
-    assert resp.json()["code"] == ErrorCode.MODEL_CONFIG_FORBIDDEN.value
+    for user_token in (owner, member):
+        resp = await client.post(
+            "/api/ai/providers",
+            json={
+                "name": "个人中转",
+                "kind": "compatible",
+                "base_url": "https://my.example.com/v1",
+                "api_key": "sk-mine",
+                "model": "chat-v1",
+            },
+            headers=await _headers(user_token),
+        )
+        assert resp.status_code == 403
+        assert resp.json()["code"] == ErrorCode.MODEL_CONFIG_FORBIDDEN.value
 
     status = await client.get("/api/ai/status", headers=await _headers(member))
     assert status.status_code == 200
     data = status.json()["data"]
     assert data["editable"] is False
-    assert data["source"] == "team"
+    assert data["source"] == "none"
+    assert data["can_manage"] is False
 
 
-async def test_team_model_config_is_single_active_row(client):
+async def test_enterprise_chat_uses_platform_model_and_keeps_image_model_route(client):
     owner = await register_and_activate(client, "team-g-owner@example.com")
-    team = await _create_team(client, owner, "庚团队")
-    headers = await _headers(owner)
-    for model in ("model-a", "model-b"):
-        resp = await client.put(
-            f"/api/teams/{team['id']}/model-config",
-            json={
-                "name": "公司中转",
-                "kind": "openai",
-                "base_url": "https://api.example.com/v1",
-                "api_key": "sk-1",
-                "model": model,
-            },
-            headers=headers,
-        )
-        assert resp.status_code == 200, resp.text
+    member = await register_and_activate(client, "team-g-member@example.com")
+    team = await _create_team(client, owner, "平台对话模型")
+    await _invite_and_join(client, owner, team["id"], member, "team-g-member@example.com")
+    await _configure_platform_chat_model()
+    await _configure_legacy_team_model(team["id"], owner)
 
-    async with AsyncSessionLocal() as db:
-        rows = (
-            await db.execute(
-                select(AIProvider).where(
-                    AIProvider.team_id == team["id"], AIProvider.scope == "team"
-                )
-            )
-        ).scalars().all()
-        assert len([row for row in rows if row.is_active]) == 1
-        assert rows[0].model == "model-b"
+    for user_token in (owner, member):
+        status = await client.get("/api/ai/status", headers=await _headers(user_token))
+        data = status.json()["data"]
+        assert data["configured"] is True
+        assert data["source"] == "platform"
+        assert data["model"] == "platform-chat-v1"
+        assert data["editable"] is False
+        assert data["can_manage"] is False
+
+    image_catalog = await client.get("/api/ai/models", headers=await _headers(member))
+    data = image_catalog.json()["data"]
+    assert data["source"] == "team"
+    assert data["editable"] is False
+    assert "legacy-image-v1" in data["image"]
 
 
 # --------------------------------------------------------------------------- #
@@ -469,80 +548,7 @@ async def test_private_canvas_not_collaborative_for_members(client):
     assert denied.status_code in (403, 404)
 
 
-async def test_models_endpoint_reports_team_management(client):
-    """GET /api/ai/models：成员看到团队的模型清单，且标记为不可编辑。"""
-    owner = await register_and_activate(client, "team-models-owner@example.com")
-    member = await register_and_activate(client, "team-models-member@example.com")
-    team = await _create_team(client, owner, "模型清单团队")
-    await _invite_and_join(client, owner, team["id"], member, "team-models-member@example.com")
-
-    await client.put(
-        f"/api/teams/{team['id']}/model-config",
-        json={
-            "name": "公司中转",
-            "kind": "openai",
-            "base_url": "https://api.example.com/v1",
-            "api_key": "sk-team",
-            "model": "gpt-image-2",
-        },
-        headers=await _headers(owner),
-    )
-
-    await client.post("/api/teams/active", json={"team_id": team["id"]}, headers=await _headers(member))
-    resp = await client.get("/api/ai/models", headers=await _headers(member))
-    assert resp.status_code == 200, resp.text
-    data = resp.json()["data"]
-    assert data["configured"] is True
-    assert data["editable"] is False
-    assert data["source"] == "team"
-    assert data["team_name"] == "模型清单团队"
-    assert "gpt-image-2" in data["image"]
-
-
-async def test_owner_is_told_where_to_manage_team_model(client):
-    """超级管理员在团队空间里也必须知道「去哪儿改模型」。
-
-    团队模式下 `editable=False` 对所有人成立（团队模型只有一个真源，就是
-    `/teams/{id}/model-config`），但如果只给这一个字段，前端就只能对 owner
-    也说「请联系超级管理员」——而他自己就是那个人，等于把人绕进死胡同。
-    `can_manage` 就是用来区分「你没权限」和「你有权限但这里不是入口」。
-    """
-    owner = await register_and_activate(client, "team-manage-owner@example.com")
-    team = await _create_team(client, owner, "管理入口团队")
-
-    await client.post("/api/teams/active", json={"team_id": team["id"]}, headers=await _headers(owner))
-
-    # 还没配模型：owner 仍然要能看出自己是能配的人
-    status = await client.get("/api/ai/status", headers=await _headers(owner))
-    assert status.status_code == 200, status.text
-    payload = status.json()["data"]
-    assert payload["editable"] is False, "团队模式下个人配置入口应关闭"
-    assert payload["can_manage"] is True, "owner 必须能看出自己可以管理团队模型"
-
-    models = await client.get("/api/ai/models", headers=await _headers(owner))
-    assert models.json()["data"]["can_manage"] is True
-
-    # 配好之后仍然 can_manage=True，且读到的就是团队那套
-    await client.put(
-        f"/api/teams/{team['id']}/model-config",
-        json={
-            "name": "老板配的",
-            "kind": "openai",
-            "base_url": "https://api.example.com/v1",
-            "api_key": "sk-boss",
-            "model": "gpt-image-2",
-        },
-        headers=await _headers(owner),
-    )
-    after = await client.get("/api/ai/status", headers=await _headers(owner))
-    data = after.json()["data"]
-    assert data["source"] == "team"
-    assert data["can_manage"] is True
-    assert data["editable"] is False
-
-
-async def test_member_cannot_manage_team_model(client):
-    """成员拿到 `can_manage=False`：前端据此显示「联系超级管理员」。"""
+async def test_enterprise_roles_see_platform_model_lock(client):
     owner = await register_and_activate(client, "team-nomanage-owner@example.com")
     member = await register_and_activate(client, "team-nomanage-member@example.com")
     team = await _create_team(client, owner, "无管理权团队")
@@ -551,13 +557,17 @@ async def test_member_cannot_manage_team_model(client):
     )
     await client.post("/api/teams/active", json={"team_id": team["id"]}, headers=await _headers(member))
 
-    status = await client.get("/api/ai/status", headers=await _headers(member))
-    payload = status.json()["data"]
-    assert payload["editable"] is False
-    assert payload["can_manage"] is False
+    for token in (owner, member):
+        status = await client.get("/api/ai/status", headers=await _headers(token))
+        payload = status.json()["data"]
+        assert payload["editable"] is False
+        assert payload["can_manage"] is False
+        assert payload["configured"] is False
+        assert "平台" in payload["reason"]
 
-    models = await client.get("/api/ai/models", headers=await _headers(member))
-    assert models.json()["data"]["can_manage"] is False
+        models = await client.get("/api/ai/models", headers=await _headers(token))
+        assert models.json()["data"]["editable"] is False
+        assert models.json()["data"]["can_manage"] is False
 
 
 async def test_personal_space_owner_keeps_personal_config(client):

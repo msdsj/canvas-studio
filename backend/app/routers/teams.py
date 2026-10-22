@@ -16,10 +16,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, require_admin
 from app.models.user import User
 from app.services import access, team_service
-from app.utils.errors import envelope
+from app.utils.errors import AppError, ErrorCode, envelope
 
 router = APIRouter(prefix="/api/teams", tags=["teams"])
 
@@ -45,7 +45,6 @@ class TeamUpdateRequest(BaseModel):
     name: str | None = None
     seat_limit: int | None = Field(default=None, ge=1, le=500)
     shared_quota: bool | None = None
-    allow_personal_provider: bool | None = None
 
 
 class ActiveTeamRequest(BaseModel):
@@ -57,7 +56,7 @@ class ActiveTeamRequest(BaseModel):
 class InviteRequest(BaseModel):
     """发出邀请。"""
 
-    email: str
+    email: str = ""
     role: str = "member"
     note: str = ""
 
@@ -106,10 +105,10 @@ async def list_teams(
 @router.post("")
 async def create_team(
     payload: TeamCreateRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """创建团队：创建者即超级管理员。"""
+    """仅平台超级管理员可以创建企业空间。"""
     team = await team_service.create_team(
         db,
         user,
@@ -185,7 +184,6 @@ async def update_team(
         name=payload.name,
         seat_limit=payload.seat_limit,
         shared_quota=payload.shared_quota,
-        allow_personal_provider=payload.allow_personal_provider,
     )
     await db.commit()
     return envelope(await team_service.get_team_detail(db, ctx))
@@ -296,29 +294,21 @@ async def create_invitation(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """发出邀请并投递邮件。"""
+    """生成可复制的加入链接。"""
     ctx = await _ctx(db, user, team_id)
     invitation = await team_service.create_invitation(
         db, ctx, user, payload.email, payload.role, payload.note
     )
     await db.commit()
-    from app.services import email_service
-
     team = ctx.team
     assert team is not None
-    await email_service.send_team_invite_email(
-        invitation.email,
-        team.name,
-        user.display_name or user.email,
-        invitation.token,
-        invitation.role,
-    )
-    # 邮件发不出去（SMTP 抖动）不该让邀请本身失败：令牌已入库，可重发
     return envelope(
         {
             "id": invitation.id,
             "email": invitation.email,
             "role": invitation.role,
+            "token": invitation.token,
+            "team_id": team.id,
             "expires_at": invitation.expires_at,
         }
     )
@@ -387,14 +377,11 @@ async def get_model_config(
 async def put_model_config(
     team_id: str,
     payload: TeamModelRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """保存团队对话模型（仅超级管理员）。"""
-    ctx = await _ctx(db, user, team_id)
-    row = await team_service.upsert_team_provider(db, ctx, user, payload.model_dump())
-    await db.commit()
-    return envelope({"id": row.id, "model": row.model})
+    """旧团队模型入口已停用；对话模型只由平台配置。"""
+    raise AppError(ErrorCode.MODEL_CONFIG_FORBIDDEN, "企业对话模型由平台超级管理员统一配置")
 
 
 @router.get("/{team_id}/audit")

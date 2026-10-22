@@ -29,7 +29,6 @@ export interface Team {
   plan: string
   role: TeamRole
   shared_quota: boolean
-  allow_personal_provider: boolean
   balance: number
   permissions: TeamPermission[]
   created_at?: string | null
@@ -133,7 +132,6 @@ export const teamsApi = {
       name?: string
       seat_limit?: number
       shared_quota?: boolean
-      allow_personal_provider?: boolean
     },
   ) => api.patch<Team>(`/teams/${teamId}`, payload),
 
@@ -160,13 +158,16 @@ export const teamsApi = {
   invitations: (teamId: string) => api.get<TeamInvitation[]>(`/teams/${teamId}/invitations`),
 
   invite: (teamId: string, payload: { email: string; role?: TeamRole; note?: string }) =>
-    api.post<TeamInvitation>(`/teams/${teamId}/invitations`, payload),
+    api.post<TeamInvitation & { token: string; team_id: string }>(
+      `/teams/${teamId}/invitations`,
+      payload,
+    ),
 
   revokeInvite: (teamId: string, invitationId: string) =>
     api.del<{ revoked: string }>(`/teams/${teamId}/invitations/${invitationId}`),
 
   previewInvite: (token: string) =>
-    api.get<{ team_name: string; email: string; role: TeamRole; inviter: string; expired: boolean }>(
+    api.get<{ team_name: string; email: string | null; role: TeamRole; inviter: string; expired: boolean }>(
       `/teams/invitations/${token}`,
     ),
 

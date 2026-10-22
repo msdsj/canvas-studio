@@ -5,8 +5,7 @@ import { popIcon } from '@/lib/motion-delegation'
 /**
  * 全局 Toast 容器（sonner 封装）。
  *
- * 位置约束：不得压住身份条（左下）与画布工具条（底部居中），
- * 所以落在**左上**，让出 268px 左栏；移动端收到顶部通栏内。
+ * 放在主画布右上，并避开应用顶栏；不占用左侧对话区与底部画布工具条。
  *
  * 视觉采用「纸卡片」语言：
  * - 卡面纯白 / 暗色为抬升面，圆角 14px，1px 细边 + 柔和投影（不用重阴影）
@@ -73,14 +72,14 @@ export function Toaster() {
 
   return (
     <SonnerToaster
-      position="top-left"
+      position="top-right"
       closeButton
       visibleToasts={3}
       gap={10}
       // 宽度由 CSS 的 `--width` 控制（sonner 的 width prop 在 2.x 会与 CSS 冲突），
       // 见 styles/toast.css 顶部的 [data-sonner-toaster] 规则。
-      offset={{ top: 20, left: 20 }}
-      mobileOffset={{ top: 12, left: 12, right: 12 }}
+      offset={{ top: 64, right: 20 }}
+      mobileOffset={{ top: 60, left: 12, right: 12 }}
       swipeDirections={['left', 'right']}
       toastOptions={{
         duration: 3800,

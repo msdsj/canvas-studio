@@ -14,8 +14,9 @@ export function UnreadResultsBanner() {
   const navigate = useNavigate()
   const [dismissed, setDismissed] = useState(false)
 
-  if (dismissed || unreadTasks.length === 0) return null
-  const latest = unreadTasks[0]
+  const standaloneTasks = unreadTasks.filter((task) => !task.canvas_id)
+  if (dismissed || standaloneTasks.length === 0) return null
+  const latest = standaloneTasks[0]
 
   const locate = async () => {
     try {
@@ -31,7 +32,7 @@ export function UnreadResultsBanner() {
   return (
     <div className="flex items-center gap-3 border-b border-border bg-brand-subtle px-4 py-2 text-sm text-brand-text">
       <ImageDown size={16} />
-      <span>{t('unread_banner.text', { count: unreadTasks.length })}</span>
+      <span>{t('unread_banner.text', { count: standaloneTasks.length })}</span>
       <div className="ml-auto flex items-center gap-2">
         <Button size="sm" variant="ghost" onClick={locate}>
           {t('unread_banner.locate')}

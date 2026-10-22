@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { Crown, Loader2, Mail, ShieldCheck, Trash2, UserPlus } from 'lucide-react'
+import { Copy, Crown, Link2, Loader2, ShieldCheck, Trash2, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -39,7 +39,7 @@ function TeamMembersPage() {
   const [members, setMembers] = useState<TeamMember[]>([])
   const [invites, setInvites] = useState<TeamInvitation[]>([])
   const [loading, setLoading] = useState(false)
-  const [email, setEmail] = useState('')
+  const [inviteLink, setInviteLink] = useState('')
   const [role, setRole] = useState<TeamRole>('member')
   const [inviting, setInviting] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -70,24 +70,36 @@ function TeamMembersPage() {
 
   const invite = useCallback(async () => {
     if (!team) return
-    const clean = email.trim().toLowerCase()
-    if (!clean.includes('@')) {
-      toast.error(t('members.email_label'))
-      return
-    }
     setInviting(true)
     try {
-      await teamsApi.invite(team.id, { email: clean, role })
-      setEmail('')
+      const inviteData = await teamsApi.invite(team.id, { email: '', role })
+      const link = new URL(`/team/join?token=${inviteData.token}`, window.location.origin).toString()
+      setInviteLink(link)
       await refresh()
       await loadTeams(true)
-      toast.success(t('members.invite_sent'))
+      try {
+        await navigator.clipboard.writeText(link)
+        toast.success(t('members.invite_link_copied'))
+      } catch {
+        toast.info(t('members.copy_link_hint'))
+      }
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
       setInviting(false)
     }
-  }, [team, email, role, refresh, loadTeams, toast, t])
+  }, [team, role, refresh, loadTeams, toast, t])
+
+  const copyInvite = async (token: string) => {
+    const link = new URL(`/team/join?token=${token}`, window.location.origin).toString()
+    try {
+      await navigator.clipboard.writeText(link)
+      toast.success(t('members.invite_link_copied'))
+    } catch {
+      setInviteLink(link)
+      toast.info(t('members.copy_link_hint'))
+    }
+  }
 
   const changeRole = useCallback(
     async (member: TeamMember) => {
@@ -179,20 +191,7 @@ function TeamMembersPage() {
             </div>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_132px_auto] sm:items-end">
-            <label className="flex min-w-0 flex-col gap-1">
-              <span className="text-[11px] text-text-tertiary">{t('members.email_label')}</span>
-              <Input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="name@company.com"
-                disabled={seatFull}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') void invite()
-                }}
-              />
-            </label>
+          <div className="grid gap-2 sm:grid-cols-[132px_auto] sm:items-end">
             <label className="flex flex-col gap-1">
               <span className="text-[11px] text-text-tertiary">{t('members.role_label')}</span>
               <select
@@ -206,9 +205,25 @@ function TeamMembersPage() {
               </select>
             </label>
             <Button className="sm:self-end" loading={inviting} disabled={seatFull} onClick={() => void invite()}>
-              {t('members.invite_submit')}
+              <UserPlus size={14} /> {t('members.invite_submit')}
             </Button>
           </div>
+
+          {inviteLink && (
+            <div className="flex flex-wrap items-center gap-2 rounded-[8px] border border-border bg-bg-subtle/60 p-2">
+              <Input readOnly value={inviteLink} className="min-w-[220px] flex-1 font-mono text-[11px]" />
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  void navigator.clipboard.writeText(inviteLink)
+                  toast.success(t('members.invite_link_copied'))
+                }}
+              >
+                <Copy size={13} /> {t('members.copy_link')}
+              </Button>
+            </div>
+          )}
 
           {seatFull && (
             <p className="text-[11px] text-danger">{t('members.seat_full')}</p>
@@ -341,17 +356,24 @@ function TeamMembersPage() {
                   className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-surface-hover/50"
                 >
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-bg-subtle text-text-tertiary">
-                    <Mail size={13} />
+                  <Link2 size={13} />
                   </span>
                   <span className="min-w-0 flex-1 truncate text-ui text-text">
-                    {invitation.email}
+                    {invitation.email || t('members.link_invite')}
                   </span>
                   <span className="shrink-0 rounded-full bg-bg-subtle px-2 py-0.5 text-[10px] text-text-secondary">
                     {t(`role.${invitation.role}`)}
                   </span>
-                  <Button size="sm" variant="ghost" onClick={() => void revoke(invitation)}>
-                    {t('members.revoke')}
-                  </Button>
+                  <div className="ml-auto flex shrink-0 items-center gap-1">
+                    {invitation.token && (
+                      <Button size="sm" variant="ghost" onClick={() => void copyInvite(invitation.token!)}>
+                        <Copy size={13} /> {t('members.copy_link')}
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => void revoke(invitation)}>
+                      {t('members.revoke')}
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>

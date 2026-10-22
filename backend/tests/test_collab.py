@@ -477,9 +477,19 @@ async def test_canvas_payload_exposes_team_owner(client):
     token = await register_and_activate(client, "collab-team-field@example.com")
     headers = {"Authorization": f"Bearer {token}"}
 
-    team = await client.post("/api/teams", json={"name": "字段团队"}, headers=headers)
-    assert team.status_code == 200, team.text
-    team_id = team.json()["data"]["id"]
+    # This test targets canvas visibility metadata. Build its team fixture through
+    # the service so it does not depend on the admin-only team creation endpoint.
+    from app.database import AsyncSessionLocal
+    from app.models.user import User
+    from app.security import decode_access_token
+    from app.services import team_service
+
+    async with AsyncSessionLocal() as db:
+        owner = await db.get(User, decode_access_token(token)["sub"])
+        assert owner is not None
+        team = await team_service.create_team(db, owner, "字段团队")
+        await db.commit()
+        team_id = team.id
 
     project = await client.post(
         "/api/projects", json={"name": "共享项目", "share_with_team": True}, headers=headers

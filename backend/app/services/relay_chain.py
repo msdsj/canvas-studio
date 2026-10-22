@@ -111,7 +111,7 @@ async def _backup_target(
     只取第 1 个（R02 的「最多再试 1 个」），且必须同时有 `base_url` 与 `model`
     才有意义。日志与错误卡只记 provider `name`，不记 `base_url` 与 Key。
     """
-    if db is None or not primary.provider_id:
+    if db is None or primary.source == "platform" or not primary.provider_id:
         # 显式传入 target（如连通性测试 / 单测）时不做跨 provider 猜测
         return None
     from app.models.ai_provider import AIProvider

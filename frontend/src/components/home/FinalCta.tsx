@@ -3,10 +3,18 @@ import { useTranslation } from 'react-i18next'
 import { ArrowRight, ArrowUp } from 'lucide-react'
 import { gsap } from '@/lib/gsap'
 import { useScrollReveal } from '@/lib/motion'
-import { ArtSwatch, type ArtPalette } from './ArtSwatch'
+import { ArtImage } from './ArtImage'
 import { useVisibleLoop } from './use-visible-loop'
 
-const ORBIT: ArtPalette[] = ['nebula', 'sunset', 'lime', 'ocean', 'candy', 'forest']
+/** 公转作品环：用真实作品缩略图，比抽象色块更像「这里真的产出过东西」 */
+const ORBIT = [
+  '/generated/gallery-tech.jpg',
+  '/generated/gallery-camping.jpg',
+  '/generated/gallery-festival.jpg',
+  '/generated/gallery-perfume.jpg',
+  '/generated/gallery-skincare.jpg',
+  '/generated/gallery-mountain.jpg',
+]
 
 /**
  * 收尾 CTA：墨色大卡 + 一圈缓慢公转的作品缩略图 + 一个「假输入框」。
@@ -42,11 +50,11 @@ export function FinalCta({ onStart, onCompose }: { onStart: () => void; onCompos
         {/* 公转作品环：只在 ≥sm 显示，窄屏把空间让给文字与按钮 */}
         <div aria-hidden className="pointer-events-none absolute left-1/2 top-1/2 hidden h-[640px] w-[640px] -translate-x-1/2 -translate-y-1/2 opacity-60 sm:block lg:h-[820px] lg:w-[820px]">
           <div data-orbit className="relative h-full w-full rounded-full border border-dashed border-text-inverse/15">
-            {ORBIT.map((palette, index) => {
+            {ORBIT.map((src, index) => {
               const angle = (index / ORBIT.length) * Math.PI * 2
               return (
                 <div
-                  key={palette}
+                  key={src}
                   data-thumb
                   className="absolute h-[var(--th)] w-[var(--th)] overflow-hidden rounded-[14px] shadow-float [--th:64px] lg:[--th:80px]"
                   style={{
@@ -55,7 +63,7 @@ export function FinalCta({ onStart, onCompose }: { onStart: () => void; onCompos
                     top: `calc(50% + ${Math.sin(angle) * 50}% - var(--th) / 2)`,
                   }}
                 >
-                  <ArtSwatch palette={palette} motif={index % 2 === 0 ? 'orb' : 'type'} className="h-full w-full" />
+                  <ArtImage src={src} alt="" className="h-full w-full" />
                 </div>
               )
             })}

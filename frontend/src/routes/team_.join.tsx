@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { AlertCircle, Check, Loader2, Users } from 'lucide-react'
+import { AlertCircle, Check, Loader2, LogIn, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { ProtectedRoute } from '@/components/layout/ProtectedRoute'
 import { useAuth } from '@/hooks/use-auth'
 import { teamsApi } from '@/lib/api/teams'
 import { errorMessage } from '@/lib/errors'
 import { useTeamStore } from '@/stores/team'
+import { useUIStore } from '@/stores/ui'
 
 export const Route = createFileRoute('/team_/join')({
   validateSearch: (search: Record<string, unknown>): { token?: string } => ({
@@ -22,15 +22,14 @@ interface Preview {
   inviter: string
   role: string
   expired: boolean
+  email?: string | null
 }
 
 /**
  * 接受团队邀请。
  *
- * 邀请链接会直接落到这里（邮件里点进去）。如果用户还没登录，`ProtectedRoute`
- * 会把他引到首页登录——但**URL 里的 token 不能丢**，否则登录完回来链接已经没了，
- * 只能让管理员重发。所以这里在挂载时把 token 存进 sessionStorage，
- * 登录回来再取。
+ * The invite token stays in the URL while the user signs in. Once authenticated,
+ * opening the invite link is the consent to join and switch to that enterprise.
  */
 function TeamJoinPage() {
   const { t } = useTranslation('team')
@@ -39,6 +38,7 @@ function TeamJoinPage() {
   const { user } = useAuth()
   const loadTeams = useTeamStore((s) => s.load)
   const switchTo = useTeamStore((s) => s.switchTo)
+  const openAuth = useUIStore((s) => s.openAuth)
 
   const [token, setToken] = useState(searchToken ?? '')
   const [preview, setPreview] = useState<Preview | null>(null)
@@ -46,6 +46,7 @@ function TeamJoinPage() {
   const [accepting, setAccepting] = useState(false)
   const [accepted, setAccepted] = useState(false)
   const [error, setError] = useState('')
+  const autoAcceptStarted = useRef(false)
 
   // 登录跳转回来后 URL 可能已经不带 token 了，从 sessionStorage 捞回来
   useEffect(() => {
@@ -69,8 +70,8 @@ function TeamJoinPage() {
   }, [searchToken, token])
 
   useEffect(() => {
-    if (!token || !user) {
-      if (!token) setLoading(false)
+    if (!token) {
+      setLoading(false)
       return
     }
     let alive = true
@@ -87,7 +88,7 @@ function TeamJoinPage() {
     return () => {
       alive = false
     }
-  }, [token, user])
+  }, [token])
 
   const accept = useCallback(async () => {
     if (!token) return
@@ -109,8 +110,13 @@ function TeamJoinPage() {
     }
   }, [token, loadTeams, switchTo])
 
+  useEffect(() => {
+    if (!user || !preview || preview.expired || accepted || autoAcceptStarted.current) return
+    autoAcceptStarted.current = true
+    void accept()
+  }, [user, preview, accepted, accept])
+
   return (
-    <ProtectedRoute>
       <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(120%_120%_at_50%_0%,var(--color-accent-soft),var(--color-bg)_58%)] p-4 sm:p-6">
         <Card className="w-full max-w-[420px] p-6 shadow-lift sm:p-7">
           {loading ? (
@@ -170,9 +176,19 @@ function TeamJoinPage() {
                   role: t(`role.${preview.role}` as never),
                 })}
               </p>
-              <Button loading={accepting} onClick={() => void accept()}>
-                {accepting ? t('join.accepting') : t('join.accept')}
-              </Button>
+              {accepting ? (
+                <p className="flex items-center gap-2 text-caption text-text-tertiary">
+                  <Loader2 size={14} className="animate-spin" /> {t('join.accepting')}
+                </p>
+              ) : user ? (
+                <Button size="sm" onClick={() => void navigate({ to: '/workspace' })}>
+                  {t('join.go_team')}
+                </Button>
+              ) : (
+                <Button onClick={() => openAuth('login', t('join.login_hint'))}>
+                  <LogIn size={15} /> {t('join.login_to_join')}
+                </Button>
+              )}
             </div>
           ) : (
             <p className="py-8 text-center text-caption text-text-tertiary">
@@ -181,6 +197,5 @@ function TeamJoinPage() {
           )}
         </Card>
       </div>
-    </ProtectedRoute>
   )
 }

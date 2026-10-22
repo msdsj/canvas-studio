@@ -81,7 +81,7 @@ ERROR_MESSAGES: dict[ErrorCode, str] = {
     # 兜底文案：正常情况下前端按 `data.reason` 渲染 i18n 文案，这句不会上屏。
     # 刻意不含 json / html / HTTP / 异常类名（R01 硬性要求）。
     ErrorCode.UPSTREAM_FORMAT_ERROR: "这次没能拿到可用的结果，换一个模型再试一次",
-    ErrorCode.MODEL_CONFIG_FORBIDDEN: "对话模型由团队超级管理员统一配置，你无需单独设置",
+    ErrorCode.MODEL_CONFIG_FORBIDDEN: "对话模型由平台超级管理员统一配置，你无需单独设置",
     ErrorCode.SEAT_LIMIT_EXCEEDED: "团队席位已满，请先释放一个席位或扩容",
     ErrorCode.CANVAS_VERSION_CONFLICT: "画布有新版本了，正在为你同步最新内容",
 }

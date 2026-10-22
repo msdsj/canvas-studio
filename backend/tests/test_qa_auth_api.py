@@ -324,23 +324,33 @@ async def test_qa_banned_user_login_forbidden(client):
 
 
 async def test_qa_admin_creates_user_can_login(client):
-    """超管新建普通用户：直接 active、可立即登录、带初始额度（P0-06）。"""
+    """超管创建企业账号：新账号可登录且自动加入刚开通的企业。"""
     admin = await _admin_headers(client)
     created = await client.post(
         "/api/admin/users",
-        json={"email": "byadmin@example.com", "password": "Member12345"},
+        json={
+            "email": "byadmin@example.com",
+            "password": "Member12345",
+            "team_name": "星跃设计",
+        },
         headers=admin,
     )
     assert created.status_code == 200, created.text
     data = created.json()["data"]
     assert data["role"] == "user"
     assert data["status"] == "active"
+    assert data["team_name"] == "星跃设计"
+    assert data["active_team_id"]
 
     login = await client.post(
         "/api/auth/login", json={"email": "byadmin@example.com", "password": "Member12345"}
     )
     assert login.status_code == 200
     assert login.json()["data"]["user"]["role"] == "user"
+    teams = await client.get(
+        "/api/teams", headers={"Authorization": f"Bearer {login.json()['data']['access_token']}"}
+    )
+    assert teams.json()["data"]["items"][0]["role"] == "owner"
 
 
 async def test_qa_admin_create_user_duplicate_email_rejected(client):

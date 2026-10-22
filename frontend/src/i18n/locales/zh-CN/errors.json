@@ -14,7 +14,7 @@
   "validation_error": "填写的内容需要调整一下",
   "not_found": "没找到你要的内容",
   "internal_error": "服务开了个小差，稍等片刻再试",
-  "model_config_forbidden": "对话模型由团队超级管理员统一配置，你无需单独设置",
+  "model_config_forbidden": "对话模型由平台超级管理员统一配置，你无需单独设置",
   "seat_limit_exceeded": "团队席位数已满，先移除成员或扩容席位",
   "canvas_version_conflict": "画布有更新，正在同步最新内容",
   "network": "网络好像断了，确认联网后重试",

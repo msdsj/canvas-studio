@@ -130,7 +130,7 @@
     "started_hint": "About 30–60s; results land right here in the chat",
     "done_one": "{{count}} image ready",
     "done_other": "{{count}} images ready",
-    "done_hint": "Hover an image to place it, download it, or reference it",
+    "done_hint": "Results are on the canvas. Continue from the result card in chat.",
     "need_direction": "Pick a direction first",
     "need_direction_hint": "I'll start once you choose — no credits used yet",
     "deduped": "Already painting this one",

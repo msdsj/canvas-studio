@@ -201,7 +201,7 @@ async def _stream_model_plan(db, user, message, selection, handlers, sink):
     assets = [await asset_service.get_asset(db, user, selection["asset_id"])] if selection["asset_id"] else []
     content = vision_service.user_content(f"用户原话：{message}\n当前真实选区：{selection_text}", assets, selection["regions"])
     messages = [{"role": "system", "content": system}, {"role": "user", "content": content}]
-    target = await relay_service.resolve(db, user.id)
+    target = await relay_service.resolve_conversation(db, user.id)
     model = str(await config_service.get_value(db, "INTENT_PLANNER_MODEL", "") or "gpt-4o-mini")
     stream = None if target else gateway_client.llm_text_stream({"model": model, "messages": messages, "temperature": 0.1, "max_tokens": 6000})
     try:

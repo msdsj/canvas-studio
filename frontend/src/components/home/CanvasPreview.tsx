@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Check, Hand, ImagePlus, Layers, MousePointer2, Sparkles, Wand2 } from 'lucide-react'
 import { gsap } from '@/lib/gsap'
 import { shouldReduceMotion } from '@/lib/motion'
-import { ArtSwatch } from './ArtSwatch'
+import { ArtImage } from './ArtImage'
 import { useVisibleLoop } from './use-visible-loop'
 
 const STEP_KEYS = ['understand', 'plan', 'skill', 'generate'] as const
@@ -146,7 +146,13 @@ export function CanvasPreview() {
               <span className="cs-shimmer absolute inset-0" />
             </div>
             <div data-art className="absolute inset-0">
-              <ArtSwatch palette="sunset" motif="type" className="h-full w-full" />
+              <ArtImage
+                src="/generated/preview-poster.jpg"
+                alt={t('preview.window')}
+                priority
+                position="50% 45%"
+                className="h-full w-full"
+              />
             </div>
           </div>
 
@@ -155,17 +161,30 @@ export function CanvasPreview() {
               <span className="cs-shimmer absolute inset-0" />
             </div>
             <div data-art className="absolute inset-0">
-              <ArtSwatch palette="forest" motif="mountain" className="h-full w-full" />
+              <ArtImage
+                src="/generated/preview-mountain.jpg"
+                alt={t('preview.user')}
+                priority
+                className="h-full w-full"
+              />
+            </div>
+            {/* 框选区：天空。补丁是同一张图的夜空版本，按原图坐标对齐，山脊不会错位 */}
+            <div className="absolute left-[22.727%] top-[5.357%] h-[39.286%] w-[59.091%] overflow-hidden rounded-[4px]">
+              <div data-patch className="absolute inset-0">
+                <div className="absolute -left-[38.462%] -top-[13.636%] h-[254.545%] w-[169.231%]">
+                  <ArtImage
+                    src="/generated/preview-mountain-aurora.jpg"
+                    alt={t('preview.edit')}
+                    priority
+                    className="h-full w-full"
+                  />
+                </div>
+              </div>
+              <span data-region-shimmer className="cs-home-transient cs-shimmer absolute inset-0" />
             </div>
           </div>
 
-          {/* 框选区：与第二张图的「天空」对齐。补丁 = 局部重绘后的那块 */}
-          <div className="absolute left-[60%] top-[19%] h-[22%] w-[26%] overflow-hidden rounded-[4px]">
-            <div data-patch className="absolute inset-0">
-              <ArtSwatch palette="nebula" className="h-full w-full" />
-            </div>
-            <span data-region-shimmer className="cs-home-transient cs-shimmer absolute inset-0" />
-          </div>
+          {/* 选框与光标仍留在舞台坐标系里，和画布上的坐标准确对应 */}
           <div
             data-box
             className="absolute left-[60%] top-[19%] h-[22%] w-[26%] rounded-[4px] border-2 border-accent-strong bg-accent/10"

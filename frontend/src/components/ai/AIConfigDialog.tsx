@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
 import {
   AlertCircle,
   Check,
@@ -71,7 +70,6 @@ const EMPTY_FORM: FormState = {
 /** 中转站配置面板：左侧列表 + 右侧表单。 */
 export function AIConfigDialog({ open, onOpenChange, onChanged }: AIConfigDialogProps) {
   const toast = useToast()
-  const navigate = useNavigate()
   const [providers, setProviders] = useState<AIProvider[]>([])
   const [presets, setPresets] = useState<ProviderKindPreset[]>([])
   const [loading, setLoading] = useState(false)
@@ -279,36 +277,22 @@ export function AIConfigDialog({ open, onOpenChange, onChanged }: AIConfigDialog
   const configured = providers.some((item) => item.is_active && item.base_url)
 
   /*
-   * 团队接管态：整个弹窗换成一张只读说明。
+   * 企业空间内：整个弹窗换成一张只读说明。
    *
    * 不做「表单可见但保存会 403」——那是最糟的一种：用户填了五分钟，点保存才被告知
    * 你不能改。这里直接把「谁配的、配的是什么」摆出来，并指路到团队设置。
    */
   if (locked) {
-    /*
-     * 团队模式下谁都不能在这里改——团队模型只有一个真源（团队设置里的那张卡）。
-     * 但「不能改」对 owner 和成员的含义完全不同：
-     *   owner  → 他有权改，只是走错了地方，要把他送过去；
-     *   成员   → 他确实没权限，要告诉他找谁。
-     * 两者用同一句话会让超级管理员被告知「请联系超级管理员」（也就是他自己）。
-     */
-    const canManage = Boolean(status?.can_manage)
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent size="md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <Lock size={16} className="text-text-tertiary" />
-              {canManage ? '对话模型由你统一配置' : '对话模型由团队统一配置'}
+              对话模型由平台统一配置
             </DialogTitle>
             <DialogDescription className="text-caption">
-              {canManage
-                ? status?.team_name
-                  ? `你当前在「${status.team_name}」且是超级管理员。团队模型在「团队设置」里统一维护，所有成员共用这一套。`
-                  : '团队模型在「团队设置」里统一维护，所有成员共用这一套。'
-                : status?.team_name
-                  ? `你当前在「${status.team_name}」，模型由团队超级管理员统一维护，所有成员共用同一套。`
-                  : '你的团队已统一管理模型配置，所有成员共用同一套。'}
+              企业空间中的对话模型由平台超级管理员统一维护，企业账号无法修改。
             </DialogDescription>
           </DialogHeader>
 
@@ -332,35 +316,17 @@ export function AIConfigDialog({ open, onOpenChange, onChanged }: AIConfigDialog
               <p className="flex items-start gap-1.5 rounded-[10px] bg-warning-subtle px-2.5 py-2 text-micro leading-relaxed text-warning">
                 <AlertCircle size={13} className="mt-[1px] shrink-0" />
                 <span>
-                  {canManage
-                    ? '团队还没有配置模型，成员暂时无法使用 AI 对话。去「团队设置 → 对话模型」填一个。'
-                    : '团队还没有配置模型，暂时无法使用 AI 对话。请联系团队超级管理员。'}
+                  平台尚未配置对话模型，企业账号暂时无法使用 AI 对话。请联系平台超级管理员。
                 </span>
               </p>
             )}
 
-            {canManage ? null : (
-              <p className="text-[11px] leading-relaxed text-text-tertiary">
-                如果你就是超级管理员，请到「团队空间 → 设置 → 对话模型」修改。
-              </p>
-            )}
           </div>
 
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="secondary" onClick={() => onOpenChange(false)}>
               知道了
             </Button>
-            {canManage && (
-              <Button
-                size="sm"
-                onClick={() => {
-                  onOpenChange(false)
-                  void navigate({ to: '/team/settings' })
-                }}
-              >
-                去团队设置
-              </Button>
-            )}
           </div>
         </DialogContent>
       </Dialog>

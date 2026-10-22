@@ -10,7 +10,11 @@ export interface ExcalidrawApiLike {
   getSceneElements: () => CanvasElement[]
   getAppState: () => Record<string, unknown>
   getFiles: () => Record<string, unknown>
-  updateScene: (scene: { elements?: CanvasElement[]; appState?: Record<string, unknown> }) => void
+  updateScene: (scene: {
+    elements?: CanvasElement[]
+    appState?: Record<string, unknown>
+    captureUpdate?: 'IMMEDIATELY' | 'NEVER' | 'EVENTUALLY'
+  }) => void
   addFiles: (files: Array<{ id: string; dataURL: string; mimeType: string; created: number }>) => void
   scrollToContent: (target?: unknown) => void
   /** 订阅场景 / 视口变化（Excalidraw 0.18 提供），返回取消订阅函数 */

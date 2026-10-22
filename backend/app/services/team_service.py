@@ -250,7 +250,6 @@ async def update_team(
     name: str | None = None,
     seat_limit: int | None = None,
     shared_quota: bool | None = None,
-    allow_personal_provider: bool | None = None,
 ) -> Team:
     """修改团队设置（仅 owner）。"""
     access.require_owner(ctx)
@@ -282,8 +281,6 @@ async def update_team(
                 team=team,
             )
         settings["shared_quota"] = bool(shared_quota)
-    if allow_personal_provider is not None:
-        settings["allow_personal_provider"] = bool(allow_personal_provider)
     team.settings = settings
     team.updated_at = utcnow()
     await db.flush()
@@ -548,13 +545,13 @@ async def create_invitation(
 
     - 席位已满（活跃 + 待接受）直接拒绝，不留「接受时才失败」的坑；
     - 已是成员：明确告知，不重复发；
-    - 同一邮箱已有未过期邀请：复用并刷新有效期，避免邮箱里堆一串链接。
+    - 同一邮箱已有未过期邀请：复用并刷新有效期；无邮箱邀请每次创建独立链接。
     """
     access.require_permission(ctx, "member.manage")
     team = ctx.team
     assert team is not None
     clean = (email or "").strip().lower()
-    if "@" not in clean or "." not in clean.split("@")[-1]:
+    if clean and ("@" not in clean or "." not in clean.split("@")[-1]):
         raise AppError(ErrorCode.VALIDATION_ERROR, "邮箱格式不对")
     if role == TEAM_ROLE_OWNER:
         raise AppError(ErrorCode.VALIDATION_ERROR, "邀请只能是 admin 或 member")
@@ -563,9 +560,11 @@ async def create_invitation(
     _validate_role(role)
 
     # 已是成员
-    existing_user = (
-        await db.execute(select(User).where(User.email == clean))
-    ).scalar_one_or_none()
+    existing_user = None
+    if clean:
+        existing_user = (
+            await db.execute(select(User).where(User.email == clean))
+        ).scalar_one_or_none()
     if existing_user is not None:
         member = await access.get_membership(db, existing_user.id, team.id)
         if member is not None:
@@ -574,15 +573,17 @@ async def create_invitation(
     if await seat_usage(db, team.id) >= team.seat_limit:
         raise AppError(ErrorCode.SEAT_LIMIT_EXCEEDED)
 
-    pending = (
-        await db.execute(
-            select(TeamInvitation).where(
-                TeamInvitation.team_id == team.id,
-                TeamInvitation.email == clean,
-                TeamInvitation.status == "pending",
+    pending = None
+    if clean:
+        pending = (
+            await db.execute(
+                select(TeamInvitation).where(
+                    TeamInvitation.team_id == team.id,
+                    TeamInvitation.email == clean,
+                    TeamInvitation.status == "pending",
+                )
             )
-        )
-    ).scalar_one_or_none()
+        ).scalar_one_or_none()
     expires = utcnow() + timedelta(days=INVITE_TTL_DAYS)
     if pending is not None and pending.expires_at > utcnow():
         pending.role = role
@@ -636,6 +637,7 @@ async def list_invitations(
         {
             "id": row.id,
             "email": row.email,
+            "token": row.token,
             "role": row.role,
             "status": "expired" if row.expires_at <= now else row.status,
             "note": row.note,
@@ -695,7 +697,7 @@ async def accept_invitation(db: AsyncSession, user: User, token: str) -> Team:
         row.status = "expired"
         await db.flush()
         raise AppError(ErrorCode.VALIDATION_ERROR, "邀请已过期，请让管理员重新邀请")
-    if (user.email or "").lower() != row.email.lower():
+    if row.email and (user.email or "").lower() != row.email.lower():
         raise AppError(ErrorCode.FORBIDDEN, "这条邀请是发给另一个邮箱的")
 
     team = await access.load_team(db, row.team_id)
@@ -746,10 +748,12 @@ async def invitation_preview(db: AsyncSession, token: str) -> dict[str, Any]:
     if row is None:
         raise AppError(ErrorCode.NOT_FOUND, "邀请链接无效或已失效")
     team = await access.load_team(db, row.team_id)
+    inviter = await db.get(User, row.invited_by) if row.invited_by else None
     return {
         "team_name": team.name if team else "",
-        "email": row.email,
+        "email": row.email or None,
         "role": row.role,
+        "inviter": (inviter.display_name or inviter.email) if inviter else "团队管理员",
         "status": row.status,
         "expired": row.expires_at <= utcnow(),
         "expires_at": row.expires_at,

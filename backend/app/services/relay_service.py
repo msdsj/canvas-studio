@@ -341,6 +341,47 @@ async def resolve(db: AsyncSession, user_id: str) -> RelayTarget | None:
     return None
 
 
+async def resolve_conversation(db: AsyncSession, user_id: str) -> RelayTarget | None:
+    """Use the platform model for enterprise conversations; preserve image routing."""
+    from sqlalchemy import select
+
+    from app.models.team import MEMBER_ACTIVE, TeamMember
+    from app.models.user import User
+
+    team_id = (
+        await db.execute(select(User.active_team_id).where(User.id == user_id))
+    ).scalar_one_or_none()
+    if not team_id:
+        return await resolve(db, user_id)
+    member_id = (
+        await db.execute(
+            select(TeamMember.id).where(
+                TeamMember.team_id == team_id,
+                TeamMember.user_id == user_id,
+                TeamMember.status == MEMBER_ACTIVE,
+            )
+        )
+    ).scalar_one_or_none()
+    if member_id is None:
+        return await resolve(db, user_id)
+
+    base_url = str(await config_service.get_raw(db, "TEXT_API_BASE_URL", "") or "").strip()
+    api_key = str(await config_service.get_raw(db, "TEXT_API_KEY", "") or "").strip()
+    model = str(await config_service.get_raw(db, "TEXT_MODEL", "") or "").strip()
+    fallbacks = safe_model_list(await config_service.get_value(db, "TEXT_MODEL_FALLBACKS", []))
+    if not base_url or not model:
+        return None
+    return RelayTarget(
+        source="platform",
+        name="平台对话模型",
+        kind="compatible",
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        fallback_models=fallbacks,
+    )
+
+
 def _auth_headers(target: RelayTarget) -> dict[str, str]:
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if target.protocol == "anthropic":

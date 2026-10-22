@@ -846,7 +846,7 @@ async def stream_compose(
         await db.commit()
 
         # ---- 0) 中转站就绪检查：没有就停在这里，不伪造任何 AI 结论 ----
-        target = await relay_service.resolve(db, user.id)
+        target = await relay_service.resolve_conversation(db, user.id)
         if target is None:
             step = trace.start("analyze", STEPS[0][1])
             yield _sse({"event": "step", "step": dict(step)})

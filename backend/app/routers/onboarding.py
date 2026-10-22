@@ -22,14 +22,11 @@ from app.utils.ids import utcnow
 onboarding_router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 skills_router = APIRouter(prefix="/api/skills", tags=["skills"])
 
-#: 引导完成时可顺带创建团队（企业用户一进来就能落地）
 class OnboardingCompleteRequest(BaseModel):
-    """完成引导：选场景 + 选技能包，可选创建团队。"""
+    """完成引导：选场景与技能包。"""
 
     persona_key: str = Field(default="", max_length=32)
     pack_keys: list[str] = Field(default_factory=list)
-    #: 同时创建的团队名（空 = 不创建）
-    team_name: str = ""
 
 
 class SkillPacksRequest(BaseModel):
@@ -94,8 +91,7 @@ async def complete_onboarding(
 
     规则：
     - 传了 `persona_key` 就用场景推荐包；否则用 `pack_keys`；都没传就保持现状；
-    - `team_name` 非空则创建团队（创建者即超级管理员），并把团队推荐包也写一份，
-      这样成员后续加入能直接继承；
+    - 企业账号与团队由平台管理员统一开通，不由终端用户在首登时创建；
     - 重复调用只更新选择与时间戳，不会重复建团队。
     """
     persona_key = (payload.persona_key or "").strip()
@@ -116,17 +112,6 @@ async def complete_onboarding(
             db, user, [skill_packs.FALLBACK_PACK], source="onboarding"
         )
 
-    created_team: dict[str, Any] | None = None
-    team_name = (payload.team_name or "").strip()
-    if team_name:
-        # 已在某个团队里就不再自动建团：避免点两次引导建出两个空团队
-        ctx = await access.current_context(db, user)
-        if ctx.team is None:
-            team = await team_service.create_team(db, user, team_name)
-            pack_keys = await skill_packs.resolve_pack_keys(db, user)
-            await skill_packs.set_team_packs(db, team.id, pack_keys)
-            created_team = {"id": team.id, "name": team.name}
-
     if user.onboarding_completed_at is None:
         user.onboarding_completed_at = utcnow()
     await db.commit()
@@ -139,7 +124,7 @@ async def complete_onboarding(
             "persona_key": user.persona_key or "",
             "pack_keys": pack_keys,
             "pack_names": [packs[key].name for key in pack_keys if key in packs],
-            "team": created_team,
+            "team": None,
         }
     )
 

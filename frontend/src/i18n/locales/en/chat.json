@@ -188,6 +188,6 @@
     "active_tasks_other": "{{count}} generating",
     "relay_connected": "Relay connected: {{name}}",
     "relay_configure": "Configure AI relay",
-    "relay_team_missing": "\"{{team}}\" has no model configured yet — ask your team owner."
+    "relay_team_missing": "Chat models for \"{{team}}\" are managed by the platform administrator."
   }
 }

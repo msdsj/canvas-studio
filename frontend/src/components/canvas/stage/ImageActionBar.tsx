@@ -7,11 +7,13 @@ import {
   Ellipsis,
   Loader2,
   MessageSquarePlus,
+  Plus,
   Scissors,
   Shuffle,
   SquareDashedMousePointer,
   Trash2,
   ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -43,6 +45,7 @@ export interface ImageActionBarProps {
   onEnhance: () => void
   onCutout: () => void
   onVariation: () => void
+  onResize: (factor: number) => void
   onCompare: () => void
   onDownload: (format: 'png' | 'jpg') => void
   onReference: () => void
@@ -75,6 +78,7 @@ export function ImageActionBar({
   onEnhance,
   onCutout,
   onVariation,
+  onResize,
   onCompare,
   onDownload,
   onReference,
@@ -158,6 +162,14 @@ export function ImageActionBar({
       >
         <span className={cn(version > 1 && 'text-accent-ink')}>V{version}</span>
       </span>
+
+      <BarButton compact label={t('bar.shrink')} hint={t('bar.shrink_hint')} onClick={() => onResize(0.85)}>
+        <ZoomOut size={14} />
+      </BarButton>
+      <BarButton compact label={t('bar.enlarge')} hint={t('bar.enlarge_hint')} onClick={() => onResize(1.18)}>
+        <Plus size={14} />
+      </BarButton>
+      <span data-bar-item aria-hidden className="mx-0.5 h-4 w-px bg-border" />
 
       <BarButton compact={compact} label={t('bar.edit')} hint={t('bar.edit_hint')} onClick={onEdit} primary>
         <SquareDashedMousePointer size={14} />

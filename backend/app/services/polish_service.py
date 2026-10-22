@@ -681,7 +681,7 @@ async def polish(
     limit = max(1, min(int(variants or 1), 3))
     original = content
 
-    target = await relay_service.resolve(db, user_id)
+    target = await relay_service.resolve_conversation(db, user_id)
     if target is None:
         items = local_variants(content, scene, mode, limit)
         return {

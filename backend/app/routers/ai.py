@@ -104,12 +104,12 @@ async def _get_row(db: AsyncSession, user: User, provider_id: str) -> AIProvider
 
 
 async def _guard_personal_config(db: AsyncSession, user: User) -> None:
-    """团队成员在「团队统一配置」模式下不允许改自己的中转站。
+    """企业空间内不允许修改个人模型配置；对话模型由平台统一管理。
 
     读接口不受限（成员要能看到「当前用的是哪个模型」），只有写操作会被拦。
     """
     ctx = await access.current_context(db, user)
-    if ctx.team is not None and not ctx.team.allow_personal_provider():
+    if ctx.team is not None:
         raise AppError(ErrorCode.MODEL_CONFIG_FORBIDDEN)
 
 
@@ -364,20 +364,20 @@ async def relay_status(
     的预览，避免用户以为填了 3 个就会试 3 个。
     """
     ctx = await access.current_context(db, user)
-    team_managed = ctx.team is not None and not ctx.team.allow_personal_provider()
+    team_managed = ctx.team is not None
     team_fields = {
         "editable": not team_managed,
-        "can_manage": bool(ctx.team is not None and ctx.is_owner),
+        "can_manage": False,
         "team_id": ctx.team.id if ctx.team else None,
         "team_name": ctx.team.name if ctx.team else "",
         "managed_by": ctx.team.owner_user_id if ctx.team else "",
     }
 
-    target = await relay_service.resolve(db, user.id)
+    target = await relay_service.resolve_conversation(db, user.id)
     if target is None:
         reason = (
-            "团队还没有配置对话模型，请联系团队超级管理员"
-            if team_managed
+            "平台尚未配置对话模型，请联系平台超级管理员"
+            if ctx.team is not None
             else "还没有可用的中转站：填一个自己的，或让管理员配置平台公共中转"
         )
         return envelope(
@@ -386,7 +386,7 @@ async def relay_status(
                 source="none",
                 reason=reason,
                 skills_count=len(design_skills.SKILLS),
-                **team_fields,
+                **{**team_fields, "can_manage": False},
             ).model_dump()
         )
     # 只构造链、不发请求：状态接口不能被上游的 90 秒读超时拖住
@@ -400,8 +400,8 @@ async def relay_status(
             kind=target.kind,
             skills_count=len(design_skills.SKILLS),
             # 团队成员即便「可编辑」，改的也是自己没在用的配置，提示语另算
-            editable=target.source != "team" and team_fields["editable"],
-            can_manage=team_fields["can_manage"],
+            editable=target.source != "platform" and team_fields["editable"],
+            can_manage=False,
             team_id=team_fields["team_id"],
             team_name=team_fields["team_name"],
             managed_by=team_fields["managed_by"],
@@ -423,11 +423,10 @@ async def list_models(
     而不是让成员点开一个存不进去的弹窗。
     """
     ctx = await access.current_context(db, user)
-    team_managed = ctx.team is not None and not ctx.team.allow_personal_provider()
-    # 团队模式下**连 owner 也不能在这里改**：团队模型只有一个真源（`/teams/{id}/model-config`），
-    # 允许 owner 在对话区顺手改会让两处配置打架。但 owner 必须知道「去哪儿改」，
-    # 所以额外给出 `can_manage` —— 前端据此把提示从「联系超级管理员」换成「去团队设置」。
-    can_manage = bool(ctx.team is not None and ctx.is_owner)
+    team_managed = ctx.team is not None
+    can_manage = False
+    # The image selector still uses its existing relay configuration. Enterprise chat
+    # uses the platform's TEXT_* model and is shown separately in /status.
     target = await relay_service.resolve(db, user.id)
     if target is None:
         return envelope(

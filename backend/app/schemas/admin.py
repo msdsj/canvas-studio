@@ -38,12 +38,13 @@ class BanRequest(BaseModel):
 
 
 class AdminUserCreateRequest(BaseModel):
-    """后台新建用户请求（默认创建可直接登录的普通用户）。"""
+    """后台新建可直接登录的普通用户，可选创建并加入企业空间。"""
 
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     display_name: str | None = Field(default=None, max_length=128)
     role: str = Field(default="user")
+    team_name: str | None = Field(default=None, min_length=2, max_length=60)
 
 
 class QuotaAdjustResult(BaseModel):

@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, ArrowRight, Check, Loader2, Sparkles, Users } from 'lucide-react'
+import {
+  ArrowRight,
+  Check,
+  Code2,
+  Loader2,
+  Megaphone,
+  Package,
+  PanelsTopLeft,
+  PenTool,
+  ShoppingBag,
+  Sparkles,
+  type LucideIcon,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { useAuth } from '@/hooks/use-auth'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/hooks/use-toast'
 import { onboardingApi, skillsApi, type Persona, type SkillPackSummary } from '@/lib/api/onboarding'
 import { errorMessage } from '@/lib/errors'
-import { useTeamStore } from '@/stores/team'
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute'
 import { cn } from '@/lib/utils'
 
@@ -17,24 +27,21 @@ export const Route = createFileRoute('/onboarding')({
   component: OnboardingPage,
 })
 
-/** 场景图标：后端给的是语义 key，前端映射到图标组件，避免后端塞 emoji。 */
-const PERSONA_EMOJI: Record<string, string> = {
-  ecommerce: '🛍️',
-  marketing: '📣',
-  ui_designer: '🎨',
-  developer: '🧑‍💻',
-  brand: '✦',
-  content: '📝',
-  general: '✳️',
+/** Scene icons use a consistent line-icon set instead of platform-dependent emoji. */
+const PERSONA_ICONS: Record<string, LucideIcon> = {
+  ecommerce: ShoppingBag,
+  marketing: Megaphone,
+  ui_designer: PanelsTopLeft,
+  developer: Code2,
+  brand: Package,
+  content: PenTool,
+  general: Sparkles,
 }
 
 /**
  * 首登引导。
  *
- * 三步，但不做多步表单——每一步都只是「勾一下」，没有需要校验的输入：
- *   1. 选身份（决定装哪些技能包）
- *   2. 顺带建团队（可跳过）
- *   3. 完成，进工作台
+ * 首次进入只选择工作身份，企业空间由平台管理员开通。
  *
  * 设计取舍：**不做强制引导弹窗**。用户随时可以跳过（跳过会装一套默认技能包），
  * 因为强制引导最容易被当成路障，而技能包本身在「我的技能」里随时可改。
@@ -45,16 +52,14 @@ function OnboardingPage() {
   const toast = useToast()
   const { user } = useAuth()
   const refreshUser = useAuthStore((s) => s.refresh)
-  const loadTeams = useTeamStore((s) => s.load)
 
   const [step, setStep] = useState(0)
   const [personas, setPersonas] = useState<Persona[]>([])
   const [packs, setPacks] = useState<SkillPackSummary[]>([])
   const [personaKey, setPersonaKey] = useState('')
-  const [teamName, setTeamName] = useState('')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [result, setResult] = useState<{ count: number; team: string | null } | null>(null)
+  const [result, setResult] = useState<{ count: number } | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -95,12 +100,11 @@ function OnboardingPage() {
       .filter((pack): pack is SkillPackSummary => Boolean(pack))
   }, [current, packs])
 
-  const finish = useCallback(async () => {
+  const finish = useCallback(async (useDefault = false) => {
     setSubmitting(true)
     try {
       const data = await onboardingApi.complete({
-        persona_key: personaKey,
-        team_name: teamName.trim(),
+        persona_key: useDefault ? '' : personaKey,
       })
       /*
        * 必须刷新登录态：`ProtectedRoute` 用 `user.persona_key` 判断「是否已完成引导」，
@@ -108,16 +112,14 @@ function OnboardingPage() {
        * 会被立刻弹回引导页——看起来像按钮没反应，其实是无限重定向。
        */
       await refreshUser()
-      // 建了团队要立刻刷新团队状态，否则 isPro / 空间切换还是旧值
-      if (data.team) await loadTeams(true)
-      setResult({ count: data.pack_names.length, team: data.team?.name ?? null })
-      setStep(2)
+      setResult({ count: data.pack_names.length })
+      setStep(1)
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
       setSubmitting(false)
     }
-  }, [personaKey, teamName, toast, loadTeams, refreshUser])
+  }, [personaKey, toast, refreshUser])
 
   const enter = useCallback(() => {
     void navigate({ to: '/workspace' })
@@ -134,16 +136,15 @@ function OnboardingPage() {
   return (
     <ProtectedRoute>
       <div className="flex min-h-screen flex-col bg-bg">
-        {/* 顶部：进度 + 跳过。跳过永远可见——不给「逃出去」的路，用户就会关标签页 */}
-        <header className="flex items-center justify-between px-6 py-5 sm:px-10">
+        <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5 sm:px-10">
           <div className="flex items-center gap-2 text-text-secondary">
             <Sparkles size={16} className="text-accent-ink" />
-            <span className="text-caption font-medium">{t('meta.step', { current: step + 1, total: 3 })}</span>
+            <span className="text-caption font-medium">{t('meta.step', { current: step + 1, total: 1 })}</span>
           </div>
-          {step < 2 && (
+          {step === 0 && (
             <button
               type="button"
-              onClick={() => void finish()}
+              onClick={() => void finish(true)}
               className="text-caption text-text-tertiary underline-offset-4 transition-colors hover:text-text hover:underline"
             >
               {t('action.skip')}
@@ -174,18 +175,28 @@ function OnboardingPage() {
                       data-motion="press"
                       onClick={() => setPersonaKey(persona.key)}
                       className={cn(
-                        'group relative flex flex-col gap-2 rounded-[16px] border p-4 text-left transition-[border-color,box-shadow,transform] duration-200',
+                        'group relative flex min-h-[132px] flex-col gap-2 rounded-[8px] border p-4 text-left transition-[border-color,box-shadow,transform,background-color] duration-200',
                         active
-                          ? 'border-accent-strong bg-accent-soft/40 shadow-lift'
-                          : 'border-border/70 bg-surface shadow-sheet hover:-translate-y-0.5 hover:border-border-strong hover:shadow-lift',
+                          ? 'border-accent-strong bg-accent-soft/45 shadow-lift'
+                          : 'border-border/70 bg-surface shadow-xs hover:-translate-y-0.5 hover:border-border-strong hover:shadow-lift',
                       )}
                     >
-                      <span className="flex items-center justify-between">
-                        <span className="text-[20px] leading-none">
-                          {PERSONA_EMOJI[persona.key] ?? '✳️'}
+                      <span className="flex items-start justify-between">
+                        <span
+                          className={cn(
+                            'flex h-9 w-9 items-center justify-center rounded-[8px] transition-colors',
+                            active
+                              ? 'bg-accent-strong text-on-accent'
+                              : 'bg-bg-subtle text-text-secondary group-hover:text-text',
+                          )}
+                        >
+                          {(() => {
+                            const Icon = PERSONA_ICONS[persona.key] ?? Sparkles
+                            return <Icon size={17} strokeWidth={1.8} />
+                          })()}
                         </span>
                         {active && (
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-strong text-text-inverse">
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-strong text-on-accent">
                             <Check size={12} strokeWidth={3} />
                           </span>
                         )}
@@ -202,9 +213,8 @@ function OnboardingPage() {
                 })}
               </div>
 
-              {/* 选了什么会得到什么：透明比神秘更好 */}
               {previewPacks.length > 0 && (
-                <div className="rounded-[14px] border border-border/70 bg-surface px-4 py-3">
+                <div className="rounded-[8px] border border-border/70 bg-surface px-4 py-3 shadow-xs">
                   <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.1em] text-text-tertiary">
                     {t('preview.heading')}
                   </p>
@@ -221,58 +231,16 @@ function OnboardingPage() {
                 </div>
               )}
 
-              <div className="flex justify-end pt-2">
-                <Button size="lg" disabled={!personaKey} onClick={() => setStep(1)}>
-                  {t('action.continue')} <ArrowRight size={16} />
+              <div className="flex justify-end pt-1">
+                <Button size="lg" disabled={!personaKey || submitting} loading={submitting} onClick={() => void finish()}>
+                  {t('action.finish')} <ArrowRight size={16} />
                 </Button>
-              </div>
-            </section>
-          )}
-
-          {/* ---------- 第 2 步：团队空间 ---------- */}
-          {step === 1 && (
-            <section className="flex flex-col gap-6">
-              <div className="flex flex-col gap-2">
-                <h1 className="flex items-center gap-2 text-h1 font-semibold tracking-[-0.02em] text-text">
-                  <Users size={22} className="text-accent-ink" />
-                  {t('team.heading')}
-                </h1>
-                <p className="max-w-[60ch] text-ui leading-relaxed text-text-secondary">
-                  {t('team.hint')}
-                </p>
-              </div>
-
-              <div className="max-w-md">
-                <Input
-                  value={teamName}
-                  onChange={(event) => setTeamName(event.target.value)}
-                  placeholder={t('team.placeholder')}
-                  maxLength={60}
-                />
-              </div>
-
-              <div className="flex items-center justify-between pt-2">
-                <Button variant="ghost" onClick={() => setStep(0)}>
-                  <ArrowLeft size={16} /> {t('action.back')}
-                </Button>
-                <div className="flex items-center gap-2">
-                  <Button variant="secondary" onClick={() => void finish()} disabled={submitting}>
-                    {t('team.skip')}
-                  </Button>
-                  <Button onClick={() => void finish()} loading={submitting}>
-                    {submitting
-                      ? t('team.creating')
-                      : teamName.trim()
-                        ? t('team.create')
-                        : t('action.finish')}
-                  </Button>
-                </div>
               </div>
             </section>
           )}
 
           {/* ---------- 第 3 步：完成 ---------- */}
-          {step === 2 && result && (
+          {step === 1 && result && (
             <section className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
               <span className="flex h-16 w-16 items-center justify-center rounded-full bg-accent-soft text-accent-ink">
                 <Check size={30} strokeWidth={2.6} />
@@ -283,11 +251,6 @@ function OnboardingPage() {
               <p className="max-w-[46ch] text-ui leading-relaxed text-text-secondary">
                 {t('done.description', { count: result.count })}
               </p>
-              {result.team && (
-                <p className="text-caption text-text-tertiary">
-                  {t('done.team_created', { name: result.team })}
-                </p>
-              )}
               <Button size="lg" className="mt-2" onClick={enter}>
                 {t('action.finish')} <ArrowRight size={16} />
               </Button>

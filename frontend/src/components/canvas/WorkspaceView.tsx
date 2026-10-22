@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from '@tanstack/react-router'
 import type { ExcalidrawInitialDataState } from '@excalidraw/excalidraw/types'
+import { CaptureUpdateAction } from '@excalidraw/excalidraw'
 import { CanvasExcali } from './CanvasExcali'
 import { ScrollTrigger } from '@/lib/gsap'
 import { CanvasHeader } from './CanvasHeader'
@@ -1236,6 +1237,37 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     })
   }
 
+  const resizeImage = useCallback((element: CanvasElement, factor: number) => {
+    const instance = apiRef.current
+    if (!instance) return
+    const elements = instance.getSceneElements()
+    const current = elements.find((item) => item.id === element.id)
+    if (
+      !current ||
+      current.type !== 'image' ||
+      typeof current.width !== 'number' ||
+      typeof current.height !== 'number' ||
+      typeof current.x !== 'number' ||
+      typeof current.y !== 'number'
+    ) return
+    const minimumFactor = Math.max(48 / current.width, 48 / current.height)
+    const maximumFactor = Math.min(4096 / current.width, 4096 / current.height)
+    const scale = Math.max(minimumFactor, Math.min(maximumFactor, factor))
+    const width = current.width * scale
+    const height = current.height * scale
+    const dx = (width - current.width) / 2
+    const dy = (height - current.height) / 2
+    const next = elements.map((item) => {
+      if (
+        item.id !== current.id ||
+        typeof item.x !== 'number' ||
+        typeof item.y !== 'number'
+      ) return item
+      return { ...item, x: item.x - dx, y: item.y - dy, width, height }
+    })
+    instance.updateScene({ elements: next, captureUpdate: CaptureUpdateAction.IMMEDIATELY })
+  }, [])
+
   /** 下载当前选中图片（PNG / JPG）。 */
   /* ------------------------------------------------------------------ */
   /* 选中图片的操作条                                                      */
@@ -1653,10 +1685,13 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
             })
             if (placed > 0) {
               revealRef.current?.reveal([{ x: ph.sceneX, y: ph.sceneY, w: ph.sceneW, h: ph.sceneH }])
-              toast.success(
-                t('region.generated', { defaultValue: '生成完成，结果已放到画布' }),
-                task.result_urls.length > 1 ? `共 ${task.result_urls.length} 张结果` : undefined
-              )
+              // Session tasks are announced by ChatPanel. Canvas-only tasks use this fallback.
+              if (!task.session_id) {
+                toast.success(
+                  t('region.generated', { defaultValue: '生成完成，结果已放到画布' }),
+                  task.result_urls.length > 1 ? `共 ${task.result_urls.length} 张结果` : undefined
+                )
+              }
             }
           } else if (task.status === 'failed' || task.status === 'timeout' || task.status === 'cancelled') {
             delete placeFailuresRef.current[ph.taskId]
@@ -1929,6 +1964,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
                 onEnhance={() => void runQuickOp('enhance')}
                 onCutout={() => void runQuickOp('cutout')}
                 onVariation={() => void runVariation()}
+                onResize={(factor) => resizeImage(barTarget, factor)}
                 onCompare={openCompare}
                 onDownload={(format) => void handleDownloadSelected(format)}
                 onReference={() => {

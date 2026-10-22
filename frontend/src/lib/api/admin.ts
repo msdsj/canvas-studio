@@ -44,7 +44,7 @@ export const adminApi = {
     return api.get<PageData<AdminUser>>(`/admin/users?${params.toString()}`)
   },
   getUser: (id: string) => api.get<AdminUser>(`/admin/users/${id}`),
-  createUser: (payload: { email: string; password: string; role?: string; display_name?: string }) =>
+  createUser: (payload: { email: string; password: string; role?: string; display_name?: string; team_name?: string }) =>
     api.post<AdminUser>('/admin/users', payload),
   adjustQuota: (id: string, payload: { mode: 'increase' | 'decrease' | 'set'; amount: number; note: string }) =>
     api.post<{ balance: number; tx: QuotaTransaction }>(`/admin/users/${id}/quota`, payload),

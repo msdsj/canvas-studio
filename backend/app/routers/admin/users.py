@@ -13,7 +13,7 @@ from app.models.user import User
 from app.schemas.admin import AdminUserCreateRequest, AdminUserOut, BanRequest
 from app.schemas.quota import AdminQuotaAdjustRequest, QuotaTransactionOut
 from app.security import generate_token, hash_password
-from app.services import audit_service, email_service, quota_service
+from app.services import audit_service, email_service, quota_service, team_service
 from app.utils.errors import AppError, ErrorCode, envelope
 from app.utils.ids import new_id, utcnow
 from app.utils.pagination import normalize_page, paginated
@@ -81,7 +81,8 @@ async def create_user(
     if existing.scalar_one_or_none() is not None:
         raise AppError(ErrorCode.VALIDATION_ERROR, "该邮箱已被注册")
 
-    role = payload.role if payload.role in ("user", "pro", "admin") else "user"
+    # Customer accounts never receive platform administrator permissions.
+    role = "user"
     user = User(
         id=new_id(),
         email=email,
@@ -97,17 +98,26 @@ async def create_user(
     if settings.initial_grant > 0:
         await quota_service.grant(db, user.id, settings.initial_grant, note="管理员创建用户初始赠送")
 
+    team_name = (payload.team_name or "").strip()
+    if team_name:
+        team = await team_service.create_team(db, user, team_name)
+        user.active_team_id = team.id
+
     await audit_service.log(
         db,
         action="user_create",
         actor=admin,
         target_type="user",
         target_id=user.id,
-        detail={"email": email, "role": role},
+        detail={"email": email, "role": role, "team_name": team_name or None},
     )
     await db.commit()
     await db.refresh(user)
-    return envelope(AdminUserOut.model_validate(user).model_dump())
+    return envelope({
+        **AdminUserOut.model_validate(user).model_dump(),
+        "active_team_id": user.active_team_id,
+        "team_name": team_name or None,
+    })
 
 
 @router.get("/{user_id}")

@@ -4,18 +4,12 @@ import { Modal } from '@/components/ui/modal'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 
 export interface CreateUserPayload {
   email: string
   password: string
   role: string
+  team_name?: string
 }
 
 interface CreateUserDialogProps {
@@ -26,12 +20,12 @@ interface CreateUserDialogProps {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-/** 后台新建用户弹窗：邮箱 + 初始密码 + 角色（默认普通用户，创建后可直接登录）。 */
+/** 后台新建企业账号：普通登录账号，可选同时开通所属企业空间。 */
 export function CreateUserDialog({ open, onOpenChange, onSubmit }: CreateUserDialogProps) {
   const { t } = useTranslation('admin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState('user')
+  const [teamName, setTeamName] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -40,7 +34,7 @@ export function CreateUserDialog({ open, onOpenChange, onSubmit }: CreateUserDia
     if (!open) return
     setEmail('')
     setPassword('')
-    setRole('user')
+    setTeamName('')
     setError('')
   }, [open])
 
@@ -50,10 +44,13 @@ export function CreateUserDialog({ open, onOpenChange, onSubmit }: CreateUserDia
     if (!EMAIL_RE.test(mail)) return setError(t('create_user_dialog.email_invalid'))
     if (!password) return setError(t('create_user_dialog.password_required'))
     if (password.length < 8) return setError(t('create_user_dialog.password_weak'))
+    if (teamName.trim() && teamName.trim().length < 2) {
+      return setError(t('create_user_dialog.team_name_invalid'))
+    }
     setError('')
     setLoading(true)
     try {
-      await onSubmit({ email: mail, password, role })
+      await onSubmit({ email: mail, password, role: 'user', team_name: teamName.trim() || undefined })
       onOpenChange(false)
     } finally {
       setLoading(false)
@@ -87,9 +84,9 @@ export function CreateUserDialog({ open, onOpenChange, onSubmit }: CreateUserDia
             onChange={(e) => setEmail(e.target.value)}
           />
         </FormField>
-        <FormField label={t('create_user_dialog.password')} required helper="至少 8 位">
+        <FormField label={t('create_user_dialog.password')} required helper={t('create_user_dialog.password_hint')}>
           <Input
-            type="text"
+            type="password"
             value={password}
             autoComplete="off"
             onChange={(e) => setPassword(e.target.value)}
@@ -98,16 +95,13 @@ export function CreateUserDialog({ open, onOpenChange, onSubmit }: CreateUserDia
             }}
           />
         </FormField>
-        <FormField label={t('create_user_dialog.role')}>
-          <Select value={role} onValueChange={setRole}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="user">user</SelectItem>
-              <SelectItem value="admin">admin</SelectItem>
-            </SelectContent>
-          </Select>
+        <FormField label={t('create_user_dialog.team_name')} helper={t('create_user_dialog.team_hint')}>
+          <Input
+            value={teamName}
+            onChange={(event) => setTeamName(event.target.value)}
+            placeholder={t('create_user_dialog.team_placeholder')}
+            maxLength={60}
+          />
         </FormField>
         {error && <p className="text-caption leading-snug text-danger">{error}</p>}
       </div>

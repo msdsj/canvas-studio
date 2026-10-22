@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowRight, Check, MessageSquareText, Wand2 } from 'lucide-react'
 import { gsap } from '@/lib/gsap'
-import { ArtSwatch } from './ArtSwatch'
+import { ArtImage } from './ArtImage'
 import { useVisibleLoop } from './use-visible-loop'
 import { asList } from '@/i18n'
 
@@ -81,7 +81,7 @@ export function ChatToCanvasDemo() {
         </div>
         <div className="relative flex items-center justify-center p-4">
           <div data-target className="aspect-[4/5] w-[58%] overflow-hidden rounded-[10px] shadow-lift">
-            <ArtSwatch palette="sunset" motif="type" className="h-full w-full" />
+            <ArtImage src="/generated/preview-poster.jpg" alt={t('story.chat.bubble')} className="h-full w-full" />
           </div>
         </div>
       </Stage>
@@ -99,14 +99,15 @@ export function RegionEditDemo() {
     const tl = gsap.timeline({ repeat: -1, repeatDelay: 0.5, defaults: { ease: 'csPaper' } })
     tl.set(q('[data-box]'), { scale: 0, transformOrigin: '0% 0%', autoAlpha: 1 })
       .set(q('[data-chip]'), { autoAlpha: 0, y: 8 })
-      .set(q('[data-wipe]'), { scaleX: 0, transformOrigin: '0% 50%' })
+      // 用 clip-path 揭开而不是 scaleX：图片不会被横向挤扁
+      .set(q('[data-wipe]'), { clipPath: 'inset(0 100% 0 0)' })
       .to(q('[data-box]'), { scale: 1, duration: 0.8, ease: 'power2.inOut' }, 0.4)
       .to(q('[data-chip]'), { autoAlpha: 1, y: 0, duration: 0.4 }, '+=0.1')
-      .to(q('[data-wipe]'), { scaleX: 1, duration: 1.1, ease: 'power2.inOut' }, '+=0.5')
+      .to(q('[data-wipe]'), { clipPath: 'inset(0 0% 0 0)', duration: 1.1, ease: 'power2.inOut' }, '+=0.5')
       .to(q('[data-chip]'), { autoAlpha: 0, duration: 0.3 }, '-=0.2')
       .to(q('[data-box]'), { autoAlpha: 0, duration: 0.4 }, '+=0.9')
       .to(q('[data-wipe]'), { autoAlpha: 0, duration: 0.5 }, '+=0.8')
-      .set(q('[data-wipe]'), { autoAlpha: 1, scaleX: 0 })
+      .set(q('[data-wipe]'), { autoAlpha: 1, clipPath: 'inset(0 100% 0 0)' })
     return tl
   })
 
@@ -114,11 +115,17 @@ export function RegionEditDemo() {
     <div ref={ref}>
       <Stage className="flex items-center justify-center p-5">
         <div className="relative aspect-[4/3] w-[86%] overflow-hidden rounded-[12px] shadow-lift">
-          <ArtSwatch palette="peach" motif="bottle" className="absolute inset-0" />
-          {/* 框选区域：瓶身。wipe 是局部重绘后的新材质，从左往右「擦」出来 */}
+          <ArtImage src="/generated/gallery-perfume.jpg" alt={t('story.region.chip')} className="absolute inset-0" />
+          {/* 框选区域：瓶身。wipe 是同一张图的磨砂玻璃版本，按原图坐标对齐，瓶形不会跳 */}
           <div className="absolute left-[36%] top-[30%] h-[58%] w-[28%] overflow-hidden rounded-[6px]">
             <div data-wipe className="absolute inset-0">
-              <ArtSwatch palette="ocean" motif="bottle" className="h-full w-full" />
+              <div className="absolute -left-[128.571%] -top-[51.724%] h-[172.414%] w-[357.143%]">
+                <ArtImage
+                  src="/generated/gallery-perfume-frosted.jpg"
+                  alt={t('story.region.chip')}
+                  className="h-full w-full"
+                />
+              </div>
             </div>
           </div>
           <div
@@ -208,7 +215,12 @@ export function DecomposeDemo() {
         </div>
 
         <div data-result className="mt-3 flex w-[70%] items-center gap-2 rounded-[12px] bg-surface p-1.5 shadow-lift ring-1 ring-border-faint">
-          <ArtSwatch palette="nebula" motif="orb" className="aspect-square w-12 shrink-0 rounded-[8px]" />
+          <ArtImage
+            src="/generated/gallery-tech.jpg"
+            alt={t('story.decompose.result')}
+            position="50% 55%"
+            className="aspect-square w-12 shrink-0 rounded-[8px]"
+          />
           <div className="min-w-0 flex-1">
             <p className="truncate text-micro font-semibold text-text">{t('story.decompose.result')}</p>
             <p className="truncate text-[11px] text-text-tertiary">{t('story.decompose.result_meta')}</p>

@@ -4,7 +4,7 @@ import { ArrowUpRight } from 'lucide-react'
 import { Flip, gsap } from '@/lib/gsap'
 import { shouldReduceMotion, useScrollReveal } from '@/lib/motion'
 import { cn } from '@/lib/utils'
-import { ArtSwatch, type ArtMotif, type ArtPalette } from './ArtSwatch'
+import { ArtImage } from './ArtImage'
 
 interface GalleryItem {
   cat: string
@@ -12,17 +12,17 @@ interface GalleryItem {
   prompt: string
 }
 
-/** 每张卡的「画面」：配色 / 主体 / 比例按序号固定分配，保证瀑布流有高低错落 */
-const LOOKS: Array<{ palette: ArtPalette; motif: ArtMotif; aspect: string }> = [
-  { palette: 'nebula', motif: 'orb', aspect: 'aspect-[4/5]' },
-  { palette: 'peach', motif: 'bottle', aspect: 'aspect-square' },
-  { palette: 'candy', motif: 'type', aspect: 'aspect-[3/4]' },
-  { palette: 'lime', motif: 'logo', aspect: 'aspect-square' },
-  { palette: 'forest', motif: 'mountain', aspect: 'aspect-[4/3]' },
-  { palette: 'mono', motif: 'portrait', aspect: 'aspect-[4/5]' },
-  { palette: 'sunset', motif: 'type', aspect: 'aspect-[3/4]' },
-  { palette: 'ocean', motif: 'bottle', aspect: 'aspect-[4/5]' },
-  { palette: 'candy', motif: 'portrait', aspect: 'aspect-[4/3]' },
+/** 每张卡的「画面」：图片 / 裁切比例按序号固定分配，保证瀑布流有高低错落 */
+const LOOKS: Array<{ src: string; aspect: string; position?: string }> = [
+  { src: '/generated/gallery-tech.jpg', aspect: 'aspect-[4/5]', position: '50% 42%' },
+  { src: '/generated/gallery-perfume.jpg', aspect: 'aspect-square', position: '50% 45%' },
+  { src: '/generated/gallery-camping.jpg', aspect: 'aspect-[3/4]' },
+  { src: '/generated/gallery-logo.jpg', aspect: 'aspect-square', position: '50% 50%' },
+  { src: '/generated/gallery-mountain.jpg', aspect: 'aspect-[4/3]' },
+  { src: '/generated/gallery-portrait.jpg', aspect: 'aspect-[4/5]', position: '50% 32%' },
+  { src: '/generated/gallery-festival.jpg', aspect: 'aspect-[3/4]', position: '50% 45%' },
+  { src: '/generated/gallery-skincare.jpg', aspect: 'aspect-[4/5]', position: '50% 45%' },
+  { src: '/generated/gallery-clay.jpg', aspect: 'aspect-[4/3]', position: '50% 50%' },
 ]
 
 /**
@@ -169,7 +169,19 @@ function GalleryCard({
         onPointerLeave={onLeave}
         className="cs-tilt group relative overflow-hidden rounded-[18px] bg-surface shadow-sheet ring-1 ring-border-faint transition-shadow duration-300 hover:shadow-float"
       >
-        <ArtSwatch palette={look.palette} motif={look.motif} className={cn('w-full', look.aspect)} />
+        <ArtImage
+          src={look.src}
+          alt={item.title}
+          position={look.position}
+          className={cn(
+            'w-full transition-transform duration-700 ease-out group-hover:scale-[1.03]',
+            look.aspect
+          )}
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/25 to-transparent"
+        />
         <span aria-hidden className="cs-tilt-glare pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
         <span className="absolute left-2.5 top-2.5 rounded-full bg-surface/85 px-2 py-0.5 text-[11px] font-medium text-text backdrop-blur">

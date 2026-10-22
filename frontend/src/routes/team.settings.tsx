@@ -55,7 +55,7 @@ function TeamSettingsPage() {
   }, [team, name, seatLimit, loadTeams, toast, t])
 
   const toggle = useCallback(
-    async (key: 'shared_quota' | 'allow_personal_provider', value: boolean) => {
+    async (key: 'shared_quota', value: boolean) => {
       if (!team) return
       try {
         await teamsApi.update(team.id, { [key]: value })
@@ -94,12 +94,7 @@ function TeamSettingsPage() {
 
   return (
     <div className="flex flex-col gap-4 p-4 sm:p-6">
-      {/* 模型配置放在最上面：这是管理员进来最常改的一项 */}
-      <TeamModelConfigCard
-        teamId={team.id}
-        editable={isOwner}
-        onSaved={() => void loadTeams(true)}
-      />
+      <TeamModelConfigCard />
 
       <Card className="flex flex-col gap-4 p-4 sm:p-5">
         <div className="flex items-center gap-2.5">
@@ -162,19 +157,6 @@ function TeamSettingsPage() {
           />
         </div>
 
-        <div className="flex items-start justify-between gap-4 border-t border-border/60 p-4 sm:p-5">
-          <div className="flex flex-col">
-            <CardTitle className="text-ui">{t('settings.allow_personal_provider')}</CardTitle>
-            <CardDescription className="mt-1 text-caption">
-              {t('settings.allow_personal_provider_hint')}
-            </CardDescription>
-          </div>
-          <Switch
-            checked={team.allow_personal_provider}
-            disabled={!isOwner}
-            onCheckedChange={(checked) => void toggle('allow_personal_provider', checked)}
-          />
-        </div>
       </Card>
 
       <TeamSkillsCard teamId={team.id} editable={isOwner} />

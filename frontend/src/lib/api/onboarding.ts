@@ -60,8 +60,8 @@ export const onboardingApi = {
 
   state: () => api.get<OnboardingState>('/onboarding/state'),
 
-  /** 完成引导（幂等）。可顺带创建团队。 */
-  complete: (payload: { persona_key?: string; pack_keys?: string[]; team_name?: string }) =>
+  /** 完成身份选择并应用对应技能包（幂等）。 */
+  complete: (payload: { persona_key?: string; pack_keys?: string[] }) =>
     api.post<{
       completed: boolean
       persona_key: string

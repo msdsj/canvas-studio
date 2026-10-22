@@ -6,8 +6,14 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
 
+from app.database import AsyncSessionLocal
+from app.models.team import TeamInvitation
+from app.models.user import User
+from app.security import decode_access_token
 from app.services import skill_packs
+from app.services import team_service
 from tests.conftest import register_and_activate
 
 pytestmark = pytest.mark.asyncio
@@ -15,6 +21,17 @@ pytestmark = pytest.mark.asyncio
 
 def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+async def _create_team(token: str, name: str) -> dict:
+    claims = decode_access_token(token)
+    async with AsyncSessionLocal() as db:
+        owner = await db.get(User, claims["sub"])
+        assert owner is not None
+        team = await team_service.create_team(db, owner, name)
+        await db.commit()
+        ctx = await team_service.get_context(db, owner, team.id)
+        return await team_service.get_team_detail(db, ctx)
 
 
 # --------------------------------------------------------------------------- #
@@ -148,37 +165,17 @@ async def test_complete_rejects_unknown_pack(client):
     assert resp.status_code == 422
 
 
-async def test_complete_with_team_name_creates_team(client):
+async def test_onboarding_does_not_create_an_enterprise(client):
     token = await register_and_activate(client, "onb-team@example.com")
     headers = _headers(token)
     resp = await client.post(
-        "/api/onboarding/complete",
-        json={"persona_key": "developer", "team_name": "引导建团"},
-        headers=headers,
+        "/api/onboarding/complete", json={"persona_key": "developer"}, headers=headers
     )
     assert resp.status_code == 200, resp.text
-    team = resp.json()["data"]["team"]
-    assert team and team["name"] == "引导建团"
+    assert resp.json()["data"]["team"] is None
 
     teams = await client.get("/api/teams", headers=headers)
-    assert len(teams.json()["data"]["items"]) == 1
-
-    # 团队继承了个人的技能包（成员进来能直接用）
-    team_id = teams.json()["data"]["items"][0]["id"]
-    team_packs = await client.get(f"/api/skills/team/{team_id}", headers=headers)
-    assert team_packs.json()["data"]["pack_keys"]
-
-
-async def test_complete_twice_does_not_create_two_teams(client):
-    token = await register_and_activate(client, "onb-team2@example.com")
-    headers = _headers(token)
-    for _ in range(2):
-        resp = await client.post(
-            "/api/onboarding/complete", json={"team_name": "只建一次"}, headers=headers
-        )
-        assert resp.status_code == 200, resp.text
-    teams = await client.get("/api/teams", headers=headers)
-    assert len(teams.json()["data"]["items"]) == 1
+    assert teams.json()["data"]["items"] == []
 
 
 # --------------------------------------------------------------------------- #
@@ -273,9 +270,7 @@ async def test_team_packs_union_with_personal(client):
     member = await register_and_activate(client, "skill-team-member@example.com")
     headers_owner, headers_member = _headers(owner), _headers(member)
 
-    team = (
-        await client.post("/api/teams", json={"name": "技能团队"}, headers=headers_owner)
-    ).json()["data"]
+    team = await _create_team(owner, "技能团队")
 
     # 邀请成员
     inv = await client.post(
@@ -283,11 +278,6 @@ async def test_team_packs_union_with_personal(client):
         json={"email": "skill-team-member@example.com"},
         headers=headers_owner,
     )
-    from sqlalchemy import select
-
-    from app.database import AsyncSessionLocal
-    from app.models.team import TeamInvitation
-
     async with AsyncSessionLocal() as db:
         token_value = (
             await db.execute(
@@ -318,19 +308,12 @@ async def test_team_packs_union_with_personal(client):
 async def test_member_cannot_set_team_packs(client):
     owner = await register_and_activate(client, "skill-perm-owner@example.com")
     member = await register_and_activate(client, "skill-perm-member@example.com")
-    team = (
-        await client.post("/api/teams", json={"name": "权限团队"}, headers=_headers(owner))
-    ).json()["data"]
+    team = await _create_team(owner, "权限团队")
     inv = await client.post(
         f"/api/teams/{team['id']}/invitations",
         json={"email": "skill-perm-member@example.com"},
         headers=_headers(owner),
     )
-    from sqlalchemy import select
-
-    from app.database import AsyncSessionLocal
-    from app.models.team import TeamInvitation
-
     async with AsyncSessionLocal() as db:
         token_value = (
             await db.execute(

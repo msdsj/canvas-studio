@@ -12,6 +12,7 @@ import { teamsApi } from '@/lib/api/teams'
 import { errorMessage } from '@/lib/errors'
 import { useTeamStore } from '@/stores/team'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/hooks/use-auth'
 
 export const Route = createFileRoute('/team')({
   component: TeamLayout,
@@ -32,6 +33,7 @@ const TABS = [
  */
 function TeamLayout() {
   const { t } = useTranslation('team')
+  const { isAdmin } = useAuth()
   const navigate = useNavigate()
   const toast = useToast()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
@@ -122,13 +124,15 @@ function TeamLayout() {
                   />
                 </label>
               )}
-              <Button size="sm" className="shadow-xs" onClick={() => setCreating((value) => !value)}>
-                <Plus size={14} /> {t('list.create')}
-              </Button>
+              {isAdmin && (
+                <Button size="sm" className="shadow-xs" onClick={() => setCreating((value) => !value)}>
+                  <Plus size={14} /> {t('list.create')}
+                </Button>
+              )}
             </div>
           </header>
 
-          {creating && (
+          {creating && isAdmin && (
             <div className="flex flex-wrap items-end gap-2 border-b border-border/70 bg-surface px-4 py-3 sm:px-6">
               <label className="flex min-w-[220px] flex-1 flex-col gap-1">
                 <span className="text-[11px] font-medium text-text-tertiary">{t('list.name_label')}</span>
@@ -157,7 +161,7 @@ function TeamLayout() {
               icon={Users}
               title={t('list.empty')}
               description={t('list.empty_hint')}
-              action={{ label: t('list.create'), onClick: () => setCreating(true) }}
+              action={isAdmin ? { label: t('list.create'), onClick: () => setCreating(true) } : undefined}
             />
           ) : (
             <>

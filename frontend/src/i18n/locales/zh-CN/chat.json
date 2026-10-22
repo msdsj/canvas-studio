@@ -185,6 +185,6 @@
     "active_tasks": "{{count}} 张生成中",
     "relay_connected": "中转站已连接：{{name}}",
     "relay_configure": "配置 AI 中转站",
-    "relay_team_missing": "「{{team}}」还没有配置模型，请联系团队超级管理员。"
+    "relay_team_missing": "「{{team}}」的对话模型由平台统一配置，请联系平台超级管理员。"
   }
 }

@@ -128,7 +128,7 @@
     "started_direction": "好，按「{{label}}」方向开始画",
     "started_hint": "大约 30–60 秒，结果会直接出现在对话里",
     "done": "画好了 {{count}} 张",
-    "done_hint": "悬停图片可以放到画布、下载或继续引用",
+    "done_hint": "结果已放到画布，可在对话结果卡继续操作",
     "need_direction": "先帮我定个方向",
     "need_direction_hint": "选好我再开始画，不会提前扣额度",
     "deduped": "这句刚刚已经在画了",
