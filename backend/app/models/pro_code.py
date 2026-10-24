@@ -29,6 +29,9 @@ class ProCode(Base):
     status: Mapped[str] = mapped_column(String(16), index=True, default="active")
     note: Mapped[str] = mapped_column(String(128), default="")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 兑换后授予的 Pro 时长（小时）：0 = 永久。
+    # 与 `expires_at`（码本身的失效时间）是两件事，别混用。
+    duration_hours: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("users.id"), nullable=True
     )

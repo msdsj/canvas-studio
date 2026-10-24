@@ -201,7 +201,26 @@
     "empty": "No Pro codes",
     "created": "Generated {{count}} code(s)",
     "hint": "A Pro code upgrades a regular user to Pro, unlocking canvas, cutout, AI chat, prompt polish and image-to-image.",
-    "hint_actions": "Row icons: copy, enable/disable, delete. Disabled codes can no longer be redeemed."
+    "hint_actions": "Row icons: copy, enable/disable, delete. Disabled codes can no longer be redeemed.",
+    "duration": "Plan length",
+    "col_duration": "Granted length",
+    "duration_permanent": "Lifetime",
+    "duration_hour": "1 hour",
+    "duration_day": "1 day (24h)",
+    "duration_week": "1 week (7d)",
+    "duration_month": "1 month (30d)",
+    "duration_hours_value": "{{hours}} hours"
+  },
+  "pro_grant": {
+    "action": "Grant Pro",
+    "title": "Grant Pro plan",
+    "target": "User",
+    "duration": "Plan length",
+    "current": "Current plan",
+    "hint": "When it expires the account drops back to Free automatically, and Pro features (canvas, cutout, AI chat) are revoked.",
+    "success": "Pro granted to {{email}}",
+    "permanent": "Lifetime Pro",
+    "expires": "Valid until {{time}}"
   },
   "announcements": {
     "create": "New announcement",

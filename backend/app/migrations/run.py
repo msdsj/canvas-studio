@@ -60,6 +60,10 @@ async def _apply_column_patches() -> None:
     await _ensure_column("users", "persona_key", "persona_key VARCHAR(32) DEFAULT ''")
     await _ensure_column("users", "onboarding_completed_at", "onboarding_completed_at DATETIME")
     await _ensure_column("users", "active_team_id", "active_team_id VARCHAR(36)")
+    # Pro 套餐到期时间：NULL = 永久。定时任务按它自动降级并回收功能权限。
+    await _ensure_column("users", "pro_expires_at", "pro_expires_at DATETIME")
+    # 激活码兑换后授予的 Pro 时长（小时），0 = 永久
+    await _ensure_column("pro_codes", "duration_hours", "duration_hours INTEGER DEFAULT 0")
 
     await _ensure_column("canvas_projects", "team_id", "team_id VARCHAR(36)")
     await _ensure_column("canvas_projects", "visibility", "visibility VARCHAR(16) DEFAULT 'private'")

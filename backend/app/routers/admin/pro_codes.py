@@ -49,13 +49,19 @@ async def create_pro_codes(
         expires_at=payload.expires_at,
         note=payload.note,
         created_by=admin.id,
+        duration_hours=payload.duration_hours,
     )
     await audit_service.log(
         db,
         action="pro_code_create",
         actor=admin,
         target_type="pro_code",
-        detail={"count": len(rows), "max_uses": payload.max_uses, "note": payload.note},
+        detail={
+            "count": len(rows),
+            "max_uses": payload.max_uses,
+            "note": payload.note,
+            "duration_hours": payload.duration_hours,
+        },
     )
     await db.commit()
     for row in rows:

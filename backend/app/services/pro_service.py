@@ -1,7 +1,8 @@
-"""Pro 激活码服务：生成 / 列表 / 启停 / 兑换。"""
+"""Pro 激活码服务：生成 / 列表 / 启停 / 兑换 / 到期降级。"""
 from __future__ import annotations
 
 import secrets
+from datetime import timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,9 @@ from app.models.pro_code import ProCode
 from app.models.user import User
 from app.utils.errors import AppError, ErrorCode
 from app.utils.ids import utcnow
+from app.utils.logging import get_logger
+
+logger = get_logger("app.pro")
 
 # 去掉 0/O/1/I 等易混字符，避免用户手抄时输错
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -36,8 +40,9 @@ async def create_codes(
     expires_at,
     note: str,
     created_by: str | None,
+    duration_hours: int = 0,
 ) -> list[ProCode]:
-    """批量创建激活码。"""
+    """批量创建激活码。`duration_hours` = 兑换后授予的 Pro 时长（0 = 永久）。"""
     created: list[ProCode] = []
     for _ in range(count):
         for _attempt in range(5):
@@ -51,6 +56,7 @@ async def create_codes(
                     status="active",
                     note=note,
                     expires_at=expires_at,
+                    duration_hours=duration_hours,
                     created_by=created_by,
                 )
                 db.add(row)
@@ -117,8 +123,13 @@ async def redeem(db: AsyncSession, user: User, raw: str) -> dict:
     if not code:
         raise AppError(ErrorCode.VALIDATION_ERROR, "请输入激活码")
 
-    if user.role in UNLOCKED_ROLES:
+    # 管理员永久全功能；永久 Pro 也无需再兑换。
+    # 限时 Pro 允许继续兑换（在现有到期时间上叠加），否则续费会被当成「已是 Pro」吞掉。
+    if user.role == "admin" or (user.role == "pro" and user.pro_expires_at is None):
         return {"role": user.role, "already_pro": True}
+    if user.role == "pro" and user.pro_expires_at and user.pro_expires_at < utcnow():
+        # 已过期但调度器还没跑到：先降级，再按普通用户走兑换
+        user.role = "user"
 
     row = (
         await db.execute(select(ProCode).where(ProCode.code == code))
@@ -135,6 +146,68 @@ async def redeem(db: AsyncSession, user: User, raw: str) -> dict:
     row.used_count += 1
     if row.used_count >= row.max_uses:
         row.status = "disabled"
-    user.role = "pro"
+    _grant(db, user, row.duration_hours)
     await db.flush()
-    return {"role": "pro", "already_pro": False}
+    return {
+        "role": "pro",
+        "already_pro": False,
+        "pro_expires_at": user.pro_expires_at,
+        "duration_hours": row.duration_hours,
+    }
+
+
+def _grant(db: AsyncSession, user: User, duration_hours: int) -> None:
+    """给用户开 Pro：按时长顺延，0 表示永久。
+
+    已是 pro 且尚未到期时在**现有到期时间**上叠加，避免用户续费反而变短；
+    已过期或首次开通则从当前时间起算。
+    """
+    now = utcnow()
+    user.role = "pro"
+    if duration_hours <= 0:
+        user.pro_expires_at = None
+        return
+    base = user.pro_expires_at if user.pro_expires_at and user.pro_expires_at > now else now
+    user.pro_expires_at = base + timedelta(hours=int(duration_hours))
+
+
+async def grant(
+    db: AsyncSession, user: User, duration_hours: int, *, actor_email: str = ""
+) -> dict:
+    """超管直接给某个用户开通 Pro（不走激活码）。"""
+    if user.role == "admin":
+        raise AppError(ErrorCode.VALIDATION_ERROR, "管理员本身就是全功能，无需开通 Pro")
+    _grant(db, user, duration_hours)
+    await db.flush()
+    logger.info(
+        "Pro 已开通：user=%s duration=%sh by=%s", user.id, duration_hours, actor_email or "-"
+    )
+    return {
+        "role": user.role,
+        "pro_expires_at": user.pro_expires_at,
+        "duration_hours": duration_hours,
+    }
+
+
+async def downgrade_expired(db: AsyncSession) -> int:
+    """把所有已过期的 Pro 降回 Free（role=user）。
+
+    角色是功能权限的唯一开关（画布 / 抠图 / AI 对话 / 润色 / 图生图都走
+    `UNLOCKED_ROLES`），所以改回 user 等于同时回收页面与功能权限。
+    """
+    now = utcnow()
+    rows = (
+        await db.execute(
+            select(User).where(
+                User.role == "pro",
+                User.pro_expires_at.is_not(None),
+                User.pro_expires_at < now,
+            )
+        )
+    ).scalars().all()
+    for user in rows:
+        user.role = "user"
+    if rows:
+        await db.commit()
+        logger.info("Pro 到期降级：%s 个账号已恢复 Free", len(rows))
+    return len(rows)

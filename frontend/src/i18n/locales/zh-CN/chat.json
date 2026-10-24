@@ -184,9 +184,10 @@
   },
   "header": {
     "active_tasks": "{{count}} 张生成中",
-    "relay_connected": "中转站已连接：{{name}}",
-    "relay_configure": "配置 AI 中转站",
-    "relay_team_missing": "「{{team}}」还没有配置模型，请联系团队超级管理员。"
+    "relay_connected": "AI 服务已连接：{{name}}",
+    "relay_configure": "配置 AI 服务",
+    "relay_team_missing": "AI 服务由平台统一配置，请联系平台管理员。",
+    "service_unavailable": "AI 服务暂时不可用，请稍后重试。"
   },
   "tasks": {
     "title": "生成记录",

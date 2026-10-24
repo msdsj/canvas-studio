@@ -21,7 +21,8 @@ import { CreateUserDialog } from '@/components/admin/CreateUserDialog'
 import { adminApi } from '@/lib/api/admin'
 import { useToast } from '@/hooks/use-toast'
 import { errorMessage } from '@/lib/errors'
-import { ConfirmModal } from '@/components/ui/modal'
+import { ConfirmModal, Modal } from '@/components/ui/modal'
+import { FormField } from '@/components/ui/form-field'
 import type { AdminUser } from '@/types/models'
 
 export const Route = createFileRoute('/admin/users')({
@@ -43,6 +44,8 @@ function AdminUsersPage() {
   const [loading, setLoading] = useState(true)
   const [quotaTarget, setQuotaTarget] = useState<AdminUser | null>(null)
   const [banTarget, setBanTarget] = useState<AdminUser | null>(null)
+  const [proTarget, setProTarget] = useState<AdminUser | null>(null)
+  const [proDuration, setProDuration] = useState('720')
   const [createOpen, setCreateOpen] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
 
@@ -171,6 +174,7 @@ function AdminUsersPage() {
             setSelected((prev) => (prev.length === users.length ? [] : users.map((user) => user.id)))
           }
           onAssignQuota={setQuotaTarget}
+          onGrantPro={setProTarget}
           onBan={setBanTarget}
           onUnban={(user) =>
             adminApi.unbanUser(user.id).then(() => void load()).catch((e) => toast.error(errorMessage(e, te)))
@@ -223,6 +227,57 @@ function AdminUsersPage() {
           }
         }}
       />
+
+      {/* 超管直接开通 Pro：按时长卖卡，到期由后端自动降级 */}
+      <Modal
+        open={Boolean(proTarget)}
+        onOpenChange={(open) => !open && setProTarget(null)}
+        title={t('pro_grant.title')}
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setProTarget(null)}>
+              {t('common:cancel', { defaultValue: '取消' })}
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!proTarget) return
+                try {
+                  await adminApi.grantPro(proTarget.id, Number(proDuration))
+                  toast.success(t('pro_grant.success', { email: proTarget.email }))
+                  setProTarget(null)
+                  void load()
+                } catch (error) {
+                  toast.error(errorMessage(error, te))
+                }
+              }}
+            >
+              {t('common:action.confirm', { defaultValue: '确定' })}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-caption text-text-secondary">
+            {t('pro_grant.target')}：{proTarget?.email}
+          </p>
+          <FormField label={t('pro_grant.duration')}>
+            <Select value={proDuration} onValueChange={setProDuration}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">{t('pro_codes.duration_hour')}</SelectItem>
+                <SelectItem value="24">{t('pro_codes.duration_day')}</SelectItem>
+                <SelectItem value="168">{t('pro_codes.duration_week')}</SelectItem>
+                <SelectItem value="720">{t('pro_codes.duration_month')}</SelectItem>
+                <SelectItem value="0">{t('pro_codes.duration_permanent')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+          <p className="text-caption leading-relaxed text-text-tertiary">{t('pro_grant.hint')}</p>
+        </div>
+      </Modal>
 
       <ConfirmModal
         open={Boolean(banTarget)}

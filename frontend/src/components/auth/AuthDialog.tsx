@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { ArrowRight, Check, Loader2, Sparkles, X } from 'lucide-react'
+import { ArrowRight, Check, Eye, EyeOff, Loader2, Sparkles, X } from 'lucide-react'
 import gsap from 'gsap'
 import { Input } from '@/components/ui/input'
 import { FormField } from '@/components/ui/form-field'
@@ -40,6 +40,9 @@ export function AuthDialog() {
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  /** 密码可见开关：手输长密码时最常见的需求，默认仍然隐藏 */
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
 
   const panelRef = useRef<HTMLDivElement>(null)
   const formRef = useRef<HTMLDivElement>(null)
@@ -223,34 +226,58 @@ export function AuthDialog() {
 
                     <div data-auth-field>
                       <FormField label={t('login.password')} required htmlFor="auth-password">
-                        <Input
-                          id="auth-password"
-                          type="password"
-                          value={password}
-                          autoComplete={isRegister ? 'new-password' : 'current-password'}
-                          placeholder={isRegister ? '至少 8 位' : '••••••••'}
-                          onChange={(e) => setPassword(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') void submit()
-                          }}
-                        />
+                        <div className="relative">
+                          <Input
+                            id="auth-password"
+                            type={showPassword ? 'text' : 'password'}
+                            value={password}
+                            autoComplete={isRegister ? 'new-password' : 'current-password'}
+                            placeholder={isRegister ? '至少 8 位' : '••••••••'}
+                            className="pr-10"
+                            onChange={(e) => setPassword(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void submit()
+                            }}
+                          />
+                          <button
+                            type="button"
+                            aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                            title={showPassword ? '隐藏密码' : '显示密码'}
+                            onClick={() => setShowPassword((value) => !value)}
+                            className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text"
+                          >
+                            {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                          </button>
+                        </div>
                       </FormField>
                     </div>
 
                     {isRegister && (
                       <div data-auth-field>
                         <FormField label={t('login.confirm_password')} required htmlFor="auth-confirm">
-                          <Input
-                            id="auth-confirm"
-                            type="password"
-                            value={confirm}
-                            autoComplete="new-password"
-                            placeholder="再输入一次密码"
-                            onChange={(e) => setConfirm(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') void submit()
-                            }}
-                          />
+                          <div className="relative">
+                            <Input
+                              id="auth-confirm"
+                              type={showConfirm ? 'text' : 'password'}
+                              value={confirm}
+                              autoComplete="new-password"
+                              placeholder="再输入一次密码"
+                              className="pr-10"
+                              onChange={(e) => setConfirm(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') void submit()
+                              }}
+                            />
+                            <button
+                              type="button"
+                              aria-label={showConfirm ? '隐藏密码' : '显示密码'}
+                              title={showConfirm ? '隐藏密码' : '显示密码'}
+                              onClick={() => setShowConfirm((value) => !value)}
+                              className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text"
+                            >
+                              {showConfirm ? <EyeOff size={15} /> : <Eye size={15} />}
+                            </button>
+                          </div>
                         </FormField>
                       </div>
                     )}

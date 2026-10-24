@@ -32,18 +32,18 @@
   "subtitle": "资料、模型与账号安全都在这里。",
   "nav": {
     "profile": "账户资料",
-    "relay": "AI 中转站",
+    "relay": "AI 服务",
     "security": "安全",
     "danger": "危险操作"
   },
   "relay": {
-    "title": "AI 中转站",
+    "title": "AI 服务",
     "desc": "对话与出图走哪条模型线路由你决定；配置后立即生效。",
     "status": "状态",
     "ready": "已连接",
     "not_ready": "未配置",
     "model": "模型",
     "source": "来源",
-    "manage": "管理中转站"
+    "manage": "配置 AI 服务"
   }
 }

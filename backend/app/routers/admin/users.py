@@ -10,10 +10,10 @@ from app.deps import require_admin
 from app.models.email_token import EmailToken
 from app.models.quota import QuotaTransaction
 from app.models.user import User
-from app.schemas.admin import AdminUserCreateRequest, AdminUserOut, BanRequest
+from app.schemas.admin import AdminUserCreateRequest, AdminUserOut, BanRequest, ProGrantRequest
 from app.schemas.quota import AdminQuotaAdjustRequest, QuotaTransactionOut
 from app.security import generate_token, hash_password
-from app.services import audit_service, email_service, quota_service, team_service
+from app.services import audit_service, email_service, pro_service, quota_service, team_service
 from app.utils.errors import AppError, ErrorCode, envelope
 from app.utils.ids import new_id, utcnow
 from app.utils.pagination import normalize_page, paginated
@@ -205,6 +205,38 @@ async def unban_user(
     await db.commit()
     await db.refresh(user)
     return envelope(AdminUserOut.model_validate(user).model_dump())
+
+
+@router.post("/{user_id}/pro")
+async def grant_pro(
+    user_id: str,
+    payload: ProGrantRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict:
+    """超管直接给用户开通 Pro（小时卡 / 天卡 / 周卡 / 月卡 / 永久）。
+
+    到期后由调度器把 role 降回 user，Pro 页面与功能权限随之回收。
+    """
+    user = await _get_user(db, user_id)
+    result = await pro_service.grant(db, user, payload.duration_hours, actor_email=admin.email)
+    await audit_service.log(
+        db,
+        action="user_grant_pro",
+        actor=admin,
+        target_type="user",
+        target_id=user.id,
+        detail={"duration_hours": payload.duration_hours},
+    )
+    await db.commit()
+    await db.refresh(user)
+    return envelope(
+        {
+            "user": AdminUserOut.model_validate(user).model_dump(),
+            "pro_expires_at": result["pro_expires_at"],
+            "duration_hours": result["duration_hours"],
+        }
+    )
 
 
 @router.post("/{user_id}/reset-password")

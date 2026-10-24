@@ -54,6 +54,12 @@ export const adminApi = {
   resetUserPassword: (id: string) =>
     api.post<{ temp_password: string }>(`/admin/users/${id}/reset-password`),
   resendVerification: (id: string) => api.post<unknown>(`/admin/users/${id}/resend-verification`),
+  /** 超管直接开通 Pro：duration_hours=0 表示永久，1/24/168/720 对应小时/天/周/月卡 */
+  grantPro: (id: string, durationHours: number) =>
+    api.post<{ user: AdminUser; pro_expires_at: string | null; duration_hours: number }>(
+      `/admin/users/${id}/pro`,
+      { duration_hours: durationHours },
+    ),
 
   // 号池
   poolStats: () => api.get<PoolStats>('/admin/pool/stats'),
@@ -112,8 +118,13 @@ export const adminApi = {
     if (query.status) params.set('status', query.status)
     return api.get<PageData<ProCode>>(`/admin/pro-codes?${params.toString()}`)
   },
-  createProCodes: (payload: { count: number; max_uses: number; note?: string; expires_at?: string | null }) =>
-    api.post<{ items: ProCode[] }>('/admin/pro-codes', payload),
+  createProCodes: (payload: {
+    count: number
+    max_uses: number
+    note?: string
+    expires_at?: string | null
+    duration_hours?: number
+  }) => api.post<{ items: ProCode[] }>('/admin/pro-codes', payload),
   updateProCode: (id: string, status: 'active' | 'disabled') =>
     api.patch<ProCode>(`/admin/pro-codes/${id}`, { status }),
   deleteProCode: (id: string) => api.del<unknown>(`/admin/pro-codes/${id}`),

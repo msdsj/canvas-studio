@@ -60,6 +60,7 @@ class AdminUserOut(ORMModel):
     balance: int
     created_at: datetime | None = None
     last_login_at: datetime | None = None
+    pro_expires_at: datetime | None = None
 
 
 class BanRequest(BaseModel):
@@ -223,6 +224,14 @@ class ProCodeCreateRequest(BaseModel):
     max_uses: int = Field(default=1, ge=1, le=1000)
     note: str = Field(default="", max_length=128)
     expires_at: datetime | None = None
+    # 兑换后授予的 Pro 时长（小时）：1 小时卡 / 24 天卡 / 168 周卡 / 720 月卡 / 0 永久
+    duration_hours: int = Field(default=0, ge=0, le=87600)
+
+
+class ProGrantRequest(BaseModel):
+    """超管直接给用户开通 Pro（按时长）。"""
+
+    duration_hours: int = Field(default=0, ge=0, le=87600)
 
 
 class ProCodeUpdateRequest(BaseModel):
@@ -241,6 +250,7 @@ class ProCodeOut(ORMModel):
     status: str
     note: str = ""
     expires_at: datetime | None = None
+    duration_hours: int = 0
     created_at: datetime | None = None
 
 

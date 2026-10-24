@@ -62,12 +62,19 @@ function SettingsPage() {
     setDisplayName(user?.display_name ?? '')
   }, [user?.display_name])
 
+  /*
+   * AI 服务由平台超管统一配置，配置后所有用户共用一套；
+   * 普通用户与团队管理员都不需要（也不应该）看到这个入口。
+   */
+  const isSuperAdmin = user?.role === 'admin'
+
   useEffect(() => {
+    if (!isSuperAdmin) return
     void aiApi
       .status()
       .then(setRelay)
       .catch(() => setRelay(null))
-  }, [])
+  }, [isSuperAdmin])
 
   const saveProfile = async () => {
     setSavingProfile(true)
@@ -113,7 +120,8 @@ function SettingsPage() {
 
   const sections = [
     { id: 'profile', label: t('nav.profile'), icon: User },
-    { id: 'relay', label: t('nav.relay'), icon: Cpu },
+    // 「AI 中转站」只对平台超管开放：配置是全站共用的，普通用户改了会直接影响所有人
+    ...(isSuperAdmin ? [{ id: 'relay', label: t('nav.relay'), icon: Cpu }] : []),
     { id: 'security', label: t('nav.security'), icon: ShieldCheck },
     { id: 'danger', label: t('nav.danger'), icon: LogOut },
   ]
@@ -188,27 +196,29 @@ function SettingsPage() {
                 </div>
               </Card>
 
-              {/* ---------- AI 中转站 ---------- */}
-              <Card id="relay" className="flex scroll-mt-24 flex-col gap-3">
-                <div>
-                  <h2 className="text-md font-semibold text-text">{t('relay.title')}</h2>
-                  <p className="mt-1 text-caption text-text-tertiary">{t('relay.desc')}</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-[12px] bg-bg-subtle px-4 py-3">
-                  <RelayFact
-                    label={t('relay.status')}
-                    value={relay?.configured ? t('relay.ready') : t('relay.not_ready')}
-                    ok={relay?.configured}
-                  />
-                  <RelayFact label={t('relay.model')} value={relay?.model || '—'} />
-                  <RelayFact label={t('relay.source')} value={relay?.provider_name || '—'} />
-                </div>
-                <div className="flex justify-end">
-                  <Button variant="secondary" onClick={() => setRelayOpen(true)}>
-                    {t('relay.manage')}
-                  </Button>
-                </div>
-              </Card>
+              {/* ---------- AI 中转站（仅平台超管） ---------- */}
+              {isSuperAdmin && (
+                <Card id="relay" className="flex scroll-mt-24 flex-col gap-3">
+                  <div>
+                    <h2 className="text-md font-semibold text-text">{t('relay.title')}</h2>
+                    <p className="mt-1 text-caption text-text-tertiary">{t('relay.desc')}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-[12px] bg-bg-subtle px-4 py-3">
+                    <RelayFact
+                      label={t('relay.status')}
+                      value={relay?.configured ? t('relay.ready') : t('relay.not_ready')}
+                      ok={relay?.configured}
+                    />
+                    <RelayFact label={t('relay.model')} value={relay?.model || '—'} />
+                    <RelayFact label={t('relay.source')} value={relay?.provider_name || '—'} />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button variant="secondary" onClick={() => setRelayOpen(true)}>
+                      {t('relay.manage')}
+                    </Button>
+                  </div>
+                </Card>
+              )}
 
               {/* ---------- 安全 ---------- */}
               <Card id="security" className="flex scroll-mt-24 flex-col gap-4">

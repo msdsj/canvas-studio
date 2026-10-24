@@ -19,6 +19,8 @@ export interface User {
   persona_key?: string
   onboarding_completed_at?: string | null
   active_team_id?: string | null
+  /** Pro 套餐到期时间：null/缺省 = 永久；到期后 role 会被后端降回 user */
+  pro_expires_at?: string | null
 }
 
 export interface CanvasProject {
@@ -217,6 +219,8 @@ export interface ProCode {
   status: 'active' | 'disabled'
   note?: string
   expires_at?: string | null
+  /** 兑换后授予的 Pro 时长（小时）：0 = 永久 */
+  duration_hours?: number
   created_at?: string | null
 }
 

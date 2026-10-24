@@ -26,6 +26,8 @@ class UserOut(ORMModel):
     persona_key: str = ""
     onboarding_completed_at: datetime | None = None
     active_team_id: str | None = None
+    # Pro 套餐到期时间（NULL = 永久）；到期后 role 会被调度器降回 user
+    pro_expires_at: datetime | None = None
 
 
 class UserUpdateRequest(BaseModel):

@@ -64,10 +64,13 @@ export function HomeComposer({ sending, onSubmit, handleRef }: HomeComposerProps
   const placeholders = asList(t('composer.placeholders', { returnObjects: true }))
   const suggestions = asList(t('suggestions.items', { returnObjects: true }))
   const canSend = value.trim().length > 0 && !sending
+  /** 同步锁：`sending` 是父组件 state，同一帧连点时仍是旧值，只用它挡不住重复提交 */
+  const submitLockRef = useRef(false)
 
   const submit = () => {
     const text = value.trim()
-    if (!text || sending) return
+    if (!text || sending || submitLockRef.current) return
+    submitLockRef.current = true
     pressFeedback(sendRef.current)
     const rect = sendRef.current?.getBoundingClientRect()
     const origin = rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null

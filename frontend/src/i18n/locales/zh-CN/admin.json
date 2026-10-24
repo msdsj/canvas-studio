@@ -201,7 +201,26 @@
     "empty": "暂无激活码",
     "created": "已生成 {{count}} 个激活码",
     "hint": "激活码可让普通用户升级为 Pro，解锁画布、抠图、AI 对话、提示词润色与图生图。",
-    "hint_actions": "行内图标：复制激活码、启用/禁用、删除。禁用后用户无法再兑换。"
+    "hint_actions": "行内图标：复制激活码、启用/禁用、删除。禁用后用户无法再兑换。",
+    "duration": "套餐时长",
+    "col_duration": "兑换后时长",
+    "duration_permanent": "永久",
+    "duration_hour": "小时卡（1 小时）",
+    "duration_day": "天卡（24 小时）",
+    "duration_week": "周卡（7 天）",
+    "duration_month": "月卡（30 天）",
+    "duration_hours_value": "{{hours}} 小时"
+  },
+  "pro_grant": {
+    "action": "开通 Pro",
+    "title": "开通 Pro 套餐",
+    "target": "目标用户",
+    "duration": "套餐时长",
+    "current": "当前套餐",
+    "hint": "到期后账号会自动降为 Free，画布、抠图、AI 对话等 Pro 功能同步回收。",
+    "success": "已为 {{email}} 开通 Pro",
+    "permanent": "永久 Pro",
+    "expires": "有效期至 {{time}}"
   },
   "announcements": {
     "create": "新建公告",
@@ -240,6 +259,7 @@
       "user_unban": "解封用户",
       "quota_adjust": "调整用户额度",
       "user_create": "创建用户",
+      "user_grant_pro": "开通 Pro 套餐",
       "announcement_create": "发布公告",
       "announcement_update": "更新公告",
       "announcement_delete": "删除公告",

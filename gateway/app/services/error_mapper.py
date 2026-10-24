@@ -17,14 +17,18 @@ _POOL_HINTS = (
 
 
 def classify_exception(exc: Exception) -> GatewayError:
-    """按异常类型归一错误。"""
+    """按异常类型归一错误。
+
+    文案一律面向终端用户，不出现「上游 / 号池 / 网关 / 代理」等内部词：
+    这些词既解释不清，也会把服务结构暴露出去。
+    """
     if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
         return GatewayError(ErrorCode.PROXY_UNREACHABLE)
     if isinstance(exc, httpx.TimeoutException):
-        return GatewayError(ErrorCode.UPSTREAM_ERROR, "上游请求超时")
+        return GatewayError(ErrorCode.UPSTREAM_ERROR, "服务器响应超时，请稍后重试")
     if isinstance(exc, GatewayError):
         return exc
-    return GatewayError(ErrorCode.UPSTREAM_ERROR, str(exc))
+    return GatewayError(ErrorCode.UPSTREAM_ERROR, "服务器开小差了，请稍后重试")
 
 
 def classify_status(status: int, body_text: str = "") -> GatewayError:
@@ -41,32 +45,32 @@ def classify_status(status: int, body_text: str = "") -> GatewayError:
         # 由 `resilience` 用更长的退避等待，避免用户刚点一次就直接失败。
         return GatewayError(
             ErrorCode.POOL_UNAVAILABLE,
-            "上游号池繁忙：已自动轮换账号重试，暂未拿到可用额度，请稍后再试",
+            "当前请求有点多，已自动重试，请稍后再试",
             retryable=True,
             switch_model=False,
         )
     if status in (401, 403):
         return GatewayError(
             ErrorCode.UPSTREAM_ERROR,
-            "上游鉴权失败，请检查 Key 配置",
+            "服务认证失败，请联系管理员",
             retryable=False,
             switch_model=False,
         )
     if status == 404:
         return GatewayError(
-            ErrorCode.UPSTREAM_ERROR, "上游接口不存在", retryable=False, switch_model=False
+            ErrorCode.UPSTREAM_ERROR, "服务暂时不可用，请稍后重试", retryable=False, switch_model=False
         )
     if status == 429:
         # 限流往往是「这个 Key / 这个模型」的额度问题，换一个模型可能就有额度
         return GatewayError(
-            ErrorCode.UPSTREAM_ERROR, "上游限流，请稍后重试", retryable=True, switch_model=True
+            ErrorCode.UPSTREAM_ERROR, "请求过于频繁，请稍后重试", retryable=True, switch_model=True
         )
     if status >= 500:
         return GatewayError(
-            ErrorCode.UPSTREAM_ERROR, f"上游返回 {status}", retryable=True, switch_model=True
+            ErrorCode.UPSTREAM_ERROR, "服务器繁忙，请稍后重试", retryable=True, switch_model=True
         )
     return GatewayError(
-        ErrorCode.UPSTREAM_ERROR, f"上游返回 {status}", retryable=False, switch_model=False
+        ErrorCode.UPSTREAM_ERROR, "请求未能完成，请稍后重试", retryable=False, switch_model=False
     )
 
 

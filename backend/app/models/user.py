@@ -39,5 +39,8 @@ class User(Base):
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     banned_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Pro 套餐到期时间：NULL 表示永久（老数据 / 管理员直开）。
+    # 定时任务扫描到期行把 role 降回 user，前端据此重新锁住 Pro 页面与功能。
+    pro_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

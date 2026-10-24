@@ -35,16 +35,20 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   }, [initialized, isAuthenticated, navigate, openAuth])
 
   /*
-   * 首登引导：还没选过使用场景的用户，先带他去选一次。
+   * 首登引导：既没选过场景、也没完成过引导的用户，先带他去选一次。
    *
-   * 用 `persona_key` 而不是 `onboarding_completed_at` 做判据——引导页有「跳过」，
-   * 跳过时两者都会被写上；但历史用户只有 persona_key 为空这个信号，
-   * 拿完成时间判断会把老用户全部漏掉。
+   * 只卡 `persona_key` 会让「跳过」变成死循环：跳过时不会写 persona_key，
+   * 用户点「进入工作台」又被弹回引导页，看起来就是按钮完全没反应。
+   * 两个字段任一有值都算「引导已处理」，历史用户（只有完成时间）也不会被漏掉。
    *
    * `/onboarding` 自身也包在 ProtectedRoute 里，必须排除，否则无限重定向。
    */
   const needsOnboarding =
-    initialized && isAuthenticated && !user?.persona_key && pathname !== '/onboarding'
+    initialized &&
+    isAuthenticated &&
+    !user?.persona_key &&
+    !user?.onboarding_completed_at &&
+    pathname !== '/onboarding'
 
   useEffect(() => {
     if (needsOnboarding) void navigate({ to: '/onboarding', replace: true })

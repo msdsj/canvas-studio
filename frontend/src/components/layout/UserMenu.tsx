@@ -30,6 +30,7 @@ import { useAuth } from '@/hooks/use-auth'
 import { useLanguage } from '@/hooks/use-language'
 import { useTheme } from '@/hooks/use-theme'
 import { useQuotaStore } from '@/stores/quota'
+import { cn } from '@/lib/utils'
 import type { ThemeMode } from '@/stores/theme'
 
 /**
@@ -58,6 +59,10 @@ export function UserMenu({
   const { language, setLanguage, options } = useLanguage()
   const { mode, setMode } = useTheme()
 
+  /* 当前套餐：Pro（含超管）或 Free。授权到期后后端会把 role 降回 user，这里自动跟着变 */
+  const isPro = user?.role === 'pro' || user?.role === 'admin'
+  const planLabel = isPro ? 'Pro' : 'Free'
+
   const handleLogout = async () => {
     await logout()
     useQuotaStore.getState().reset()
@@ -75,15 +80,41 @@ export function UserMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         {trigger ?? (
-          <button type="button" aria-label="user menu" className="rounded-full focus-visible:outline-none">
+          <button
+            type="button"
+            aria-label={`user menu · ${planLabel}`}
+            className="flex items-center gap-1.5 rounded-full focus-visible:outline-none"
+          >
             <Avatar name={user?.email} size={compact ? 26 : 32} />
+            <span
+              className={cn(
+                'rounded-full px-1.5 py-[1px] text-[10px] font-semibold leading-[14px] tracking-[0.02em]',
+                isPro
+                  ? 'bg-brand text-text-inverse'
+                  : 'bg-bg-subtle text-text-tertiary ring-1 ring-inset ring-border-faint',
+              )}
+            >
+              {planLabel}
+            </span>
           </button>
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
         <DropdownMenuLabel>
           <div className="flex flex-col">
-            <span className="truncate text-ui text-text">{user?.display_name || user?.email}</span>
+            <span className="flex items-center gap-1.5 text-ui text-text">
+              <span className="truncate">{user?.display_name || user?.email}</span>
+              <span
+                className={cn(
+                  'shrink-0 rounded-full px-1.5 py-[1px] text-[10px] font-semibold leading-[14px]',
+                  isPro
+                    ? 'bg-brand text-text-inverse'
+                    : 'bg-bg-subtle text-text-tertiary ring-1 ring-inset ring-border-faint',
+                )}
+              >
+                {planLabel}
+              </span>
+            </span>
             <span className="truncate text-caption text-text-tertiary">{user?.email}</span>
           </div>
         </DropdownMenuLabel>

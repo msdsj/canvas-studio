@@ -48,7 +48,7 @@ import { ApiError, apiUrl } from '@/lib/api/client'
 import { generateApi, type InferredParams } from '@/lib/api/generate'
 import { events } from '@/lib/events'
 import { errorMessage, errorTextByCode } from '@/lib/errors'
-import { cn, parseServerTime } from '@/lib/utils'
+import { parseServerTime } from '@/lib/utils'
 import { loadPlacedUrls, readNotifiedResults, writeNotifiedResults } from '@/lib/task-persistence'
 import { useUIStore } from '@/stores/ui'
 import { useComposerHandoff } from '@/stores/composer'
@@ -75,6 +75,7 @@ import { GenerationResultCard } from './GenerationResultCard'
 import { ConfirmCountCard, type ConfirmCardState } from './ConfirmCountCard'
 import { ClarifyCard, type ClarifyState } from './ClarifyCard'
 import { ParamPanel } from './ParamPanel'
+import { PolishPopover } from './PolishPopover'
 import { AIConfigDialog } from '@/components/ai/AIConfigDialog'
 import { SessionSelector } from './SessionSelector'
 
@@ -272,6 +273,8 @@ export function ChatPanel({
   const { t: ta } = useTranslation('agent')
   const toast = useToast()
   const authUser = useAuthStore((state) => state.user)
+  /** 平台超管：只有他能配置全站共用的 AI 服务 */
+  const isSuperAdmin = authUser?.role === 'admin'
   const setQuotaModalOpen = useUIStore((s) => s.setQuotaModalOpen)
   const handleQuotaError = useCallback((code?: string) => {
     if (code !== 'QUOTA_INSUFFICIENT') return
@@ -287,8 +290,6 @@ export function ChatPanel({
   /** 引用回复：把被引用的原话带进输入框 */
   const [quote, setQuote] = useState<{ id: string; author: string; text: string } | null>(null)
   const [input, setInput] = useState('')
-  /** 输入框旁的「原始 / AI 优化」开关：默认 AI 优化，不再用弹窗打断。 */
-  const [polishMode, setPolishMode] = useState<'ai' | 'raw'>('ai')
   /** 参数面板：自动识别结果 + 用户手动覆盖 */
   const [params, setParams] = useState<InferredParams | null>(null)
   const [paramLoading, setParamLoading] = useState(false)
@@ -1164,29 +1165,6 @@ export function ChatPanel({
     let settled = false
     let inputLoaded = false
 
-    /*
-     * 「AI 优化」模式：先把用户这句话润色一版，再交给生图链路。
-     * 传给后端的 `content` 仍是用户原话（消息气泡要显示他自己写的），
-     * 优化后的指令单独放在 `refined` 里，只影响出图。
-     * 润色失败就退回原话，绝不因为这一步把整个提交卡死。
-     */
-    let refinedText = ''
-    if (polishMode === 'ai' && content.trim().length >= 8) {
-      try {
-        const polished = await aiApi.polish({
-          text: content,
-          scene: 'composer',
-          mode: 'auto',
-          variants: 1,
-          strength: 'pro',
-        })
-        const candidate = polished.variants[0]?.text?.trim() ?? ''
-        if (candidate && candidate !== content.trim()) refinedText = candidate
-      } catch {
-        refinedText = ''
-      }
-    }
-
     composeCancelRef.current = chatApi.composeStream(
       {
         session_id: sessionId,
@@ -1199,7 +1177,7 @@ export function ChatPanel({
         selection: selectionPayload,
         size: params?.size,
         aspect: params?.aspect,
-        refined: refinedText || undefined,
+
         model: imageModel,
         generation_params: paramsSnapshot,
       },
@@ -1340,33 +1318,53 @@ export function ChatPanel({
     }
   }
 
+  /**
+   * 发送：用一个同步 ref 做防抖。
+   *
+   * 只用 `composing` 这种 React state 挡不住连点——同一帧内的第二次点击读到的
+   * 仍是旧值，网络慢时容易出现「一次输入发出去好几条对话」。ref 是同步的，
+   * 第一次进入就锁上，直到整次提交真正落地才释放。
+   *
+   * 输入框在锁定后立即清空（用户能马上看到「已发送」）；
+   * 如果提交被额度/并发拦下，再把原文还原，绝不吞内容。
+   */
+  const sendingRef = useRef(false)
+
   const send = async () => {
     const content = input.trim()
-    if (!content || !sessionId || submitting || composing) return
+    if (!content || !sessionId || sendingRef.current || submitting) return
 
-    const hadSelection = hasSelection
-    if (hadSelection) {
-      // 选区编辑不需要参考图，但也不该把用户刚粘的图静默丢掉
-      setInput('')
-      clearDraft()
-      await submitSelection(content)
-      return
-    }
-
-    // 引用回复：把被引用的原话作为 blockquote 带进这一轮上下文。
-    // 不做隐式拼接——用户能在气泡里看见自己引用了什么。
-    const composed = quote ? `> 引用：${quote.text}\n\n${content}` : content
-
-    // 只有请求真的发出去才清空输入：被额度/并发拦下时不能吞掉用户写的内容
-    // @ 引用图先落地成资产 id，再随原话一起提交（图生图链路靠它拿到底图）
-    const mentionIds = await resolveMentionIds(composerRefs)
-    const started = await submitCompose(composed, undefined, mentionIds)
-    if (!started) return
+    sendingRef.current = true
+    const snapshot = input
     setInput('')
-    setQuote(null)
-    clearDraft()
-    setRefs([])
-    clearComposerRefs()
+
+    try {
+      const hadSelection = hasSelection
+      if (hadSelection) {
+        // 选区编辑不需要参考图，但也不该把用户刚粘的图静默丢掉
+        clearDraft()
+        await submitSelection(content)
+        return
+      }
+
+      // 引用回复：把被引用的原话作为 blockquote 带进这一轮上下文。
+      // 不做隐式拼接——用户能在气泡里看见自己引用了什么。
+      const composed = quote ? `> 引用：${quote.text}\n\n${content}` : content
+
+      // @ 引用图先落地成资产 id，再随原话一起提交（图生图链路靠它拿到底图）
+      const mentionIds = await resolveMentionIds(composerRefs)
+      const started = await submitCompose(composed, undefined, mentionIds)
+      if (!started) {
+        setInput(snapshot)
+        return
+      }
+      setQuote(null)
+      clearDraft()
+      setRefs([])
+      clearComposerRefs()
+    } finally {
+      sendingRef.current = false
+    }
   }
 
   /** 引用一条消息：只带 80 字摘要，避免整段长回复把输入框撑爆。 */
@@ -1674,28 +1672,31 @@ export function ChatPanel({
           <Trash2 size={14} />
         </button>
 
-        <button
-          type="button"
-          onClick={() => setConfigOpen(true)}
-          title={
-            configured
-              ? t('header.relay_connected', {
-                  name: `${relay?.provider_name || ''} ${relay?.model || ''}`.trim(),
-                })
-              : t('header.relay_configure')
-          }
-          aria-label={t('header.relay_configure')}
-          className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text"
-        >
-          <Settings2 size={15} />
-          <span
-            className={
+        {/* 配置入口只给平台超管：全站共用一套 AI 服务，团队管理员也不该改 */}
+        {isSuperAdmin && (
+          <button
+            type="button"
+            onClick={() => setConfigOpen(true)}
+            title={
               configured
-                ? 'absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-success'
-                : 'absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-warning'
+                ? t('header.relay_connected', {
+                    name: `${relay?.provider_name || ''} ${relay?.model || ''}`.trim(),
+                  })
+                : t('header.relay_configure')
             }
-          />
-        </button>
+            aria-label={t('header.relay_configure')}
+            className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text"
+          >
+            <Settings2 size={15} />
+            <span
+              className={
+                configured
+                  ? 'absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-success'
+                  : 'absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-warning'
+              }
+            />
+          </button>
+        )}
       </div>
 
       {!online && (
@@ -1708,26 +1709,20 @@ export function ChatPanel({
         <div className="mx-2 mb-1 flex shrink-0 items-start gap-1.5 rounded-sm bg-warning-subtle px-2.5 py-1.5 text-micro text-warning">
           <Settings2 size={12} className="mt-[2px] shrink-0" />
           {/*
-           * 团队空间且由管理员统管时，点「去配置」只会打开一个只读弹窗——
-           * 那不如直接说清「找谁配」，并给出可操作的对象。
+           * 对外只说「服务不可用」：中转站/号池/账号这些是内部实现，
+           * 暴露给终端用户既解释不清，也会泄露上游结构。
+           * 只有平台超管能看到「去配置」入口。
            */}
-          {relay?.editable === false ? (
-            <span className="min-w-0 leading-relaxed">
-              {relay.team_name
-                ? t('header.relay_team_missing', {
-                    team: relay.team_name,
-                    defaultValue: `「${relay.team_name}」还没有配置模型，请联系团队超级管理员。`,
-                  })
-                : ta('ui.relay_missing')}
-            </span>
-          ) : (
+          {isSuperAdmin && relay?.editable !== false ? (
             <button
               type="button"
               onClick={() => setConfigOpen(true)}
               className="min-w-0 text-left transition-opacity hover:opacity-90"
             >
-              {ta('ui.relay_missing')}
+              {t('header.relay_configure')}
             </button>
+          ) : (
+            <span className="min-w-0 leading-relaxed">{t('header.service_unavailable')}</span>
           )}
         </div>
       )}
@@ -2149,27 +2144,13 @@ export function ChatPanel({
                 </>}
               </DropdownMenuContent>
             </DropdownMenu>
-            {/* 原始 / AI 润色：一键切换，不再用弹窗打断输入 */}
-            <button
-              type="button"
-              role="switch"
-              aria-checked={polishMode === 'ai'}
-              title={
-                polishMode === 'ai'
-                  ? '当前使用 AI 优化后的指令；点击改用你的原始描述'
-                  : '当前使用你的原始描述；点击改用 AI 优化后的指令'
-              }
-              onClick={() => setPolishMode((prev) => (prev === 'ai' ? 'raw' : 'ai'))}
-              className={cn(
-                'inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-1.5 text-micro transition-colors',
-                polishMode === 'ai'
-                  ? 'bg-brand-subtle text-brand-text'
-                  : 'text-text-tertiary hover:bg-bg-subtle hover:text-text-secondary'
-              )}
-            >
-              <Sparkles size={11} />
-              {polishMode === 'ai' ? 'AI 优化' : '原始'}
-            </button>
+            {/* 润色：只针对输入框里已经写好的文字做优化，结果回填到输入框，用户可再改 */}
+            <PolishPopover
+              text={input}
+              scene="composer"
+              onApply={(next) => updateInput(next)}
+              disabled={!input.trim() || composing}
+            />
           </div>
         }
         attachSlot={

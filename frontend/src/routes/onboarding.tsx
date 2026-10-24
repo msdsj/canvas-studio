@@ -103,8 +103,13 @@ function OnboardingPage() {
   const finish = useCallback(async (useDefault = false) => {
     setSubmitting(true)
     try {
+      /*
+       * 跳过也要落一个真实场景：后端只在 `persona_key` 非空时写库，
+       * 传空串会让用户永远停在「未完成引导」状态。
+       * general 是兜底场景，仍然会装一套默认技能包。
+       */
       const data = await onboardingApi.complete({
-        persona_key: useDefault ? '' : personaKey,
+        persona_key: useDefault ? 'general' : personaKey,
       })
       /*
        * 必须刷新登录态：`ProtectedRoute` 用 `user.persona_key` 判断「是否已完成引导」，
@@ -139,7 +144,7 @@ function OnboardingPage() {
         <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5 sm:px-10">
           <div className="flex items-center gap-2 text-text-secondary">
             <Sparkles size={16} className="text-accent-ink" />
-            <span className="text-caption font-medium">{t('meta.step', { current: step + 1, total: 1 })}</span>
+            <span className="text-caption font-medium">{t('meta.step', { current: step + 1, total: 2 })}</span>
           </div>
           {step === 0 && (
             <button

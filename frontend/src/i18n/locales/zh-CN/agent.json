@@ -109,7 +109,7 @@
   },
   "wait": {
     "analysis_slow": "模型这次回得比平时慢，我还在处理，不用重发。",
-    "analysis_stalled": "已经等了比较久，可能是中转站拥堵。你可以继续等，或者停下重试一次。",
+    "analysis_stalled": "已经等了比较久，服务器响应较慢。你可以继续等，或者停下重试一次。",
     "generation_slow": "出图比平时慢一些，通常是在排队，结果出来会直接显示在这里。",
     "generation_stalled": "这张图等得有点久了。继续等不会额外扣额度；也可以停掉重来，额度会退回。",
     "offline": "网络断开了，恢复后我会自动接上，进度不会丢。",
@@ -136,7 +136,7 @@
     "retype": "再说一次需求吧",
     "retype_hint": "页面刷新过，原话没能留在输入框里",
     "interrupted": "分析被打断了",
-    "interrupted_hint": "再发一次试试；如果反复出现，检查一下中转站",
+    "interrupted_hint": "再发一次试试；如果反复出现，稍后再试或联系管理员",
     "analyze_failed": "这次没分析出来，换个说法或重新框选后再试",
     "compose_failed": "这次没理解到位，换个说法再试一次",
     "selection_changed": "选区在确认前变了，这次方案作废了，重新说一次需求就好",
@@ -145,11 +145,11 @@
     "skill_applied_hint": "改改主体和细节就能发，出图会按这套风格走"
   },
   "ui": {
-    "relay_missing": "还没连上中转站 · 点这里配置",
+    "relay_missing": "AI 服务暂时不可用，请稍后重试",
     "loading_chat": "正在载入对话…",
-    "relay_title": "先把中转站接上",
-    "relay_desc": "填好地址和 Key，再把这句话发一次就行",
-    "relay_go": "去配置",
+    "relay_title": "AI 服务暂不可用",
+    "relay_desc": "请稍后再试；如果一直失败，请联系平台管理员。",
+    "relay_go": "重新试试",
     "need_image_title": "先在画布上选一张图",
     "need_image_desc": "这句话是要改某张图的。在画布上选中它，点操作条里的「引用」，再说一次就开始。",
     "need_image_canvas": "去画布选图",

@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { KeyRound, MailCheck, ShieldBan, ShieldCheck, Wallet } from 'lucide-react'
+import { Crown, KeyRound, MailCheck, ShieldBan, ShieldCheck, Wallet } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Hint } from '@/components/ui/hint'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useFormatters } from '@/i18n/format'
+import { formatDateTime } from '@/lib/utils'
 import type { AdminUser } from '@/types/models'
 
 interface UserTableProps {
@@ -17,6 +18,7 @@ interface UserTableProps {
   onToggleRow: (user: AdminUser) => void
   onToggleAll: () => void
   onAssignQuota: (user: AdminUser) => void
+  onGrantPro: (user: AdminUser) => void
   onBan: (user: AdminUser) => void
   onUnban: (user: AdminUser) => void
   onResetPassword: (user: AdminUser) => void
@@ -43,6 +45,7 @@ export function UserTable({
   onToggleRow,
   onToggleAll,
   onAssignQuota,
+  onGrantPro,
   onBan,
   onUnban,
   onResetPassword,
@@ -118,7 +121,15 @@ export function UserTable({
             </TableCell>
             <TableCell>
               {/* 角色原来是纯文本，扫一列分不清谁是管理员 */}
-              <Badge variant={ROLE_VARIANT[user.role] ?? 'soft'}>{user.role}</Badge>
+              <div className="flex flex-col gap-0.5">
+                <Badge variant={ROLE_VARIANT[user.role] ?? 'soft'}>{user.role}</Badge>
+                {/* Pro 到期时间：限时卡到期后后端会自动降回 user */}
+                {user.role === 'pro' && user.pro_expires_at && (
+                  <span className="text-[10px] tabular-nums text-text-tertiary">
+                    {formatDateTime(user.pro_expires_at)}
+                  </span>
+                )}
+              </div>
             </TableCell>
             <TableCell className="text-right font-mono tabular-nums text-text">
               {user.balance}
@@ -138,6 +149,18 @@ export function UserTable({
                     <Wallet size={15} />
                   </Button>
                 </Hint>
+                {user.role !== 'admin' && (
+                  <Hint label={t('pro_grant.action')}>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={t('pro_grant.action')}
+                      onClick={() => onGrantPro(user)}
+                    >
+                      <Crown size={15} />
+                    </Button>
+                  </Hint>
+                )}
                 <Hint label={t('users.reset_password')}>
                   <Button size="icon-sm" variant="ghost" aria-label={t('users.reset_password')} onClick={() => onResetPassword(user)}>
                     <KeyRound size={15} />

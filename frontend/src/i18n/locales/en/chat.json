@@ -187,9 +187,10 @@
   "header": {
     "active_tasks_one": "{{count}} generating",
     "active_tasks_other": "{{count}} generating",
-    "relay_connected": "Relay connected: {{name}}",
-    "relay_configure": "Configure AI relay",
-    "relay_team_missing": "\"{{team}}\" has no model configured yet — ask your team owner."
+    "relay_connected": "AI service connected: {{name}}",
+    "relay_configure": "Configure AI service",
+    "relay_team_missing": "AI service is configured platform-wide. Contact the platform administrator.",
+    "service_unavailable": "AI service is temporarily unavailable. Please try again later."
   },
   "tasks": {
     "title": "Generation history",
