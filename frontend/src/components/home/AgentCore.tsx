@@ -10,6 +10,9 @@ const ORBITS = [
   { tilt: 88, rx: 82, ry: 26, nodes: 2, speed: 0.74 },
 ] as const;
 
+/** 节点配色：配色1 的三色轮转（蓝 #598BFD / 青 #35B3C9 / 薄荷 #9AD4CB） */
+const NODE_COLORS = ["#598BFD", "#35B3C9", "#9AD4CB"] as const;
+
 const C = 120; // viewBox 中心
 
 interface NodeRef {
@@ -184,21 +187,28 @@ export function AgentCore({ className }: { className?: string }) {
       aria-hidden
       className={cn("pointer-events-none relative aspect-square", className)}
     >
-      {/* 外层柔光：铺在 SVG 后面，让核在明暗两种底色上都"亮着" */}
-      <div className="absolute inset-[22%] rounded-full bg-accent/40 blur-[38px]" />
+      {/* 外层弥散光：蓝 + 薄荷两团叠在 SVG 后面，和首页环境光同一套色，
+          核的边缘因此没有硬轮廓，像"浮在光里"而不是贴一张图 */}
+      <div className="absolute inset-[16%] rounded-full bg-[#598BFD]/30 blur-[46px]" />
+      <div className="absolute inset-[27%] rounded-full bg-[#9AD4CB]/45 blur-[28px]" />
       <svg
         viewBox="0 0 240 240"
         className="relative h-full w-full overflow-visible"
       >
         <defs>
-          <radialGradient id={`${gradId}-core`} cx="38%" cy="34%" r="70%">
-            <stop offset="0%" style={{ stopColor: "#DFF7F4" }} />
-            <stop offset="45%" style={{ stopColor: "var(--color-accent)" }} />
-            <stop
-              offset="100%"
-              style={{ stopColor: "var(--color-accent-strong)" }}
-            />
+          {/* 核：亮部偏左上（薄荷），底色落到深青，避开"塑料球"的均匀渐变 */}
+          <radialGradient id={`${gradId}-core`} cx="34%" cy="26%" r="82%">
+            <stop offset="0%" stopColor="#F4FDFF" />
+            <stop offset="24%" stopColor="#9AD4CB" />
+            <stop offset="58%" stopColor="#35B3C9" />
+            <stop offset="100%" stopColor="#1C6FA6" />
           </radialGradient>
+          {/* 轨道：蓝 → 青 → 薄荷，和全站弥散渐变同向，替换原来的暖米色 */}
+          <linearGradient id={`${gradId}-orbit`} x1="6%" y1="0%" x2="94%" y2="100%">
+            <stop offset="0%" stopColor="#598BFD" />
+            <stop offset="52%" stopColor="#35B3C9" />
+            <stop offset="100%" stopColor="#9AD4CB" />
+          </linearGradient>
         </defs>
 
         <g ref={tiltRef}>
@@ -212,9 +222,9 @@ export function AgentCore({ className }: { className?: string }) {
               ry={orbit.ry}
               transform={`rotate(${orbit.tilt} ${C} ${C})`}
               fill="none"
-              strokeWidth={1}
+              strokeWidth={index === 0 ? 1.2 : 1}
               strokeDasharray={index === 1 ? "2 5" : undefined}
-              style={{ stroke: "var(--color-border-strong)", opacity: 0.75 }}
+              style={{ stroke: `url(#${gradId}-orbit)`, opacity: 0.5 + index * 0.08 }}
             />
           ))}
 
@@ -231,7 +241,7 @@ export function AgentCore({ className }: { className?: string }) {
               y2={C}
               strokeWidth={1}
               strokeLinecap="round"
-              style={{ stroke: "var(--color-accent-strong)" }}
+              style={{ stroke: `url(#${gradId}-orbit)` }}
             />
           ))}
 
@@ -243,7 +253,7 @@ export function AgentCore({ className }: { className?: string }) {
             r={34}
             fill="none"
             strokeWidth={1.5}
-            style={{ stroke: "var(--color-accent-strong)" }}
+            style={{ stroke: "var(--color-brand-blue)" }}
           />
           <circle
             ref={ringRef}
@@ -254,22 +264,35 @@ export function AgentCore({ className }: { className?: string }) {
             strokeWidth={1}
             strokeDasharray="1 6"
             strokeLinecap="round"
-            style={{ stroke: "var(--color-text-tertiary)" }}
+            style={{ stroke: "var(--color-brand-mint)", opacity: 0.7 }}
           />
           <g ref={coreRef}>
             <circle cx={C} cy={C} r={32} fill={`url(#${gradId}-core)`} />
+            {/* 玻璃感：先一层内侧高光收边，再在左上压一个柔和的反光点 */}
             <circle
               cx={C}
               cy={C}
-              r={32}
+              r={31.4}
               fill="none"
-              strokeWidth={1}
-              style={{ stroke: "rgba(255,255,255,0.65)" }}
+              strokeWidth={1.2}
+              style={{ stroke: "rgba(255,255,255,0.55)" }}
             />
-            {/* 四芒星：Agent 的"火花"。青柠在两种主题下都是浅色，所以这里固定用深墨 */}
+            <ellipse
+              cx={109}
+              cy={105}
+              rx={13}
+              ry={9}
+              transform="rotate(-24 109 105)"
+              style={{ fill: "rgba(255,255,255,0.42)", filter: "blur(1.6px)" }}
+            />
+            {/* 四芒星：Agent 的「火花」。改成白色 + 外发光，
+                压在蓝青渐变球上比深墨更像"光"，也不会在暗色主题里糊成一个黑块 */}
             <path
               d="M120 104 C121.6 114 126 118.4 136 120 C126 121.6 121.6 126 120 136 C118.4 126 114 121.6 104 120 C114 118.4 118.4 114 120 104 Z"
-              fill="#1a1f05"
+              style={{
+                fill: "#FFFFFF",
+                filter: "drop-shadow(0 1px 6px rgba(12,66,120,0.55))",
+              }}
             />
           </g>
 
@@ -278,7 +301,6 @@ export function AgentCore({ className }: { className?: string }) {
             Array.from({ length: orbit.nodes }).map((_, i) => {
               const node = nodesRef.current[nodeIndex];
               nodeIndex += 1;
-              const isAccent = (orbitIndex + i) % 2 === 0;
               return (
                 <circle
                   key={`node-${orbitIndex}-${i}`}
@@ -288,11 +310,11 @@ export function AgentCore({ className }: { className?: string }) {
                   cx={C}
                   cy={C}
                   r={3}
-                  style={{
-                    fill: isAccent
-                      ? "var(--color-accent-strong)"
-                      : "var(--color-text)",
-                  }}
+                  // 三个节点色轮着来（蓝 / 青 / 薄荷），并用纸色描一圈，
+                  // 压到轨道线上时不会糊成一个点，像「被挖出来」的信号
+                  stroke="var(--color-surface)"
+                  strokeWidth={1}
+                  style={{ fill: NODE_COLORS[(orbitIndex * 3 + i) % NODE_COLORS.length] }}
                 />
               );
             }),
