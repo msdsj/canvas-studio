@@ -10,6 +10,33 @@
     "announcements": "Announcements",
     "logs": "Audit Logs"
   },
+  "sidebar_hints": {
+    "overview": "Metrics, trends, to-dos",
+    "users": "Accounts, roles, credits",
+    "pool": "Generation accounts & quota",
+    "config": "Upstream, secrets, switches",
+    "invites": "Signup invite codes",
+    "pro_codes": "Pro upgrade codes",
+    "announcements": "Site-wide notices",
+    "logs": "Admin action audit trail"
+  },
+  "bulk": {
+    "selected": "{{count}} selected",
+    "clear": "Clear selection",
+    "delete": "Delete selected",
+    "enable": "Enable selected",
+    "disable": "Disable selected",
+    "refresh": "Refresh selected",
+    "ban": "Ban selected",
+    "unban": "Unban selected",
+    "resend": "Resend to selected",
+    "publish": "Publish selected",
+    "archive": "Archive selected",
+    "confirm_delete": "Delete the {{count}} selected item(s)? This cannot be undone.",
+    "ban_reason": "Bulk ban by admin",
+    "done": "{{count}} item(s) processed",
+    "partial": "{{ok}} succeeded, {{failed}} failed"
+  },
   "overview": {
     "users_total": "Total users",
     "users_active": "Active users",
@@ -36,7 +63,13 @@
     "pool_available": "Available / total accounts",
     "images_total": "Images generated in 14 days",
     "images_hint": "Successful generations aggregated by day",
-    "description": "Users, credits, pool health and recent actions — all in one screen."
+    "description": "Users, credits, pool health and recent actions — all in one screen.",
+    "hint_users_total": "All registered accounts, including admins, Pro and regular users.",
+    "hint_users_active": "Accounts with status active; pending verification and banned are excluded.",
+    "hint_quota_today": "Total credits consumed by all users today — same basis as the trend chart below.",
+    "hint_pool_normal": "Accounts in the upstream pool that are healthy and can generate, out of the total.",
+    "hint_images": "Total successful generations in the last 14 days.",
+    "hint_trend": "New users, images and credits aggregated by day, for spotting growth and anomalies."
   },
   "users": {
     "search": "Search email",
@@ -59,7 +92,11 @@
     "empty_desc": "No users match these filters.",
     "empty_hint_1": "Try a different email prefix, or clear the filters",
     "empty_hint_2": "You can also create an account and assign credits directly",
-    "email": "Email"
+    "email": "Email",
+    "hint": "Search by email. Row icons, left to right: adjust credits, reset password, resend verification, ban/unban.",
+    "hint_balance": "Available credits; every adjustment is written to a ledger entry.",
+    "hint_status": "active / pending_verification / banned.",
+    "hint_role": "admin can access this console; user is a regular account."
   },
   "create_user_dialog": {
     "title": "New user",
@@ -117,7 +154,10 @@
       "limited": "Limited",
       "abnormal": "Abnormal",
       "disabled": "Disabled"
-    }
+    },
+    "hint": "Every upstream account used for generation. Status and quota are probed live; select rows to refresh, export or delete in bulk.",
+    "hint_token": "Only a masked identifier is shown — full credentials never appear on this page.",
+    "hint_status": "Normal can generate; Limited means quota is used up; Abnormal needs a re-login."
   },
   "config": {
     "category": {
@@ -129,6 +169,7 @@
       "pool": "Pool",
       "prompt": "Prompt templates"
     },
+    "description": "Upstream endpoints, secrets, proxy and billing switches. Saving pushes the values to the gateway immediately — no restart needed.",
     "secret_hint": "Secrets are masked; leave unchanged to keep the current value",
     "save": "Save & push",
     "saved": "Config saved and pushed to gateway",
@@ -144,7 +185,8 @@
     "status": "Status",
     "expires_at": "Expires",
     "copy": "Copy",
-    "empty": "No invite codes"
+    "empty": "No invite codes",
+    "hint": "Invite codes let new users sign up. Disabling takes effect immediately; deleting is permanent and does not affect users who already registered."
   },
   "pro_codes": {
     "create": "Generate codes",
@@ -158,7 +200,8 @@
     "copy": "Copy",
     "empty": "No Pro codes",
     "created": "Generated {{count}} code(s)",
-    "hint": "A Pro code upgrades a regular user to Pro, unlocking canvas, cutout, AI chat, prompt polish and image-to-image."
+    "hint": "A Pro code upgrades a regular user to Pro, unlocking canvas, cutout, AI chat, prompt polish and image-to-image.",
+    "hint_actions": "Row icons: copy, enable/disable, delete. Disabled codes can no longer be redeemed."
   },
   "announcements": {
     "create": "New announcement",
@@ -171,7 +214,8 @@
     "publish": "Publish",
     "archive": "Archive",
     "edit": "Edit",
-    "empty": "No announcements"
+    "empty": "No announcements",
+    "hint": "Published announcements are visible to everyone; archiving keeps the record but hides it. Row icons: edit, publish/archive, delete."
   },
   "logs": {
     "actor": "Actor",
@@ -182,6 +226,7 @@
     "empty": "No logs",
     "search": "Search actor",
     "action_all": "All actions",
+    "hint": "Read-only audit trail: every write action in this console, so you can trace who changed what and when. It cannot be edited or deleted.",
     "actions": {
       "pool_import": "Imported pool account",
       "pool_delete": "Removed pool account",

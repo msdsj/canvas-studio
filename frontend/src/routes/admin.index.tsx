@@ -54,6 +54,7 @@ function AdminOverviewPage() {
           <MetricCard
             title={t('overview.users_total')}
             value={overview?.users_total ?? '—'}
+            hint={t('overview.hint_users_total')}
             icon={Users}
             tone="brand"
             spark={spark('users_new')}
@@ -61,12 +62,14 @@ function AdminOverviewPage() {
           <MetricCard
             title={t('overview.users_active')}
             value={overview?.users_active ?? '—'}
+            hint={t('overview.hint_users_active')}
             icon={UserCheck}
             tone="success"
           />
           <MetricCard
             title={t('overview.quota_consumed_today')}
             value={overview?.quota_consumed_today ?? '—'}
+            hint={t('overview.hint_quota_today')}
             icon={Wallet}
             tone="warning"
             spark={spark('quota')}
@@ -75,6 +78,7 @@ function AdminOverviewPage() {
             title={t('overview.pool_normal')}
             value={`${pool?.normal ?? 0}/${pool?.total ?? 0}`}
             subtitle={t('overview.pool_available')}
+            hint={t('overview.hint_pool_normal')}
             icon={Server}
             tone="neutral"
           />

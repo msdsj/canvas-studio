@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { BulkBar } from '@/components/admin/BulkBar'
 import { UserTable } from '@/components/admin/UserTable'
 import { TableCard } from '@/components/ui/table'
 import { QuotaAssignDialog } from '@/components/admin/QuotaAssignDialog'
@@ -43,6 +44,7 @@ function AdminUsersPage() {
   const [quotaTarget, setQuotaTarget] = useState<AdminUser | null>(null)
   const [banTarget, setBanTarget] = useState<AdminUser | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [selected, setSelected] = useState<string[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -50,6 +52,7 @@ function AdminUsersPage() {
       const result = await adminApi.listUsers({ page, size, q: q || undefined, role: role || undefined, status: status || undefined })
       setUsers(result.items)
       setTotal(result.total)
+      setSelected([])
     } catch (error) {
       toast.error(errorMessage(error, te))
     } finally {
@@ -80,8 +83,21 @@ function AdminUsersPage() {
     }
   }
 
+  /** 批量操作：逐个调用现有接口，统计成功/失败后再统一提示；失败不影响其余行 */
+  const runBulk = async (ids: string[], task: (id: string) => Promise<unknown>) => {
+    const results = await Promise.allSettled(ids.map(task))
+    const ok = results.filter((r) => r.status === 'fulfilled').length
+    const failed = results.length - ok
+    if (failed === 0) toast.success(t('bulk.done', { count: ok }))
+    else toast.error(t('bulk.partial', { ok, failed }))
+    void load()
+  }
+
   return (
-    <AdminShell title={t('sidebar.users')}>
+    <AdminShell
+      title={t('sidebar.users')}
+      description={t('users.hint')}
+    >
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="relative w-64">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
@@ -122,11 +138,38 @@ function AdminUsersPage() {
         </Button>
       </div>
 
+      <BulkBar
+        count={selected.length}
+        onClear={() => setSelected([])}
+        actions={[
+          {
+            label: t('bulk.ban'),
+            danger: true,
+            onClick: () => void runBulk(selected, (id) => adminApi.banUser(id, t('bulk.ban_reason'))),
+          },
+          {
+            label: t('bulk.unban'),
+            onClick: () => void runBulk(selected, (id) => adminApi.unbanUser(id)),
+          },
+          {
+            label: t('bulk.resend'),
+            onClick: () => void runBulk(selected, (id) => adminApi.resendVerification(id)),
+          },
+        ]}
+      />
+
       {/* 表格包进卡片：改造前表头横条直接铺在页面底色上，看起来像"表没画完" */}
       <TableCard>
         <UserTable
           users={users}
           loading={loading}
+          selected={selected}
+          onToggleRow={(user) =>
+            setSelected((prev) => (prev.includes(user.id) ? prev.filter((id) => id !== user.id) : [...prev, user.id]))
+          }
+          onToggleAll={() =>
+            setSelected((prev) => (prev.length === users.length ? [] : users.map((user) => user.id)))
+          }
           onAssignQuota={setQuotaTarget}
           onBan={setBanTarget}
           onUnban={(user) =>

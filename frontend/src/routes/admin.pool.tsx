@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { Download, Plus, RefreshCw, Search } from 'lucide-react'
+import { Plus, RefreshCw, Search } from 'lucide-react'
 import { AdminShell } from '@/components/layout/AdminShell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,8 +12,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { BulkBar } from '@/components/admin/BulkBar'
 import { PoolStatsCards } from '@/components/admin/PoolStatsCards'
 import { PoolTable } from '@/components/admin/PoolTable'
+import { Pagination } from '@/components/ui/pagination'
 import { TableCard } from '@/components/ui/table'
 import { PoolImportDialog, parseInput } from '@/components/admin/PoolImportDialog'
 import { PoolRefreshProgress } from '@/components/admin/PoolRefreshProgress'
@@ -37,6 +39,9 @@ function AdminPoolPage() {
 
   const [stats, setStats] = useState<PoolStats>(ZERO)
   const [accounts, setAccounts] = useState<PoolAccount[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [size, setSize] = useState(20)
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<string[]>([])
   const [statusFilter, setStatusFilter] = useState('')
@@ -50,10 +55,13 @@ function AdminPoolPage() {
     try {
       const [statsData, accountsData] = await Promise.all([
         adminApi.poolStats().catch(() => ZERO),
-        adminApi.poolAccounts({ status: statusFilter || undefined, q: q || undefined }).catch(() => ({ items: [] })),
+        adminApi
+          .poolAccounts({ page, size, status: statusFilter || undefined, q: q || undefined })
+          .catch(() => ({ items: [] as PoolAccount[], total: 0 })),
       ])
       setStats(statsData)
       setAccounts(accountsData.items)
+      setTotal(accountsData.total ?? accountsData.items.length)
       setSelected([])
     } catch (error) {
       toast.error(errorMessage(error, te))
@@ -61,7 +69,7 @@ function AdminPoolPage() {
       setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, q])
+  }, [page, size, statusFilter, q])
 
   useEffect(() => {
     void load()
@@ -90,10 +98,21 @@ function AdminPoolPage() {
 
   const handleDeleteSelected = async () => {
     if (selected.length === 0) return
+    if (!window.confirm(t('bulk.confirm_delete', { count: selected.length }))) return
     try {
       await adminApi.poolDelete(selected)
-      toast.success(t('common:status.success', { defaultValue: '已删除' }))
+      toast.success(t('bulk.done', { count: selected.length }))
       void load()
+    } catch (error) {
+      toast.error(errorMessage(error, te))
+    }
+  }
+
+  /** 单行刷新：只刷新这一个账号的额度，进度条复用同一个 job 组件 */
+  const handleRefreshOne = async (account: PoolAccount) => {
+    try {
+      const result = await adminApi.poolRefresh([account.id])
+      setRefreshJob(result.job_id)
     } catch (error) {
       toast.error(errorMessage(error, te))
     }
@@ -113,13 +132,8 @@ function AdminPoolPage() {
     }
   }
 
-  const toggleStatus = async (account: PoolAccount) => {
-    // 账号状态切换需 access_token，此处仅针对已选（掩码不含明文）；交由上游导入/更新流程
-    toast.info(`${account.token_masked} · ${account.status}`)
-  }
-
   return (
-    <AdminShell title={t('sidebar.pool')}>
+    <AdminShell title={t('sidebar.pool')} description={t('pool.hint')}>
       <PoolStatsCards stats={stats} />
 
       <div className="my-4 flex flex-wrap items-center gap-3">
@@ -129,17 +143,25 @@ function AdminPoolPage() {
         <Button variant="secondary" onClick={handleRefresh}>
           <RefreshCw size={16} /> {t('pool.refresh')}
         </Button>
-        <Button variant="secondary" onClick={handleExport} disabled={selected.length === 0}>
-          <Download size={16} /> {t('pool.export')}
-        </Button>
-        <Button variant="ghost" onClick={handleDeleteSelected} disabled={selected.length === 0}>
-          {t('pool.delete')}
-        </Button>
         <div className="relative w-56">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
-          <Input className="pl-9" placeholder={t('pool.search')} value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input
+            className="pl-9"
+            placeholder={t('pool.search')}
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value)
+              setPage(1)
+            }}
+          />
         </div>
-        <Select value={statusFilter || 'all'} onValueChange={(v) => setStatusFilter(v === 'all' ? '' : v)}>
+        <Select
+          value={statusFilter || 'all'}
+          onValueChange={(v) => {
+            setStatusFilter(v === 'all' ? '' : v)
+            setPage(1)
+          }}
+        >
           <SelectTrigger className="w-40">
             <SelectValue />
           </SelectTrigger>
@@ -167,19 +189,45 @@ function AdminPoolPage() {
         </div>
       )}
 
+      <BulkBar
+        count={selected.length}
+        onClear={() => setSelected([])}
+        actions={[
+          { label: t('bulk.refresh'), onClick: handleRefresh },
+          { label: t('pool.export'), onClick: () => void handleExport() },
+          { label: t('bulk.delete'), danger: true, onClick: () => void handleDeleteSelected() },
+        ]}
+      />
+
       <TableCard>
         <PoolTable
           accounts={accounts}
           loading={loading}
           selected={selected}
-          onToggle={(token) =>
-            setSelected((prev) => (prev.includes(token) ? prev.filter((t2) => t2 !== token) : [...prev, token]))
+          onToggle={(id) =>
+            setSelected((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]))
           }
-          onToggleAll={() => setSelected(selected.length === accounts.length ? [] : accounts.map((a) => a.id))}
-          onDelete={(token) => adminApi.poolDelete([token]).then(() => void load()).catch((e) => toast.error(errorMessage(e, te)))}
-          onToggleStatus={toggleStatus}
+          onToggleAll={() =>
+            setSelected((prev) => (prev.length === accounts.length ? [] : accounts.map((account) => account.id)))
+          }
+          onDelete={(id) => {
+            if (!window.confirm(t('bulk.confirm_delete', { count: 1 }))) return
+            adminApi.poolDelete([id]).then(() => void load()).catch((e) => toast.error(errorMessage(e, te)))
+          }}
+          onRefresh={handleRefreshOne}
         />
       </TableCard>
+
+      <Pagination
+        page={page}
+        size={size}
+        total={total}
+        onPageChange={setPage}
+        onSizeChange={(next) => {
+          setSize(next)
+          setPage(1)
+        }}
+      />
 
       <PoolImportDialog open={importOpen} onOpenChange={setImportOpen} onSubmit={handleImport} result={importResult} />
     </AdminShell>

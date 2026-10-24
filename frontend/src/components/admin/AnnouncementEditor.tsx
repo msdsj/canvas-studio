@@ -4,7 +4,9 @@ import { Pencil, Archive, Send, Trash2 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Hint } from '@/components/ui/hint'
 import { Modal } from '@/components/ui/modal'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
@@ -21,13 +23,24 @@ import type { Announcement } from '@/types/models'
 
 interface AnnouncementEditorProps {
   announcements: Announcement[]
+  selected: string[]
+  onToggleRow: (announcement: Announcement) => void
+  onToggleAll: () => void
   onCreate: (payload: { title: string; content: string; level: 'info' | 'warning' }) => Promise<void> | void
   onUpdate: (id: string, payload: { status?: string; title?: string; content?: string }) => Promise<void> | void
   onDelete: (id: string) => Promise<void> | void
 }
 
 /** 公告编辑（新建 / 发布 / 下线）。 */
-export function AnnouncementEditor({ announcements, onCreate, onUpdate, onDelete }: AnnouncementEditorProps) {
+export function AnnouncementEditor({
+  announcements,
+  selected,
+  onToggleRow,
+  onToggleAll,
+  onCreate,
+  onUpdate,
+  onDelete,
+}: AnnouncementEditorProps) {
   const { t } = useTranslation('admin')
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Announcement | null>(null)
@@ -74,6 +87,15 @@ export function AnnouncementEditor({ announcements, onCreate, onUpdate, onDelete
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={
+                    announcements.length > 0 && announcements.every((a) => selected.includes(a.id))
+                  }
+                  onCheckedChange={onToggleAll}
+                  aria-label={t('bulk.selected', { count: announcements.length })}
+                />
+              </TableHead>
               <TableHead>{t('announcements.title_field')}</TableHead>
               <TableHead>{t('announcements.level')}</TableHead>
               <TableHead>{t('announcements.status')}</TableHead>
@@ -84,6 +106,13 @@ export function AnnouncementEditor({ announcements, onCreate, onUpdate, onDelete
           <TableBody>
             {announcements.map((a) => (
               <TableRow key={a.id}>
+                <TableCell>
+                  <Checkbox
+                    checked={selected.includes(a.id)}
+                    onCheckedChange={() => onToggleRow(a)}
+                    aria-label={a.title}
+                  />
+                </TableCell>
                 <TableCell className="max-w-[280px] truncate">{a.title}</TableCell>
                 <TableCell>
                   <Badge variant={a.level === 'warning' ? 'warning' : 'soft'}>
@@ -98,21 +127,29 @@ export function AnnouncementEditor({ announcements, onCreate, onUpdate, onDelete
                 <TableCell className="text-sm text-text-secondary">{formatDateTime(a.published_at)}</TableCell>
                 <TableCell>
                   <div className="flex items-center justify-end gap-1">
-                    <Button size="icon-sm" variant="ghost" aria-label={t('announcements.edit')} onClick={() => startEdit(a)}>
-                      <Pencil size={15} />
-                    </Button>
+                    <Hint label={t('announcements.edit')}>
+                      <Button size="icon-sm" variant="ghost" aria-label={t('announcements.edit')} onClick={() => startEdit(a)}>
+                        <Pencil size={15} />
+                      </Button>
+                    </Hint>
                     {a.status === 'published' ? (
-                      <Button size="icon-sm" variant="ghost" aria-label={t('announcements.archive')} onClick={() => onUpdate(a.id, { status: 'archived' })}>
-                        <Archive size={15} />
-                      </Button>
+                      <Hint label={t('announcements.archive')}>
+                        <Button size="icon-sm" variant="ghost" aria-label={t('announcements.archive')} onClick={() => onUpdate(a.id, { status: 'archived' })}>
+                          <Archive size={15} />
+                        </Button>
+                      </Hint>
                     ) : (
-                      <Button size="icon-sm" variant="ghost" aria-label={t('announcements.publish')} onClick={() => onUpdate(a.id, { status: 'published' })}>
-                        <Send size={15} />
-                      </Button>
+                      <Hint label={t('announcements.publish')}>
+                        <Button size="icon-sm" variant="ghost" aria-label={t('announcements.publish')} onClick={() => onUpdate(a.id, { status: 'published' })}>
+                          <Send size={15} />
+                        </Button>
+                      </Hint>
                     )}
-                    <Button size="icon-sm" variant="ghost" aria-label="delete" onClick={() => onDelete(a.id)}>
-                      <Trash2 size={15} />
-                    </Button>
+                    <Hint label={t('bulk.delete')}>
+                      <Button size="icon-sm" variant="ghost" aria-label={t('bulk.delete')} onClick={() => onDelete(a.id)}>
+                        <Trash2 size={15} />
+                      </Button>
+                    </Hint>
                   </div>
                 </TableCell>
               </TableRow>

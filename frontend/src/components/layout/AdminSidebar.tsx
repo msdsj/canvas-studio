@@ -40,9 +40,9 @@ export function AdminSidebar() {
             to={item.to}
             aria-current={active ? 'page' : undefined}
             className={cn(
-              'relative rounded-[10px] px-3 py-2 text-ui transition-colors duration-[160ms]',
+              'relative flex flex-col gap-0.5 rounded-[10px] px-3 py-2 transition-colors duration-[160ms]',
               active
-                ? 'bg-bg-subtle font-semibold text-text'
+                ? 'bg-bg-subtle text-text'
                 : 'text-text-secondary hover:bg-surface-hover hover:text-text',
             )}
           >
@@ -53,7 +53,11 @@ export function AdminSidebar() {
                 className="absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full bg-accent-strong"
               />
             )}
-            {t(`sidebar.${item.key}`)}
+            <span className={cn('text-ui', active && 'font-semibold')}>{t(`sidebar.${item.key}`)}</span>
+            {/* 常驻的一行说明：后台大多是专有名词，只给 hover 提示等于没人看得到 */}
+            <span className={cn('text-[10px] leading-snug', active ? 'text-text-secondary' : 'text-text-faint')}>
+              {t(`sidebar_hints.${item.key}`)}
+            </span>
           </Link>
         )
       })}

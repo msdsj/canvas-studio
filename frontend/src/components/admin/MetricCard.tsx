@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import { Card } from '@/components/ui/card'
+import { Hint } from '@/components/ui/hint'
 import { cn } from '@/lib/utils'
 
 interface MetricCardProps {
@@ -12,6 +13,8 @@ interface MetricCardProps {
   spark?: number[]
   /** 变化提示，如「较昨日 +12%」；没有真实对比数据时不要传 */
   delta?: string
+  /** 指标口径说明：悬停标题旁的小图标查看 */
+  hint?: string
 }
 
 const toneClass: Record<string, string> = {
@@ -46,11 +49,15 @@ export function MetricCard({
   tone = 'neutral',
   spark,
   delta,
+  hint,
 }: MetricCardProps) {
   return (
     <Card className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-caption text-text-secondary">{title}</p>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <p className="truncate text-caption text-text-secondary">{title}</p>
+          {hint && <Hint label={hint} />}
+        </span>
         {Icon && (
           <span
             className={cn(

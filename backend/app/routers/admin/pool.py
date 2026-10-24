@@ -33,10 +33,16 @@ async def pool_stats() -> dict:
 
 @router.get("/accounts")
 async def list_accounts(
-    status: str | None = Query(default=None), q: str | None = Query(default=None)
+    status: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=200),
 ) -> dict:
-    """账号列表（掩码）。"""
-    return envelope({"items": await pool_service.list_accounts(status, q)})
+    """账号列表（掩码，分页）。"""
+    items = await pool_service.list_accounts(status, q)
+    total = len(items)
+    start = (page - 1) * size
+    return envelope({"items": items[start : start + size], "total": total, "page": page, "size": size})
 
 
 @router.post("/accounts")

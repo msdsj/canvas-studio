@@ -57,12 +57,13 @@ export const adminApi = {
 
   // 号池
   poolStats: () => api.get<PoolStats>('/admin/pool/stats'),
-  poolAccounts: (query: { status?: string; q?: string } = {}) => {
+  poolAccounts: (query: PageQuery & { status?: string; q?: string } = {}) => {
     const params = new URLSearchParams()
+    params.set('page', String(query.page ?? 1))
+    params.set('size', String(query.size ?? 20))
     if (query.status) params.set('status', query.status)
     if (query.q) params.set('q', query.q)
-    const suffix = params.toString()
-    return api.get<{ items: PoolAccount[] }>(`/admin/pool/accounts${suffix ? `?${suffix}` : ''}`)
+    return api.get<PageData<PoolAccount>>(`/admin/pool/accounts?${params.toString()}`)
   },
   poolImport: (payload: { method: PoolImportMethod; tokens?: string[]; accounts?: Record<string, unknown>[] }) =>
     api.post<PoolImportResult>('/admin/pool/accounts', payload),

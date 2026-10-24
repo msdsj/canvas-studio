@@ -1,9 +1,10 @@
 import { useTranslation } from 'react-i18next'
-import { Power, Trash2 } from 'lucide-react'
+import { RefreshCw, Trash2 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Hint } from '@/components/ui/hint'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PoolStatusBadge } from './PoolStatusBadge'
 import type { PoolAccount } from '@/types/models'
@@ -12,10 +13,10 @@ interface PoolTableProps {
   accounts: PoolAccount[]
   loading?: boolean
   selected: string[]
-  onToggle: (token: string) => void
+  onToggle: (id: string) => void
   onToggleAll: () => void
-  onDelete: (token: string) => void
-  onToggleStatus: (account: PoolAccount) => void
+  onDelete: (id: string) => void
+  onRefresh: (account: PoolAccount) => void
 }
 
 /** 账号表（掩码 / 类型 / 状态徽章 / 额度 / 最后刷新 / 操作）。 */
@@ -26,7 +27,7 @@ export function PoolTable({
   onToggle,
   onToggleAll,
   onDelete,
-  onToggleStatus,
+  onRefresh,
 }: PoolTableProps) {
   const { t } = useTranslation('admin')
 
@@ -42,18 +43,32 @@ export function PoolTable({
 
   if (accounts.length === 0) return <EmptyState title={t('pool.empty')} />
 
-  const allSelected = accounts.length > 0 && selected.length === accounts.length
+  const allSelected = accounts.length > 0 && accounts.every((account) => selected.includes(account.id))
 
   return (
     <Table>
       <TableHeader>
         <TableRow>
           <TableHead className="w-10">
-            <Checkbox checked={allSelected} onCheckedChange={onToggleAll} aria-label="select all" />
+            <Checkbox
+              checked={allSelected}
+              onCheckedChange={onToggleAll}
+              aria-label={t('bulk.selected', { count: accounts.length })}
+            />
           </TableHead>
-          <TableHead>{t('pool.token')}</TableHead>
+          <TableHead>
+            <span className="inline-flex items-center gap-1.5">
+              {t('pool.token')}
+              <Hint label={t('pool.hint_token')} />
+            </span>
+          </TableHead>
           <TableHead>{t('pool.type')}</TableHead>
-          <TableHead>{t('pool.status_filter')}</TableHead>
+          <TableHead>
+            <span className="inline-flex items-center gap-1.5">
+              {t('pool.status_filter')}
+              <Hint label={t('pool.hint_status')} />
+            </span>
+          </TableHead>
           <TableHead>{t('pool.quota')}</TableHead>
           <TableHead>{t('pool.last_refresh')}</TableHead>
           <TableHead className="text-right">{t('users.actions')}</TableHead>
@@ -66,7 +81,7 @@ export function PoolTable({
               <Checkbox
                 checked={selected.includes(account.id)}
                 onCheckedChange={() => onToggle(account.id)}
-                aria-label="select"
+                aria-label={account.token_masked}
               />
             </TableCell>
             <TableCell className="font-mono text-sm">{account.token_masked}</TableCell>
@@ -78,17 +93,26 @@ export function PoolTable({
             <TableCell className="text-sm text-text-secondary">{account.last_refresh || '—'}</TableCell>
             <TableCell>
               <div className="flex items-center justify-end gap-1">
-                <Button size="icon-sm" variant="ghost" aria-label="toggle" onClick={() => onToggleStatus(account)}>
-                  <Power size={15} />
-                </Button>
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={t('pool.delete')}
-                  onClick={() => onDelete(account.id)}
-                >
-                  <Trash2 size={15} />
-                </Button>
+                <Hint label={t('pool.refresh')}>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={t('pool.refresh')}
+                    onClick={() => onRefresh(account)}
+                  >
+                    <RefreshCw size={15} />
+                  </Button>
+                </Hint>
+                <Hint label={t('pool.delete')}>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={t('pool.delete')}
+                    onClick={() => onDelete(account.id)}
+                  >
+                    <Trash2 size={15} />
+                  </Button>
+                </Hint>
               </div>
             </TableCell>
           </TableRow>

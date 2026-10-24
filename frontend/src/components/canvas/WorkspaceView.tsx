@@ -566,7 +566,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   const [draftPin, setDraftPin] = useState<{ x: number; y: number } | null>(null)
   /** 画布视口：评论点按它换算到屏幕坐标 */
   const [viewport, setViewport] = useState({ zoom: 1, scrollX: 0, scrollY: 0 })
-  const commentState = useCanvasComments(canvasId)
+  const commentState = useCanvasComments(canvasId ?? undefined)
 
   // --------------------------------------------------------------------- //
   // 在线状态：光标 + 视口（「跟随协作者视角」靠后者）

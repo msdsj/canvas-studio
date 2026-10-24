@@ -46,7 +46,7 @@ function AdminLogsPage() {
   }, [load])
 
   return (
-    <AdminShell title={t('sidebar.logs')}>
+    <AdminShell title={t('sidebar.logs')} description={t('logs.hint')}>
       <div className="mb-4 w-64">
         <div className="relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />

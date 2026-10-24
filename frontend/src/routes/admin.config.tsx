@@ -50,7 +50,7 @@ function AdminConfigPage() {
   }
 
   return (
-    <AdminShell title={t('sidebar.config')}>
+    <AdminShell title={t('sidebar.config')} description={t('config.description')}>
       <SystemConfigForm
         items={items}
         testing={testing}

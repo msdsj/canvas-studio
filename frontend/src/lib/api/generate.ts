@@ -61,6 +61,8 @@ export interface InferredParams {
   quality: string
   style_strength: number
   count: number
+  /** 该画幅是否能被上游精确出图（false = 会落到最接近的档位） */
+  exact?: boolean
   /** manual=用户手动定；text=文本写明；scene=场景匹配；fallback=通用兜底 */
   source: 'manual' | 'text' | 'scene' | 'fallback' | 'source'
   reason: string

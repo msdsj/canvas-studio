@@ -10,6 +10,33 @@
     "announcements": "公告",
     "logs": "操作日志"
   },
+  "sidebar_hints": {
+    "overview": "指标、趋势与待处理",
+    "users": "账号、角色、额度、封禁",
+    "pool": "出图账号与额度状态",
+    "config": "上游地址、密钥与开关",
+    "invites": "注册邀请码的发放",
+    "pro_codes": "Pro 升级激活码",
+    "announcements": "全站公告的发布",
+    "logs": "后台操作审计记录"
+  },
+  "bulk": {
+    "selected": "已选 {{count}} 项",
+    "clear": "取消选择",
+    "delete": "批量删除",
+    "enable": "批量启用",
+    "disable": "批量禁用",
+    "refresh": "批量刷新",
+    "ban": "批量封禁",
+    "unban": "批量解封",
+    "resend": "批量重发验证",
+    "publish": "批量发布",
+    "archive": "批量下线",
+    "confirm_delete": "确定删除选中的 {{count}} 项？删除后不可恢复。",
+    "ban_reason": "批量封禁（管理员操作）",
+    "done": "已完成 {{count}} 项",
+    "partial": "{{ok}} 项成功，{{failed}} 项失败"
+  },
   "overview": {
     "users_total": "用户总数",
     "users_active": "活跃用户",
@@ -36,7 +63,13 @@
     "pool_available": "可用 / 总账号数",
     "images_total": "近 14 天生成图片",
     "images_hint": "按天聚合的成功出图数",
-    "description": "用户、额度、号池与最近操作都在这里，一屏看完。"
+    "description": "用户、额度、号池与最近操作都在这里，一屏看完。",
+    "hint_users_total": "累计注册账号数，含管理员、Pro 与普通用户。",
+    "hint_users_active": "状态为 active 的账号数；待验证与已封禁不计入。",
+    "hint_quota_today": "今天所有用户消耗的积分总和，与下方趋势图同口径。",
+    "hint_pool_normal": "上游号池中状态正常、可参与出图的账号数 / 账号总数。",
+    "hint_images": "近 14 天成功出图的总数。",
+    "hint_trend": "按天聚合的新增用户、出图量与积分消耗，用于判断增长与异常。"
   },
   "users": {
     "search": "搜索邮箱",
@@ -59,7 +92,11 @@
     "empty_desc": "没有匹配的用户。",
     "empty_hint_1": "换个邮箱前缀或清掉筛选试试",
     "empty_hint_2": "可以直接新建一个账号并分配额度",
-    "email": "邮箱"
+    "email": "邮箱",
+    "hint": "按邮箱搜索。行内图标从左到右：分配额度、重置密码、重发验证邮件、封禁/解封。",
+    "hint_balance": "当前可用积分；调整额度会留下一条流水记录。",
+    "hint_status": "active 正常 / pending_verification 待验证邮箱 / banned 已封禁。",
+    "hint_role": "admin 可进入本后台；user 为普通账号。"
   },
   "create_user_dialog": {
     "title": "新建用户",
@@ -117,7 +154,10 @@
       "limited": "限流",
       "abnormal": "异常",
       "disabled": "已禁用"
-    }
+    },
+    "hint": "号池是所有用于出图的上游账号。状态与额度来自上游实时探测；勾选后可批量刷新、导出或删除。",
+    "hint_token": "出于安全只显示掩码后的标识，完整凭据不会出现在页面上。",
+    "hint_status": "正常可出图；限流表示额度暂时用尽；异常需要重新登录。"
   },
   "config": {
     "category": {
@@ -129,6 +169,7 @@
       "pool": "号池",
       "prompt": "提示词模板"
     },
+    "description": "上游服务地址、密钥、代理与计费开关都在这里；保存后会立即推送给网关，无需重启。",
     "secret_hint": "敏感值已掩码，留空或不修改则保持不变",
     "save": "保存并推送",
     "saved": "配置已保存并推送至网关",
@@ -144,7 +185,8 @@
     "status": "状态",
     "expires_at": "过期时间",
     "copy": "复制",
-    "empty": "暂无邀请码"
+    "empty": "暂无邀请码",
+    "hint": "邀请码用于新用户注册。禁用后立即失效；删除不可恢复，已注册用户不受影响。"
   },
   "pro_codes": {
     "create": "生成激活码",
@@ -158,7 +200,8 @@
     "copy": "复制",
     "empty": "暂无激活码",
     "created": "已生成 {{count}} 个激活码",
-    "hint": "激活码可让普通用户升级为 Pro，解锁画布、抠图、AI 对话、提示词润色与图生图。"
+    "hint": "激活码可让普通用户升级为 Pro，解锁画布、抠图、AI 对话、提示词润色与图生图。",
+    "hint_actions": "行内图标：复制激活码、启用/禁用、删除。禁用后用户无法再兑换。"
   },
   "announcements": {
     "create": "新建公告",
@@ -171,7 +214,8 @@
     "publish": "发布",
     "archive": "下线",
     "edit": "编辑",
-    "empty": "暂无公告"
+    "empty": "暂无公告",
+    "hint": "发布后全站用户可见；下线后保留记录但不再展示。行内图标：编辑、发布/下线、删除。"
   },
   "logs": {
     "actor": "操作人",
@@ -182,6 +226,7 @@
     "empty": "暂无日志",
     "search": "搜索操作人",
     "action_all": "全部动作",
+    "hint": "只读审计流：记录后台每一次写操作，用于追溯谁在什么时候改了什么，不支持修改或删除。",
     "actions": {
       "pool_import": "导入号池账号",
       "pool_delete": "移除号池账号",

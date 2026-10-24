@@ -3,7 +3,9 @@ import { Copy, Power, Trash2 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Hint } from '@/components/ui/hint'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDateTime } from '@/lib/utils'
 import type { InviteCode } from '@/types/models'
@@ -11,13 +13,25 @@ import type { InviteCode } from '@/types/models'
 interface InviteCodeTableProps {
   invites: InviteCode[]
   loading?: boolean
+  selected: string[]
+  onToggleRow: (invite: InviteCode) => void
+  onToggleAll: () => void
   onToggle: (invite: InviteCode) => void
   onDelete: (invite: InviteCode) => void
   onCopy: (code: string) => void
 }
 
 /** 邀请码表（生成 / 禁用 / 统计）。 */
-export function InviteCodeTable({ invites, loading, onToggle, onDelete, onCopy }: InviteCodeTableProps) {
+export function InviteCodeTable({
+  invites,
+  loading,
+  selected,
+  onToggleRow,
+  onToggleAll,
+  onToggle,
+  onDelete,
+  onCopy,
+}: InviteCodeTableProps) {
   const { t } = useTranslation('admin')
 
   if (loading) {
@@ -31,10 +45,15 @@ export function InviteCodeTable({ invites, loading, onToggle, onDelete, onCopy }
   }
   if (invites.length === 0) return <EmptyState title={t('invites.empty')} />
 
+  const allSelected = invites.length > 0 && invites.every((invite) => selected.includes(invite.id))
+
   return (
     <Table>
       <TableHeader>
         <TableRow>
+          <TableHead className="w-10">
+            <Checkbox checked={allSelected} onCheckedChange={onToggleAll} aria-label={t('bulk.selected', { count: invites.length })} />
+          </TableHead>
           <TableHead>{t('invites.code')}</TableHead>
           <TableHead>{t('invites.max_uses')}</TableHead>
           <TableHead>{t('invites.used')}</TableHead>
@@ -46,6 +65,13 @@ export function InviteCodeTable({ invites, loading, onToggle, onDelete, onCopy }
       <TableBody>
         {invites.map((invite) => (
           <TableRow key={invite.id}>
+            <TableCell>
+              <Checkbox
+                checked={selected.includes(invite.id)}
+                onCheckedChange={() => onToggleRow(invite)}
+                aria-label={invite.code}
+              />
+            </TableCell>
             <TableCell className="font-mono">{invite.code}</TableCell>
             <TableCell>{invite.max_uses}</TableCell>
             <TableCell>{invite.used_count}</TableCell>
@@ -59,15 +85,26 @@ export function InviteCodeTable({ invites, loading, onToggle, onDelete, onCopy }
             </TableCell>
             <TableCell>
               <div className="flex items-center justify-end gap-1">
-                <Button size="icon-sm" variant="ghost" aria-label={t('invites.copy')} onClick={() => onCopy(invite.code)}>
-                  <Copy size={15} />
-                </Button>
-                <Button size="icon-sm" variant="ghost" aria-label="toggle" onClick={() => onToggle(invite)}>
-                  <Power size={15} />
-                </Button>
-                <Button size="icon-sm" variant="ghost" aria-label="delete" onClick={() => onDelete(invite)}>
-                  <Trash2 size={15} />
-                </Button>
+                <Hint label={t('invites.copy')}>
+                  <Button size="icon-sm" variant="ghost" aria-label={t('invites.copy')} onClick={() => onCopy(invite.code)}>
+                    <Copy size={15} />
+                  </Button>
+                </Hint>
+                <Hint label={invite.status === 'active' ? t('bulk.disable') : t('bulk.enable')}>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={invite.status === 'active' ? t('bulk.disable') : t('bulk.enable')}
+                    onClick={() => onToggle(invite)}
+                  >
+                    <Power size={15} />
+                  </Button>
+                </Hint>
+                <Hint label={t('bulk.delete')}>
+                  <Button size="icon-sm" variant="ghost" aria-label={t('bulk.delete')} onClick={() => onDelete(invite)}>
+                    <Trash2 size={15} />
+                  </Button>
+                </Hint>
               </div>
             </TableCell>
           </TableRow>

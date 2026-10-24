@@ -3,12 +3,15 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { Copy, Plus, Power, Trash2 } from 'lucide-react'
 import { AdminShell } from '@/components/layout/AdminShell'
+import { BulkBar } from '@/components/admin/BulkBar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { EmptyState } from '@/components/ui/empty-state'
 import { FormField } from '@/components/ui/form-field'
+import { Hint } from '@/components/ui/hint'
 import { Input } from '@/components/ui/input'
-import { Modal } from '@/components/ui/modal'
+import { ConfirmModal, Modal } from '@/components/ui/modal'
 import { Pagination } from '@/components/ui/pagination'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -42,6 +45,8 @@ function AdminProCodesPage() {
   const [count, setCount] = useState('1')
   const [maxUses, setMaxUses] = useState('1')
   const [note, setNote] = useState('')
+  const [selected, setSelected] = useState<string[]>([])
+  const [deleteTarget, setDeleteTarget] = useState<ProCode | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -49,6 +54,7 @@ function AdminProCodesPage() {
       const result = await adminApi.listProCodes({ page, size })
       setCodes(result.items)
       setTotal(result.total)
+      setSelected([])
     } catch (error) {
       toast.error(errorMessage(error, te))
     } finally {
@@ -66,16 +72,50 @@ function AdminProCodesPage() {
     toast.success(t('common:action.copied', { defaultValue: '已复制' }))
   }
 
+  /** 批量操作：逐个调用接口后统一提示，失败不影响其余行 */
+  const runBulk = async (ids: string[], task: (id: string) => Promise<unknown>) => {
+    const results = await Promise.allSettled(ids.map(task))
+    const ok = results.filter((r) => r.status === 'fulfilled').length
+    const failed = results.length - ok
+    if (failed === 0) toast.success(t('bulk.done', { count: ok }))
+    else toast.error(t('bulk.partial', { ok, failed }))
+    void load()
+  }
+
   return (
     <AdminShell
       title={t('sidebar.pro_codes')}
+      description={t('pro_codes.hint')}
       actions={
         <Button onClick={() => setCreateOpen(true)}>
           <Plus size={16} /> {t('pro_codes.create')}
         </Button>
       }
     >
-      <p className="mb-3 text-caption text-text-tertiary">{t('pro_codes.hint')}</p>
+      <p className="mb-3 text-caption text-text-tertiary">{t('pro_codes.hint_actions')}</p>
+
+      <BulkBar
+        count={selected.length}
+        onClear={() => setSelected([])}
+        actions={[
+          {
+            label: t('bulk.enable'),
+            onClick: () => void runBulk(selected, (id) => adminApi.updateProCode(id, 'active')),
+          },
+          {
+            label: t('bulk.disable'),
+            onClick: () => void runBulk(selected, (id) => adminApi.updateProCode(id, 'disabled')),
+          },
+          {
+            label: t('bulk.delete'),
+            danger: true,
+            onClick: () => {
+              if (!window.confirm(t('bulk.confirm_delete', { count: selected.length }))) return
+              void runBulk(selected, (id) => adminApi.deleteProCode(id))
+            },
+          },
+        ]}
+      />
 
       {loading ? (
         <div className="flex flex-col gap-2">
@@ -89,6 +129,15 @@ function AdminProCodesPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={codes.length > 0 && codes.every((code) => selected.includes(code.id))}
+                  onCheckedChange={() =>
+                    setSelected((prev) => (prev.length === codes.length ? [] : codes.map((code) => code.id)))
+                  }
+                  aria-label={t('bulk.selected', { count: codes.length })}
+                />
+              </TableHead>
               <TableHead>{t('pro_codes.code')}</TableHead>
               <TableHead>{t('pro_codes.note')}</TableHead>
               <TableHead>{t('pro_codes.max_uses')}</TableHead>
@@ -101,6 +150,17 @@ function AdminProCodesPage() {
           <TableBody>
             {codes.map((code) => (
               <TableRow key={code.id}>
+                <TableCell>
+                  <Checkbox
+                    checked={selected.includes(code.id)}
+                    onCheckedChange={() =>
+                      setSelected((prev) =>
+                        prev.includes(code.id) ? prev.filter((id) => id !== code.id) : [...prev, code.id],
+                      )
+                    }
+                    aria-label={code.code}
+                  />
+                </TableCell>
                 <TableCell className="font-mono tracking-[0.08em]">{code.code}</TableCell>
                 <TableCell className="text-text-secondary">{code.note || '—'}</TableCell>
                 <TableCell>{code.max_uses}</TableCell>
@@ -115,40 +175,41 @@ function AdminProCodesPage() {
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center justify-end gap-1">
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label={t('pro_codes.copy')}
-                      onClick={() => void copy(code.code)}
-                    >
-                      <Copy size={15} />
-                    </Button>
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label="toggle"
-                      onClick={() =>
-                        adminApi
-                          .updateProCode(code.id, code.status === 'active' ? 'disabled' : 'active')
-                          .then(() => void load())
-                          .catch((e) => toast.error(errorMessage(e, te)))
-                      }
-                    >
-                      <Power size={15} />
-                    </Button>
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label="delete"
-                      onClick={() =>
-                        adminApi
-                          .deleteProCode(code.id)
-                          .then(() => void load())
-                          .catch((e) => toast.error(errorMessage(e, te)))
-                      }
-                    >
-                      <Trash2 size={15} />
-                    </Button>
+                    <Hint label={t('pro_codes.copy')}>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={t('pro_codes.copy')}
+                        onClick={() => void copy(code.code)}
+                      >
+                        <Copy size={15} />
+                      </Button>
+                    </Hint>
+                    <Hint label={code.status === 'active' ? t('bulk.disable') : t('bulk.enable')}>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={code.status === 'active' ? t('bulk.disable') : t('bulk.enable')}
+                        onClick={() =>
+                          adminApi
+                            .updateProCode(code.id, code.status === 'active' ? 'disabled' : 'active')
+                            .then(() => void load())
+                            .catch((e) => toast.error(errorMessage(e, te)))
+                        }
+                      >
+                        <Power size={15} />
+                      </Button>
+                    </Hint>
+                    <Hint label={t('bulk.delete')}>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={t('bulk.delete')}
+                        onClick={() => setDeleteTarget(code)}
+                      >
+                        <Trash2 size={15} />
+                      </Button>
+                    </Hint>
                   </div>
                 </TableCell>
               </TableRow>
@@ -213,6 +274,25 @@ function AdminProCodesPage() {
           </FormField>
         </div>
       </Modal>
+
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={t('bulk.delete')}
+        description={deleteTarget?.code}
+        danger
+        confirmLabel={t('bulk.delete')}
+        onConfirm={async () => {
+          if (!deleteTarget) return
+          try {
+            await adminApi.deleteProCode(deleteTarget.id)
+            setDeleteTarget(null)
+            void load()
+          } catch (error) {
+            toast.error(errorMessage(error, te))
+          }
+        }}
+      />
     </AdminShell>
   )
 }
