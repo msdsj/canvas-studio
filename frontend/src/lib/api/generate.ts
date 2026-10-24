@@ -22,8 +22,7 @@ export interface EditRegionBox {
 }
 
 /** 一条结构化编辑操作：改哪里（region）+ 怎么改（handler）+ 改成什么（prompt）。 */
-export interface EditOpPayload {
-  region: EditRegionBox
+export interface EditOpPayload {  region: EditRegionBox
   /** 自由选区（套索）多边形顶点；有值时后端按多边形生成掩码 */
   path?: Array<{ x: number; y: number }> | null
   /** 能力 id（由后端能力注册表提供，可按需扩展） */
@@ -31,6 +30,53 @@ export interface EditOpPayload {
   prompt: string
   /** fine=精细修改（默认）；rebuild=重新生成 */
   intensity?: 'fine' | 'rebuild'
+}
+
+/** 一个画幅预设。 */
+export interface AspectPreset {
+  aspect: string
+  label: string
+  size: string
+  width: number
+  height: number
+}
+
+/** 场景规则（电脑壁纸 16:9 / 手机壁纸 9:16 …）。 */
+export interface SceneRule {
+  id: string
+  label: string
+  aspect: string
+  keywords: string[]
+}
+
+/** 参数推断结果：参数面板直接消费。 */
+export interface InferredParams {
+  size: string
+  aspect: string
+  width: number
+  height: number
+  label: string
+  scene: string
+  scene_label: string
+  quality: string
+  style_strength: number
+  count: number
+  /** manual=用户手动定；text=文本写明；scene=场景匹配；fallback=通用兜底 */
+  source: 'manual' | 'text' | 'scene' | 'fallback' | 'source'
+  reason: string
+  locked: boolean
+  options: AspectPreset[]
+}
+
+/** 需求拆解出的一个子任务（每张结果图对应一条）。 */
+export interface PlanTask {
+  index: number
+  region_index: number
+  region: EditRegionBox
+  handler: string
+  label: string
+  instruction: string
+  params: { size: string; aspect: string; quality: string; style_strength: number }
 }
 
 /** 一种可用编辑能力（后端注册表驱动，前端不写死）。 */
@@ -127,8 +173,36 @@ export const generateApi = {
   },
 
   /** 把自然语言需求解析为结构化编辑计划（只分析，不创建任务、不计费）。 */
-  plan: (payload: { message: string; regions?: unknown[]; canvas_id?: string }) =>
-    api.post<PlanResult>('/generate/plan', payload),
+  plan: (payload: {
+    message: string
+    regions?: unknown[]
+    canvas_id?: string
+    history?: Array<{ role: string; content: string }>
+    canvas?: Record<string, unknown>
+  }) => api.post<PlanResult & { tasks?: PlanTask[]; task_count?: number; params?: InferredParams }>(
+    '/generate/plan',
+    payload
+  ),
+
+  /** 参数自适应：从文本推断画幅/质量，输入框防抖调用。 */
+  inferParams: (payload: {
+    prompt: string
+    kind?: 'generate' | 'edit'
+    size?: string
+    aspect?: string
+    source_image?: { width: number; height: number }
+  }) => api.post<InferredParams>('/generate/params', payload),
+
+  paramPresets: () =>
+    api.get<{ presets: AspectPreset[]; scenes: SceneRule[]; default_aspect: string }>(
+      '/generate/param-presets'
+    ),
+
+  /** 生成队列水位（并发上限 / 执行中 / 排队中）。 */
+  queue: () =>
+    api.get<{ limit: number; active: number; waiting: number; available: number }>(
+      '/generate/queue'
+    ),
 
   /** 拉取当前可用的编辑能力清单（注册表驱动）。 */
   capabilities: () =>

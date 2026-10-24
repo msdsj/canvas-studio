@@ -16,10 +16,16 @@
   "empty": {
     "title": "No projects yet",
     "desc": "Create your first project to start creating.",
-    "cta": "New project"
+    "cta": "New project",
+    "hint_1": "One project can hold many canvases, grouped by theme",
+    "hint_2": "Generated images can be dragged into any canvas and reused",
+    "hint_3": "Team members can share the same project"
   },
   "card": {
     "updated": "Updated {{time}}",
-    "canvas_count": "{{count}} canvases"
-  }
+    "canvas_count": "{{count}} canvases",
+    "items": "{{count}} items",
+    "more": "More actions"
+  },
+  "subtitle": "A project is a set of canvases. Group them by theme and stop scrolling through timelines."
 }

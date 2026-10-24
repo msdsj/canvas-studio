@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Upload } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute'
-import { PageShell } from '@/components/layout/PageShell'
+import { PageShell, PageTabs } from '@/components/layout/PageShell'
 import { Button } from '@/components/ui/button'
 import { Pagination } from '@/components/ui/pagination'
 import { AssetGrid } from '@/components/assets/AssetGrid'
@@ -90,8 +90,21 @@ function AssetsPage() {
       <AppShell>
           <PageShell
             title={t('title')}
-            actions={
-              <>
+            description={t('subtitle')}
+            tabs={
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <PageTabs
+                  items={[
+                    { key: 'all', label: t('filter.all') },
+                    { key: 'generated', label: t('filter.generated') },
+                    { key: 'uploaded', label: t('filter.uploaded') },
+                  ]}
+                  value={filter}
+                  onChange={(key) => {
+                    setFilter(key as Filter)
+                    setPage(1)
+                  }}
+                />
                 {/* 团队空间才需要区分「我的 / 团队共享」：个人空间里两者是同一批 */}
                 {inTeamSpace && (
                   <div className="flex rounded-full bg-bg-subtle p-1">
@@ -104,41 +117,22 @@ function AssetsPage() {
                           setPage(1)
                         }}
                         className={
-                          'rounded-full px-3 py-1 text-caption transition-colors ' +
-                          (scope === value
-                            ? 'bg-surface text-text shadow-xs'
-                            : 'text-text-secondary hover:text-text')
+                          scope === value
+                            ? 'rounded-full bg-surface px-3 py-1 text-caption font-medium text-text shadow-xs'
+                            : 'rounded-full px-3 py-1 text-caption text-text-tertiary transition-colors hover:text-text-secondary'
                         }
                       >
-                        {value === 'all' ? '全部' : value === 'mine' ? '我的' : '团队共享'}
+                        {t(`scope.${value}`)}
                       </button>
                     ))}
                   </div>
                 )}
-                <div className="flex rounded-full bg-bg-subtle p-1">
-                  {(['all', 'generated', 'uploaded'] as Filter[]).map((f) => (
-                    <button
-                      key={f}
-                      type="button"
-                      onClick={() => {
-                        setFilter(f)
-                        setPage(1)
-                      }}
-                      className={
-                        'rounded-full px-3 py-1 text-caption transition-colors ' +
-                        (filter === f
-                          ? 'bg-surface text-text shadow-xs'
-                          : 'text-text-secondary hover:text-text')
-                      }
-                    >
-                      {t(`filter.${f}`)}
-                    </button>
-                  ))}
-                </div>
-                <Button onClick={() => inputRef.current?.click()}>
-                  <Upload size={16} /> {t('upload')}
-                </Button>
-              </>
+              </div>
+            }
+            actions={
+              <Button onClick={() => inputRef.current?.click()}>
+                <Upload size={16} /> {t('upload')}
+              </Button>
             }
           >
 

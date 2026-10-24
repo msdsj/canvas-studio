@@ -14,7 +14,7 @@ class GatewaySettings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore", case_sensitive=False
     )
 
-    app_name: str = "canvas-studio-gateway"
+    app_name: str = "msdsj-gateway"
     app_version: str = "1.0.0"
 
     internal_token: str = Field(default="dev-internal-token", validation_alias="CS_GATEWAY_INTERNAL_TOKEN")

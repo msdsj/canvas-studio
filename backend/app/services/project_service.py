@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.canvas import Canvas
 from app.models.project import CanvasProject
 from app.models.user import User
-from app.services import access, canvas_service
+from app.services import access, canvas_service, project_stats_service
 from app.utils.errors import AppError, ErrorCode
 from app.utils.ids import new_id, utcnow
 from app.utils.logging import get_logger
@@ -21,9 +21,12 @@ logger = get_logger("app.project_service")
 async def list_projects(
     db: AsyncSession, user: User, page: int, size: int, q: str | None = None
 ) -> tuple[list[dict], int]:
-    """分页查询项目（附默认画布缩略图）。
+    """分页查询项目（附封面图 / 元素数 / 默认画布缩略图）。
 
     可见范围 = 本人 ∪ 当前团队共享项目。
+
+    封面与元素数由 `project_stats_service.project_cards` 用 3 条 SQL 批量算完
+    （原先对每个项目单独查一次缩略图，是典型 N+1）。
     """
     ctx = await access.current_context(db, user)
     conditions = [
@@ -43,10 +46,11 @@ async def list_projects(
         base.order_by(CanvasProject.updated_at.desc()).offset((page - 1) * size).limit(size)
     )
     projects = list(result.scalars().all())
+    cards = await project_stats_service.project_cards(db, [project.id for project in projects])
 
     items: list[dict] = []
     for project in projects:
-        thumb = await _project_thumbnail(db, project.id)
+        card = cards.get(project.id, {})
         items.append(
             {
                 "id": project.id,
@@ -57,7 +61,11 @@ async def list_projects(
                 or (project.team_id == ctx.team_id and ctx.has("canvas.edit.any")),
                 "name": project.name,
                 "description": project.description,
-                "thumbnail_url": thumb,
+                "thumbnail_url": card.get("thumbnail_url"),
+                # 封面 = 最新画布里最新的图片元素（资产缩略图 / 平台静态图）
+                "cover_url": card.get("cover_url"),
+                # 项目内元素数（不含已删除元素）
+                "item_count": int(card.get("item_count") or 0),
                 "created_at": project.created_at,
                 "updated_at": project.updated_at,
             }
@@ -65,15 +73,16 @@ async def list_projects(
     return items, total
 
 
-async def _project_thumbnail(db: AsyncSession, project_id: str) -> str | None:
-    """取项目首个画布缩略图。"""
-    result = await db.execute(
-        select(Canvas.thumbnail_url)
-        .where(Canvas.project_id == project_id)
-        .order_by(Canvas.created_at.asc())
-        .limit(1)
+async def project_card(db: AsyncSession, project_id: str) -> dict:
+    """单个项目的卡片数据（封面 / 元素数 / 缩略图）。
+
+    与列表页共用 `project_stats_service.project_cards`，详情页和列表页不会出现
+    「同一个项目两处封面不一样」的问题。
+    """
+    cards = await project_stats_service.project_cards(db, [project_id])
+    return cards.get(
+        project_id, {"cover_url": None, "item_count": 0, "thumbnail_url": None}
     )
-    return result.scalar_one_or_none()
 
 
 async def create_project(

@@ -106,7 +106,7 @@
     "queued": "排队中，马上轮到你",
     "running": "生成中",
     "paused": "已停止",
-    "cancelled": "已停止",
+    "cancelled": "已停止这次生成",
     "succeeded": "已完成",
     "failed": "这次没画出来",
     "timeout": "等得太久，我先停下了",
@@ -146,7 +146,8 @@
     "done_count": "已完成 {{count}} 张",
     "generating_count": "正在画 {{count}} 张",
     "failed_hint": "额度已经退回，换个说法或直接重试都行",
-    "retrying": "已重新提交，正在出图…"
+    "retrying": "已重新提交，正在出图…",
+    "retried": "已重新提交，正在出图…"
   },
   "edit": {
     "compare": "编辑对比",
@@ -185,6 +186,20 @@
     "active_tasks": "{{count}} 张生成中",
     "relay_connected": "中转站已连接：{{name}}",
     "relay_configure": "配置 AI 中转站",
-    "relay_team_missing": "「{{team}}」的对话模型由平台统一配置，请联系平台超级管理员。"
+    "relay_team_missing": "「{{team}}」还没有配置模型，请联系团队超级管理员。"
+  },
+  "tasks": {
+    "title": "生成记录",
+    "subtitle": "每一次生成、编辑与失败重试都留在这里，方便回看和复现。",
+    "scope": {
+      "all": "全部",
+      "active": "进行中",
+      "succeeded": "已完成",
+      "failed": "失败"
+    },
+    "empty": "这里还没有生成记录",
+    "empty_desc": "在对话里描述需求，生成结果就会出现在这里。",
+    "hint_1": "失败的生成会自动退回额度",
+    "hint_2": "点「重新生成」会用同样的参数再来一次"
   }
 }

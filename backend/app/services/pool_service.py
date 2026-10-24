@@ -1,4 +1,4 @@
-"""Canvas Studio 自有 provider 账号池服务。
+"""MSDSJ 自有 provider 账号池服务。
 
 账号凭据和调度由 gateway 持有，backend 只负责管理员权限、审计和对外
 归一化，运行时不依赖任何外部账号管理项目。
@@ -91,11 +91,21 @@ async def stats() -> dict[str, int]:
         # Compatibility with an older gateway: unknown capacity must not be
         # interpreted as proof that remote accounts can be routed separately.
         capacity = {}
+    local_total = int(capacity.get("total") or 0)
+    local_available = int(capacity.get("available") or 0)
+    mode = str(capacity.get("routing_mode") or ("local" if local_total else "none"))
     result.update({
+        # 本地独立路由（sk- 类 Key）的容量
         "routable": int(capacity.get("healthy") or 0),
-        "routable_available": int(capacity.get("available") or 0),
-        "routable_total": int(capacity.get("total") or 0),
+        "routable_available": local_available,
+        "routable_total": local_total,
         "routable_known": int(bool(capacity.get("independent_routing"))),
+        # 上游号池（ChatGPT 凭据）与真正的可调度容量
+        "routing_mode": mode,
+        "upstream_total": int(capacity.get("upstream_total") or 0),
+        "upstream_healthy": int(capacity.get("upstream_healthy") or 0),
+        "effective_total": int(capacity.get("effective_total") or local_total),
+        "effective_available": int(capacity.get("effective_available") or local_available),
     })
     return result
 

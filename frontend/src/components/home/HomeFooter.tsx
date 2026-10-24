@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { ThemeToggle } from '@/components/layout/ThemeToggle'
 import { LocaleToggle } from '@/components/layout/LocaleToggle'
+import { BrandMark } from '@/components/brand/BrandMark'
 
 interface FooterColumn {
   title: string
@@ -17,7 +18,7 @@ export function HomeFooter() {
       <div className="mx-auto grid w-full max-w-[1240px] gap-10 px-4 py-12 sm:px-8 md:grid-cols-[1.3fr_2fr]">
         <div>
           <div className="flex items-center gap-2.5 text-text">
-            <span aria-hidden className="cs-logo-mark h-7 w-7" />
+            <BrandMark className="h-7 w-7" />
             <span className="text-ui font-semibold tracking-[-0.02em]">{t('brand.product')}</span>
           </div>
           <p className="mt-3 max-w-[320px] text-caption leading-relaxed text-text-tertiary">{t('footer.about')}</p>

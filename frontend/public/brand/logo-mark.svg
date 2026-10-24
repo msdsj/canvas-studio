@@ -1,13 +1,8 @@
-<!-- canvas-studio · Logo 概念 1「入框一笔」The Line That Enters · 单色版
-     来源：docs/09-visual-language-v2.md §C 概念 1
-     规则：viewBox 48×48 / 只用 currentColor / 无渐变 / 无固定色 / stroke 4 / round cap
-     光学居中：整体墨迹偏左约 3px，故整组右移 2px（不做几何居中） -->
+<!-- MSDSJ · Logo mark（单色 / 供 mask 使用）
+     viewBox 48×48 / 只用 currentColor / 无渐变 — 与 msdsj-mark.png 同一套几何 -->
 <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg"
-     role="img" aria-label="canvas-studio">
-  <g transform="translate(2 0)" stroke="currentColor" stroke-width="4"
-     stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 18 A6 6 0 0 1 18 12 H30 A6 6 0 0 1 36 18 V30
-             A6 6 0 0 1 30 36 H18 A6 6 0 0 1 12 30"/>
-    <path d="M5 24 H17"/>
-  </g>
+     role="img" aria-label="MSDSJ">
+  <path d="M8 40 L14.6 11 H19.1 L12.6 40 Z" fill="currentColor"/>
+  <path d="M18.8 11 L23.4 27.6 L27.6 11 H32.2 L26.3 40 H21 Z" fill="currentColor"/>
+  <path d="M30.8 11 H42 L33.4 40 H22.6 Z" fill="currentColor"/>
 </svg>

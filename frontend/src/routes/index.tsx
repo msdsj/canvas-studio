@@ -26,7 +26,7 @@ export const Route = createFileRoute('/')({
 })
 
 /**
- * 首页：zleap 设计 Agent 的门面 + 唯一入口「开始对话」。
+ * 首页：MSDSJ 设计 Agent 的门面 + 唯一入口「开始对话」。
  *
  * 路由文件只做编排（登录拦截 → 交接 → 转场）；视觉与交互细节都在 components/home/。
  *

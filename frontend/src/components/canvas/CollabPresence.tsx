@@ -10,6 +10,11 @@ interface CollabPresenceProps {
   /** 当前登录用户 id：用于跳过自己那颗头像 */
   selfId?: string
   className?: string
+  /** 跟随某人的视角（点对方头像） */
+  onFollow?: (participant: CollabParticipant) => void
+  /** 正在跟随的对象 */
+  followingId?: string | null
+  onUnfollow?: () => void
 }
 
 /**
@@ -22,7 +27,15 @@ interface CollabPresenceProps {
  *
  * 刻意不用大号横幅：这是背景信息，不是需要行动的通知。打扰越小越好。
  */
-export function CollabPresence({ status, participants, selfId, className }: CollabPresenceProps) {
+export function CollabPresence({
+  status,
+  participants,
+  selfId,
+  className,
+  onFollow,
+  followingId,
+  onUnfollow,
+}: CollabPresenceProps) {
   const { t } = useTranslation('canvas')
 
   // 个人画布（idle）完全不渲染：没有第二个人，这块 UI 只是噪音
@@ -50,11 +63,23 @@ export function CollabPresence({ status, participants, selfId, className }: Coll
       )}
       title={statusLabel}
     >
-      <span className="flex items-center" aria-hidden>
+      <span className="flex items-center">
         {others.slice(0, 4).map((participant, index) => (
-          <span
+          <button
             key={participant.id}
-            className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-surface text-[9px] font-semibold text-white"
+            type="button"
+            disabled={!onFollow || !participant.viewport}
+            onClick={() => onFollow?.(participant)}
+            title={
+              participant.viewport
+                ? `跟随 ${participant.name} 的视角`
+                : `${participant.name}（对方暂未同步视角）`
+            }
+            className={cn(
+              'flex h-5 w-5 items-center justify-center rounded-full border-2 border-surface text-[9px] font-semibold text-white transition-transform',
+              onFollow && participant.viewport && 'hover:z-20 hover:scale-110',
+              followingId === participant.id && 'ring-2 ring-accent-strong ring-offset-1 ring-offset-surface'
+            )}
             style={{
               background: participant.color,
               marginLeft: index === 0 ? 0 : -6,
@@ -62,7 +87,7 @@ export function CollabPresence({ status, participants, selfId, className }: Coll
             }}
           >
             {participant.name.slice(0, 1).toUpperCase()}
-          </span>
+          </button>
         ))}
         {others.length > 4 && (
           <span className="-ml-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-surface bg-bg-subtle text-[9px] text-text-secondary">
@@ -90,6 +115,15 @@ export function CollabPresence({ status, participants, selfId, className }: Coll
               : ''}
         </span>
       </span>
+      {followingId && onUnfollow && (
+        <button
+          type="button"
+          onClick={onUnfollow}
+          className="rounded-full bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent-ink transition-colors hover:bg-accent/40"
+        >
+          退出跟随
+        </button>
+      )}
     </div>
   )
 }

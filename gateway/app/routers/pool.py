@@ -1,6 +1,9 @@
 """号池代理路由 /gw/pool/accounts*。"""
 from __future__ import annotations
 
+import asyncio
+import time
+
 from fastapi import APIRouter
 from fastapi.responses import Response
 
@@ -20,12 +23,64 @@ from app.state import runtime_config
 
 router = APIRouter(prefix="/gw/pool", tags=["gateway-pool"])
 
+#: 上游账号数缓存：容量接口会被每次批量预检调用，不能每次都打上游（最坏 25s）。
+#: 10 秒足够反映「刚导入 / 刚失效」，又不会让预检被上游延迟拖死。
+_UPSTREAM_TTL = 10.0
+_UPSTREAM_TIMEOUT = 2.5
+_upstream_cache: dict[str, float] = {"at": 0.0, "total": 0.0, "healthy": 0.0}
+
+
+async def _upstream_counts() -> tuple[int, int]:
+    """返回 (total, healthy)；失败时退回上一次缓存（没有则 0）。"""
+    now = time.time()
+    if _upstream_cache["at"] and now - _upstream_cache["at"] < _UPSTREAM_TTL:
+        return int(_upstream_cache["total"]), int(_upstream_cache["healthy"])
+    try:
+        data = await asyncio.wait_for(pool_proxy.list_accounts(), timeout=_UPSTREAM_TIMEOUT)
+        items = [
+            item
+            for item in (data.get("items") or [])
+            if str(item.get("source") or "") == "upstream"
+        ]
+        total = len(items)
+        healthy = sum(1 for item in items if str(item.get("status") or "") == "normal")
+        _upstream_cache.update({"at": now, "total": float(total), "healthy": float(healthy)})
+        return total, healthy
+    except Exception:  # noqa: BLE001 - 容量是展示/预检用，不能因此报错
+        return int(_upstream_cache["total"]), int(_upstream_cache["healthy"])
+
 
 @router.get("/capacity")
 async def image_capacity() -> dict:
-    """Actual independent routing capacity, separate from remote pool stats."""
+    """容量：本地独立路由优先，没有本地账号时如实反映上游号池。
+
+    背景：平台有两类账号——
+    * `sk-...` 通用 Key → 存本地池（`account_pool`），可按账号独立路由；
+    * `eyJ...` ChatGPT 登录凭据 → 存在上游 chatgpt2api，由它自己调度。
+
+    用户导入的多半是第二类。以前这里只报本地池（0/0），批量预检据此判定
+    「没有可路由账号」，把「拆成 2 张」直接拒掉——账号明明在，却出不了多图。
+
+    现在额外给出 `routing_mode` 与 `effective_*`：本地有号就用本地，
+    本地为空且配了图片上游就用上游号池的账号数，两边都没有才是 `none`。
+    """
     capacity = await account_pool.image_capacity()
     capacity["configured_provider_available"] = bool(runtime_config.image_base_url)
+
+    upstream_total = 0
+    upstream_healthy = 0
+    if int(capacity.get("total") or 0) == 0 and runtime_config.image_base_url:
+        upstream_total, upstream_healthy = await _upstream_counts()
+
+    local_total = int(capacity.get("total") or 0)
+    local_available = int(capacity.get("available") or 0)
+    capacity["upstream_total"] = upstream_total
+    capacity["upstream_healthy"] = upstream_healthy
+    capacity["routing_mode"] = (
+        "local" if local_total else ("upstream" if upstream_healthy else "none")
+    )
+    capacity["effective_total"] = local_total or upstream_total
+    capacity["effective_available"] = local_available if local_total else upstream_healthy
     return ok(capacity)
 
 

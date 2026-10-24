@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# canvas-studio 本地常驻启动脚本（脱离 AI 会话独立运行）
+# msdsj 本地常驻启动脚本（脱离 AI 会话独立运行）
 #
 # 用法：
 #   ./start-local-daemon.sh start    启动全部服务（后台常驻）
@@ -73,7 +73,7 @@ start_one() {  # $1=name  $2=workdir  $3..=cmd
 }
 
 do_start() {
-  echo "==> 启动 canvas-studio"
+  echo "==> 启动 msdsj"
 
   # 上游只在这里做一次探测：真正拉起放在三个主服务之后（见下方 start_if_needed up），
   # 因为界面能不能打开不依赖它，只有号池/生图依赖。本机 Docker 通常不可用，
@@ -138,7 +138,7 @@ do_start() {
 }
 
 do_stop() {
-  echo "==> 停止 canvas-studio"
+  echo "==> 停止 msdsj"
   for n in fe be gw up; do stop_one "$n"; done
   # 兜底：按端口清理残留
   for p in "$FE_PORT" "$BE_PORT" "$GW_PORT"; do

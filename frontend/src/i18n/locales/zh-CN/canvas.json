@@ -14,7 +14,11 @@
     "download": "下载",
     "align": "对齐",
     "upload": "上传图片",
-    "layers": "图层"
+    "layers": "图层",
+    "comments": "评论",
+    "comments_hint": "在画布上打点评论 / @成员",
+    "versions": "版本",
+    "versions_hint": "版本历史 · 一键恢复"
   },
   "save": {
     "saving": "保存中…",

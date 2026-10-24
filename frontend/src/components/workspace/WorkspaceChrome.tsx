@@ -21,6 +21,7 @@ import { useUIStore, type StudioTab } from '@/stores/ui'
 import { gsap } from '@/lib/gsap'
 import { shouldReduceMotion } from '@/lib/motion'
 import { cn } from '@/lib/utils'
+import { BrandMark } from '@/components/brand/BrandMark'
 
 /** 图标按钮的统一形态：32px 方圆角，hover 只换底色，不位移（顶栏里位移会显得抖）。 */
 function IconButton({
@@ -81,7 +82,7 @@ export function AgentPanelHeader({ onCreateSession }: { onCreateSession: () => v
         title={t('agent_panel.home')}
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-text transition-colors hover:bg-surface-hover"
       >
-        <span aria-hidden className="cs-logo-mark h-5 w-5" />
+        <BrandMark className="h-5 w-5" />
       </Link>
       <div className="flex min-w-0 flex-1 items-center gap-1.5 pl-0.5">
         <span className="truncate text-ui font-semibold tracking-[-0.01em] text-text">

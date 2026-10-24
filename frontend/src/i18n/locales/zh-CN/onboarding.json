@@ -52,6 +52,11 @@
     "item_off": "已关闭",
     "item_on": "已开启",
     "from_team": "来自团队",
-    "count": "{{count}} 条"
+    "count": "{{count}} 条",
+    "no_results_desc": "换个关键词，或先在「技能包」里启用一组。",
+    "clear_filter": "清空筛选",
+    "reset": "重置",
+    "hint_1": "技能是提示词参考，不是模板填空",
+    "hint_2": "生成时系统会自动挑最相关的几条给模型"
   }
 }

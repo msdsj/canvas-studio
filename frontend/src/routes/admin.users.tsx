@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { UserTable } from '@/components/admin/UserTable'
+import { TableCard } from '@/components/ui/table'
 import { QuotaAssignDialog } from '@/components/admin/QuotaAssignDialog'
 import { CreateUserDialog } from '@/components/admin/CreateUserDialog'
 import { adminApi } from '@/lib/api/admin'
@@ -121,18 +122,22 @@ function AdminUsersPage() {
         </Button>
       </div>
 
-      <UserTable
-        users={users}
-        loading={loading}
-        onAssignQuota={setQuotaTarget}
-        onBan={setBanTarget}
-        onUnban={(user) =>
-          adminApi.unbanUser(user.id).then(() => void load()).catch((e) => toast.error(errorMessage(e, te)))
-        }
-        onResetPassword={resetPassword}
-        onResend={resend}
-      />
+      {/* 表格包进卡片：改造前表头横条直接铺在页面底色上，看起来像"表没画完" */}
+      <TableCard>
+        <UserTable
+          users={users}
+          loading={loading}
+          onAssignQuota={setQuotaTarget}
+          onBan={setBanTarget}
+          onUnban={(user) =>
+            adminApi.unbanUser(user.id).then(() => void load()).catch((e) => toast.error(errorMessage(e, te)))
+          }
+          onResetPassword={resetPassword}
+          onResend={resend}
+        />
+      </TableCard>
 
+      {/* 分页条是表格卡的兄弟节点：放进卡里会被 overflow-hidden 吃掉，长表时看不见 */}
       <Pagination
         page={page}
         size={size}

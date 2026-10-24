@@ -94,6 +94,12 @@ export function EmptyCanvas({
 
   return (
     <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center p-4 pb-20">
+      {/* 弥散光晕：蓝→青→薄荷三团，垫在引导语下面，给空画布一点纵深。
+          纯装饰、不可点、不抢文字对比度（透明度压到 55%）。 */}
+      <div
+        aria-hidden
+        className="cs-gradient-diffuse pointer-events-none absolute left-1/2 top-1/2 h-[380px] w-[640px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-55 blur-[64px]"
+      />
       <div ref={rootRef} className="pointer-events-auto w-full max-w-[560px] text-center">
         <p data-empty-item className="text-micro font-medium uppercase tracking-[0.14em] text-text-tertiary">
           {t('empty.eyebrow')}
@@ -116,7 +122,7 @@ export function EmptyCanvas({
                 data-motion="lift"
                 className="group flex flex-col items-center gap-1.5 rounded-[14px] bg-surface/90 px-2 py-3 shadow-sheet ring-1 ring-inset ring-border-faint backdrop-blur transition-[box-shadow,background-color] hover:bg-surface hover:shadow-lift"
               >
-                <span className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-accent-soft text-accent-ink transition-transform duration-300 group-hover:scale-110">
+                <span className="cs-gradient-accent flex h-8 w-8 items-center justify-center rounded-[10px] text-on-accent transition-transform duration-300 group-hover:scale-110">
                   <Icon size={16} />
                 </span>
                 <span className="text-caption font-medium text-text">{t(`empty.start.${item.key}`)}</span>

@@ -197,6 +197,7 @@ async def _handle_message(room: collab_hub.Room, peer: collab_hub.Peer, raw: str
             peer,
             message.get("cursor") if isinstance(message.get("cursor"), dict) else None,
             message.get("selection") if isinstance(message.get("selection"), list) else None,
+            message.get("viewport") if isinstance(message.get("viewport"), dict) else None,
         )
         return
 

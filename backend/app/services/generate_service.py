@@ -31,6 +31,7 @@ from app.services import (
     asset_service,
     config_service,
     gateway_client as gw_module,
+    queue_service,
     storage_service,
     task_service,
 )
@@ -239,7 +240,39 @@ def _local_bytes(url: str) -> tuple[bytes, str]:
 
 
 async def run_task(task_id: str) -> None:
-    """后台执行生成任务（独立会话）。"""
+    """后台执行入口：先排队拿并发位，再真正打上游。
+
+    **顺序很重要**：一定要在开数据库会话之前排队。
+    如果先 `AsyncSessionLocal()` 再等信号量，每个排队任务都会占住一条连接；
+    连接池只有 4 条时，排队任务会把池子吃干，真正在跑的任务反而拿不到连接，
+    整个系统直接死锁。所以这里先拿位子、再开库。
+
+    排队期间**不碰数据库**（进度停在初始值，前端按 `/api/generate/queue`
+    显示全局排队水位），拿到位子后由 `_execute_task` 从 10% 起步。
+    队列满时直接失败退款，不让协程无限堆积。
+    """
+    try:
+        async with queue_service.slot(task_id) as ahead:
+            await _execute_task(task_id, queued=ahead > 1)
+    except AppError as exc:
+        # 队列满 / 等待期间被取消：走失败退款，避免额度被预扣挂着
+        async with AsyncSessionLocal() as db:
+            fresh = await db.get(GenerationTask, task_id)
+            if fresh is not None and fresh.status == "running":
+                await task_service.fail_and_refund(db, task_id, exc.code.value, exc.message)
+        logger.warning("任务 %s 未能执行：%s", task_id, exc.message)
+    except Exception:  # noqa: BLE001
+        async with AsyncSessionLocal() as db:
+            fresh = await db.get(GenerationTask, task_id)
+            if fresh is not None and fresh.status == "running":
+                await task_service.fail_and_refund(
+                    db, task_id, ErrorCode.UPSTREAM_ERROR.value, "图片没生成出来，额度已经退回"
+                )
+        logger.exception("任务 %s 队列调度异常", task_id)
+
+
+async def _execute_task(task_id: str, queued: bool = False) -> None:
+    """后台执行生成任务（独立会话）。`queued=True` 表示经历过后台排队。"""
     async with AsyncSessionLocal() as db:
         task = (
             await db.execute(select(GenerationTask).where(GenerationTask.id == task_id))
@@ -247,7 +280,8 @@ async def run_task(task_id: str) -> None:
         if task is None or task.status != "running":
             return
 
-        await task_service.mark_progress(db, task_id, 30)
+        # 排过队的任务从 10% 起步（30% 留给真正开始调上游的那一刻）
+        await task_service.mark_progress(db, task_id, 10 if queued else 30)
         await db.commit()
 
         try:

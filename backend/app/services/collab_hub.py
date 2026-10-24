@@ -57,6 +57,8 @@ class Peer:
     last_seen: float = field(default_factory=time.time)
     cursor: dict[str, Any] | None = None
     selection: list[str] = field(default_factory=list)
+    # 视口（zoom / scrollX / scrollY）：用于「跟随协作者视角」
+    viewport: dict[str, Any] | None = None
     can_write: bool = True
 
     def public(self) -> dict[str, Any]:
@@ -68,6 +70,7 @@ class Peer:
             "color": self.color,
             "cursor": self.cursor,
             "selection": self.selection,
+            "viewport": self.viewport,
             "can_write": self.can_write,
         }
 
@@ -270,13 +273,27 @@ async def apply_full_state(room: Room, peer: Peer, state: Any) -> tuple[int, dic
 
 
 async def update_presence(
-    room: Room, peer: Peer, cursor: dict[str, Any] | None, selection: list[str] | None
+    room: Room,
+    peer: Peer,
+    cursor: dict[str, Any] | None,
+    selection: list[str] | None,
+    viewport: dict[str, Any] | None = None,
 ) -> None:
-    """更新光标 / 选区并广播。"""
+    """更新光标 / 选区 / 视口并广播。"""
     if cursor is not None:
         peer.cursor = cursor
     if selection is not None:
         peer.selection = [str(item) for item in selection][:200]
+    if viewport is not None:
+        # 只收白名单字段并夹取范围：视口是客户端输入，不能原样信任
+        try:
+            peer.viewport = {
+                "zoom": max(0.05, min(8.0, float(viewport.get("zoom", 1)))),
+                "scrollX": max(-1e7, min(1e7, float(viewport.get("scrollX", 0)))),
+                "scrollY": max(-1e7, min(1e7, float(viewport.get("scrollY", 0)))),
+            }
+        except (TypeError, ValueError):
+            pass
     peer.last_seen = time.time()
     room.last_activity = time.time()
     await broadcast(

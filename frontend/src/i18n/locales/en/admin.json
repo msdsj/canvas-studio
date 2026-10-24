@@ -17,7 +17,26 @@
     "pool_normal": "Pool normal",
     "pool_total": "Accounts total",
     "pool_limited": "Limited accounts",
-    "pool_problem": "Abnormal/disabled"
+    "pool_problem": "Abnormal/disabled",
+    "trend_title": "Last 14 days",
+    "trend_desc": "New users, images generated and credits consumed, by day",
+    "trend_days": "Last {{days}} days",
+    "trend_images": "Images generated",
+    "trend_users": "New users",
+    "trend_quota": "Credits consumed",
+    "trend_empty_title": "Nothing to chart yet",
+    "trend_empty_desc": "Once users register or images are generated, the daily trend appears here.",
+    "pending_title": "Needs attention",
+    "pending_users": "Emails pending verification",
+    "pending_pool_abnormal": "Abnormal pool accounts",
+    "pending_pool_limited": "Rate-limited pool accounts",
+    "recent_title": "Recent activity",
+    "recent_all": "View all logs",
+    "recent_empty": "No activity yet",
+    "pool_available": "Available / total accounts",
+    "images_total": "Images generated in 14 days",
+    "images_hint": "Successful generations aggregated by day",
+    "description": "Users, credits, pool health and recent actions — all in one screen."
   },
   "users": {
     "search": "Search email",
@@ -36,7 +55,11 @@
     "empty": "No matching users",
     "role_all": "All roles",
     "status_all": "All statuses",
-    "create": "New user"
+    "create": "New user",
+    "empty_desc": "No users match these filters.",
+    "empty_hint_1": "Try a different email prefix, or clear the filters",
+    "empty_hint_2": "You can also create an account and assign credits directly",
+    "email": "Email"
   },
   "create_user_dialog": {
     "title": "New user",
@@ -103,7 +126,8 @@
       "demo": "Demo",
       "registration": "Registration",
       "quota": "Quota",
-      "pool": "Pool"
+      "pool": "Pool",
+      "prompt": "Prompt templates"
     },
     "secret_hint": "Secrets are masked; leave unchanged to keep the current value",
     "save": "Save & push",
@@ -157,6 +181,27 @@
     "detail": "Detail",
     "empty": "No logs",
     "search": "Search actor",
-    "action_all": "All actions"
-  }
+    "action_all": "All actions",
+    "actions": {
+      "pool_import": "Imported pool account",
+      "pool_delete": "Removed pool account",
+      "pool_refresh": "Refreshed pool account",
+      "pool_update": "Updated pool account",
+      "pro_redeem": "Redeemed a Pro code",
+      "pro_code_create": "Created a Pro code",
+      "pro_code_delete": "Deleted a Pro code",
+      "user_reset_password": "Reset a user password",
+      "user_ban": "Banned a user",
+      "user_unban": "Unbanned a user",
+      "quota_adjust": "Adjusted user credits",
+      "user_create": "Created a user",
+      "announcement_create": "Published an announcement",
+      "announcement_update": "Updated an announcement",
+      "announcement_delete": "Deleted an announcement",
+      "invite_create": "Created an invite code",
+      "invite_delete": "Deleted an invite code",
+      "config_update": "Changed system config"
+    }
+  },
+  "back_to_studio": "Back to Studio"
 }

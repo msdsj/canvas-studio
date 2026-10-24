@@ -102,12 +102,20 @@ async def list_messages(
     db: AsyncSession = Depends(get_db),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=100),
+    latest: bool = Query(default=False, description="只取最新 N 条（首屏懒加载）"),
+    before: str | None = Query(default=None, description="取该消息之前的 N 条（向上滚动）"),
 ) -> dict:
-    """分页查询会话消息。"""
+    """分页查询会话消息。`latest` / `before` 用于懒加载，返回体额外带 `has_more`。"""
     page, size = normalize_page(page, size)
-    rows, total = await chat_service.list_messages(db, user, session_id, page, size)
+    rows, total = await chat_service.list_messages(
+        db, user, session_id, page, size, latest=latest, before=before
+    )
     items = [ChatMessageOut.model_validate(r).model_dump() for r in rows]
-    return envelope(paginated(items, total, page, size))
+    data = paginated(items, total, page, size)
+    # 懒加载语义下「还有更早的」看这一页是否取满：
+    # 取满说明可能还有，下一次请求若返回空自然变成 false。
+    data["has_more"] = len(items) >= size if (latest or before) else total > page * size
+    return envelope(data)
 
 
 @router.delete("/messages/{message_id}")
@@ -187,6 +195,9 @@ async def compose(
             selection=selection,
             model=payload.model,
             generation_params=payload.generation_params,
+            size=payload.size,
+            aspect=payload.aspect,
+            refined=payload.refined,
         ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,

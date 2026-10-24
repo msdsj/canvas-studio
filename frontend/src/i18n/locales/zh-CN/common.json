@@ -1,5 +1,5 @@
 {
-  "app_name": "zleap Canvas",
+  "app_name": "MSDSJ AI画布",
   "tagline": "AI 无限画布创作平台",
   "action": {
     "confirm": "确认",
@@ -51,7 +51,8 @@
     "usage": "额度中心",
     "settings": "账户设置",
     "admin": "管理后台",
-    "tasks": "任务中心"
+    "tasks": "任务中心",
+    "studio": "我的工作室"
   },
   "unit": {
     "credits": "积分",

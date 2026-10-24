@@ -5,6 +5,7 @@ import { Avatar } from '@/components/ui/avatar'
 import { ThemeToggle } from '@/components/layout/ThemeToggle'
 import { LocaleToggle } from '@/components/layout/LocaleToggle'
 import type { User } from '@/types/models'
+import { BrandMark } from '@/components/brand/BrandMark'
 
 interface HomeHeaderProps {
   user: Pick<User, 'display_name' | 'email'> | null
@@ -23,7 +24,7 @@ export function HomeHeader({ user, onLogin, onRegister }: HomeHeaderProps) {
     <header className="relative z-30">
       <div className="mx-auto flex h-16 w-full max-w-[1240px] items-center justify-between gap-2 px-4 sm:px-8">
         <Link to="/" className="flex min-w-0 items-center gap-2.5 text-text">
-          <span aria-hidden className="cs-logo-mark h-7 w-7 shrink-0" />
+          <BrandMark className="h-7 w-7" />
           <span className="truncate text-ui font-semibold tracking-[-0.02em]">{t('brand.product')}</span>
           <span className="ml-1 hidden rounded-full border border-border px-2 py-[3px] text-[10px] font-medium uppercase tracking-[0.12em] text-text-tertiary md:inline">
             {t('brand.tag')}

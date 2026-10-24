@@ -19,7 +19,7 @@ const ITEMS: AdminNavItem[] = [
   { to: '/admin/logs', key: 'logs' },
 ]
 
-/** 管理后台左侧导航（240px）。 */
+/** 管理后台左侧导航（216px）。 */
 export function AdminSidebar() {
   const { t } = useTranslation('admin')
   const pathname = useRouterState({ select: (s) => s.location.pathname })
@@ -38,11 +38,21 @@ export function AdminSidebar() {
           <Link
             key={item.to}
             to={item.to}
+            aria-current={active ? 'page' : undefined}
             className={cn(
-              'rounded-[10px] px-3 py-2 text-ui transition-colors',
-              active ? 'bg-brand-subtle font-medium text-brand-text' : 'text-text-secondary hover:bg-surface-hover'
+              'relative rounded-[10px] px-3 py-2 text-ui transition-colors duration-[160ms]',
+              active
+                ? 'bg-bg-subtle font-semibold text-text'
+                : 'text-text-secondary hover:bg-surface-hover hover:text-text',
             )}
           >
+            {/* 激活项左侧一道 2px 青柠：这是这一屏唯一的信号色，够醒目又不喧宾夺主 */}
+            {active && (
+              <span
+                aria-hidden
+                className="absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full bg-accent-strong"
+              />
+            )}
             {t(`sidebar.${item.key}`)}
           </Link>
         )

@@ -41,6 +41,8 @@ interface ChatTextareaProps {
   rightSlot?: ReactNode
   /** 输入卡片上方的插槽（需求补全引导）：贴着输入框，随内容出现/收起 */
   aboveSlot?: ReactNode
+  /** 输入卡片上方的参数面板（画幅 / 尺寸）：常驻，可折叠 */
+  paramSlot?: ReactNode
   /** 外部信号（递增触发聚焦输入框） */
   focusSignal?: number
   /** 已上传的参考图（粘贴 / 选择） */
@@ -80,6 +82,7 @@ export function ChatTextarea({
   topRightSlot,
   rightSlot,
   aboveSlot,
+  paramSlot,
   focusSignal,
   attachments = [],
   onRemoveAttachment,
@@ -149,6 +152,7 @@ export function ChatTextarea({
   return (
     <div className="shrink-0 border-t border-border-faint px-2.5 pb-2.5 pt-2">
       {aboveSlot}
+      {paramSlot && <div className="mb-1.5">{paramSlot}</div>}
       <div
         onDrop={handleDrop}
         onDragOver={(event) => {

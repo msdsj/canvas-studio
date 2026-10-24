@@ -1,11 +1,14 @@
-/* canvas-studio 设计 token（双主题）
+/* MSDSJ 设计 token（双主题）
  *
  * 2026-10-18 第三次改版：整体切到「Lovart 式设计工作室」语言。
  *
  * 三段色彩结构：
  *   1. 纸：暖砂纸底（#F4F1E9）+ 纯白卡面 —— 像设计工作室的桌面与画纸
  *   2. 墨：近黑中性色（#14130D）—— 所有正文与主按钮，克制、印刷感
- *   3. 青柠：唯一的信号色（#CDF564）—— 只用于「AI 正在动作 / 当前选中 / 关键强调」
+ *   3. 青蓝：唯一的信号色（#35B3C9）—— 只用于「AI 正在动作 / 当前选中 / 关键强调」
+ *
+ * 2026-10-24 换色：采用「蓝绿冷调」配色（#598BFD / #9AD4CB / #35B3C9），
+ * 纸面与墨色不变，只换掉所有有彩色的部分（品牌 / 信号 / 选区 / 图表 / 渐变 / 环境光）。
  *
  * 约定：
  * - 历史 token 名全部保留，只改值，避免大面积改组件
@@ -114,34 +117,46 @@
   --color-border-faint: #efe9db;
   --color-border-strong: #cbc2ac;
 
-  /* ---------- 品牌：墨黑（主按钮 / 正文强调） ---------- */
-  --color-brand: #1a1810;
-  --color-brand-hover: #2c2a1c;
-  --color-brand-active: #000000;
-  --color-brand-subtle: #e9e3d1;
-  --color-brand-text: #46402b;
+  /* ---------- 品牌：深蓝（主按钮 / 正文强调） ----------
+   * 2026-10-24 换色：采用「蓝绿冷调」配色（#598BFD / #9AD4CB / #35B3C9）。
+   * 主按钮用 #2452C0 而不是 #598BFD：白字压 #598BFD 只有 3.2:1，
+   * 小字号读不清；#2452C0 对白字 6.9:1，够 WCAG AA。
+   * 原「墨黑主按钮」的结构保留在纸面上——暖砂纸 + 冷调蓝，是当下最稳的搭配。 */
+  --color-brand: #2452c0;
+  --color-brand-hover: #1b47a8;
+  --color-brand-active: #143a8c;
+  --color-brand-subtle: #e8effc;
+  --color-brand-text: #23448f;
 
-  /* ---------- [NEW] 信号色：青柠 ----------
+  /* 品牌三色（蓝绿冷调）：渐变、光晕、图表主序列直接取这里 */
+  --color-brand-blue: #598bfd;
+  --color-brand-mint: #9ad4cb;
+  --color-brand-cyan: #35b3c9;
+
+  /* ---------- 信号色：青蓝（AI 动作中 / 当前选中 / 关键强调） ----------
    * 只出现在「AI 动作中 / 当前选中 / 关键强调」，不要拿它做正文或大面积底色。
-   * 配文字时必须用 --color-accent-ink（深橄榄），白字在青柠上不可读。 */
-  --color-accent: #cdf564;
-  --color-accent-strong: #b9e63c;
-  --color-accent-soft: #f2ffd2;
-  --color-accent-ink: #3a470d;
-  /* [NEW] 青柠「实底」上的文字/图标：两种主题下青柠都是亮色，所以这里恒为深墨，
-   * 不能用 accent-ink（暗色主题里它是浅色，用于深底上的青柠字）。 */
-  --color-on-accent: #1a1f05;
+   * 实底上压深墨字：白字在 #35B3C9 上只有 2.5:1，不可读。 */
+  --color-accent: #35b3c9;
+  --color-accent-strong: #1e93a8;
+  --color-accent-soft: #e2f5f8;
+  --color-accent-ink: #0e6b7c;
+  /* 青蓝「实底」上的文字/图标恒为深墨（暗色主题里 accent 是亮青蓝，同样压深墨） */
+  --color-on-accent: #06222a;
 
-  /* 主按钮 / 关键强调用的渐变（墨黑，带一点暖调） */
-  --gradient-brand: linear-gradient(135deg, #33301f 0%, #1a1810 55%, #0a0906 100%);
-  --gradient-brand-soft: linear-gradient(135deg, #f6f2e6 0%, #eef7d8 100%);
-  /* [NEW] 青柠渐变：AI 生成中的光带 / 发送键激活态 */
-  --gradient-accent: linear-gradient(135deg, #e8ffa6 0%, #cdf564 48%, #a9e24b 100%);
+  /* 主按钮渐变（深蓝三段，弥散方向 135°） */
+  --gradient-brand: linear-gradient(135deg, #3f74e6 0%, #2452c0 52%, #17419f 100%);
+  --gradient-brand-soft: linear-gradient(135deg, #f2f6fe 0%, #e4f6f7 100%);
+  /* 青蓝渐变：AI 生成中的光带 / 发送键激活态 */
+  --gradient-accent: linear-gradient(135deg, #9ad4cb 0%, #35b3c9 48%, #1e93a8 100%);
+  /* 弥散渐变：卡片 / 大图背景用的柔和三色光晕（低饱和，不抢内容） */
+  --gradient-diffuse: radial-gradient(120% 90% at 12% 0%, rgba(89, 139, 253, 0.22), transparent 58%),
+    radial-gradient(100% 80% at 92% 8%, rgba(53, 179, 201, 0.2), transparent 56%),
+    radial-gradient(90% 70% at 50% 100%, rgba(154, 212, 203, 0.18), transparent 60%);
 
-  /* ---------- 选区几何（橄榄，与青柠同族但不抢信号色） ---------- */
-  --color-select: #5b6b14;
-  --color-select-soft: #eef7d8;
-  --color-select-line: #9ccb2e;
+  /* ---------- 选区几何（蓝，与信号色同族但更沉） ---------- */
+  --color-select: #2452c0;
+  --color-select-soft: #e9f0fe;
+  --color-select-line: #7fa8f5;
 
   /* ---------- 语义 ---------- */
   --color-success: #2c7a4b;
@@ -150,8 +165,8 @@
   --color-warning-subtle: #fbf0d8;
   --color-danger: #c0392b;
   --color-danger-subtle: #fbe9e6;
-  --color-info: #2f6feb;
-  --color-focus-ring: #8fb32a;
+  --color-info: #3b7be8;
+  --color-focus-ring: #598bfd;
 
   /* ---------- 阴影（暖灰，禁纯黑） ---------- */
   --shadow-xs: 0 1px 2px rgba(45, 38, 20, 0.05);
@@ -163,8 +178,8 @@
   --shadow-lg: var(--shadow-float);
   --shadow-drag: 0 12px 28px -10px rgba(45, 38, 20, 0.18), 0 44px 88px -32px rgba(45, 38, 20, 0.26);
   --shadow-paper-edge: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  /* [NEW] 青柠外发光：激活态 / 生成中 */
-  --shadow-glow: 0 0 0 1px rgba(169, 226, 75, 0.5), 0 8px 30px -6px rgba(160, 210, 60, 0.45);
+  /* 蓝绿外发光：激活态 / 生成中 */
+  --shadow-glow: 0 0 0 1px rgba(89, 139, 253, 0.45), 0 8px 30px -6px rgba(53, 179, 201, 0.38);
 
   --ring-focus: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-focus-ring);
 
@@ -189,12 +204,114 @@
   /* ---------- 噪点（3%）：纸的质感，不引入色偏 ---------- */
   --texture-paper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
 
-  /* [NEW] 首页环境光：青柠 + 暖砂 两团极淡的光，撑起纵深 */
-  --ambient-1: radial-gradient(760px 520px at 18% 8%, rgba(205, 245, 100, 0.32), transparent 66%);
-  --ambient-2: radial-gradient(680px 460px at 88% 4%, rgba(226, 205, 160, 0.4), transparent 62%);
+  /* 首页环境光：蓝 / 青 / 薄荷 三团极淡的弥散光，撑起纵深 */
+  --ambient-1: radial-gradient(760px 520px at 18% 8%, rgba(89, 139, 253, 0.26), transparent 66%);
+  --ambient-2: radial-gradient(680px 460px at 88% 4%, rgba(53, 179, 201, 0.24), transparent 62%);
+  --ambient-3: radial-gradient(520px 420px at 62% 92%, rgba(154, 212, 203, 0.22), transparent 64%);
+
+  /* ==========================================================================
+   * [V3] 页面壳刻度
+   *
+   * 背景：审计发现 5 个页面各有一套 gutter + max-width（880 / 1024 / 1120 /
+   * 1240 / 1480），1440 视口下标题左沿分别落在 56 / 188 / 203 / 238 px。
+   * 下面是唯一的一套刻度——所有页面只允许从这里取值。
+   * ========================================================================== */
+  --shell-gutter: 20px; /* 手机（<640） */
+  --shell-gutter-md: 32px; /* 平板（≥640） */
+  --shell-gutter-lg: 48px; /* 桌面（≥1024） */
+
+  /* max-width 是「含 gutter 的外框宽度」。三档里只有第一档是常用档：
+   * 1280 在 1440 视口下内容左沿 = (1440-1280)/2 + 48 = 128px；
+   * 所有页面都用它，左沿才会完全对齐（此前 880/1024/1120/1240/1480 五档并存，
+   * 左沿分别落在 56/188/203/238px）。
+   * 宽表不再靠更大的容器解决——表格在卡片内横向滚动。 */
+  --shell-max: 1280px; /* 默认，唯一常用档 */
+  --shell-max-wide: 1440px; /* 仅 ≥1600 视口且表格列 ≥8 时启用；当前无页面使用 */
+  --shell-max-narrow: 880px; /* 仅「整页只有一个表单/一张空态」时使用 */
+
+  /* 顶栏实际占用高度 = 44px 浮条 + 10px 外边距（TopBar 用 mx-2.5 mt-2.5 h-11）。
+   * 页头 sticky 的 top 是 0（滚动容器已在顶栏之下），这个值只用于估算首屏可见高度。 */
+  --topbar-h: 54px;
+  --shell-header-min-h: 76px; /* 无 tabs 的页头最小高 */
+  --shell-header-pad-y: 20px; /* 页头上下内边距 */
+  --shell-header-gap: 24px; /* 页头基线 → 第一块内容 */
+  --shell-header-gap-tabs: 20px; /* 有 tabs 时 tabs 基线 → 内容 */
+  --tab-h: 40px; /* 页头 tabs 行高 */
+  --tab-indicator-h: 2px;
+  /* 页面底部安全间距：曾出现 /skills 最后一行卡片被视口裁掉半个标题，
+   * 根因是滚动容器没有底部内边距。有浮动操作条的页面再加 --shell-bottom-pad-float。 */
+  --shell-bottom-pad: 48px;
+  --shell-bottom-pad-float: 104px;
+
+  /* 节区节奏（页面内并列区块之间的纵向间距） */
+  --gap-dense: 24px; /* 驾驶舱：卡片紧邻 */
+  --gap-normal: 40px; /* 默认：并列 section */
+  --gap-loose: 64px; /* 稀疏：内容型页面 */
+  --gap-section: 80px; /* 仅首页这类品牌页 */
+  --gap-row: 12px; /* 工具栏按钮、筛选胶囊之间 */
+  --gap-inline: 8px; /* 图标与文字、按钮与按钮 */
+
+  /* 卡片 */
+  --card-radius: 16px;
+  --card-pad: 20px;
+  --card-pad-tight: 16px;
+  --card-hover-lift: -2px;
+  --card-media-mat: var(--color-bg-subtle); /* 图片托盘底色：object-contain 时露出的"卡纸" */
+
+  /* 表格 */
+  --table-radius: 16px;
+  --table-th-h: 44px;
+  --table-row-h: 56px;
+  --table-cell-px: 16px;
+  --table-foot-h: 56px;
+
+  /* 空状态 */
+  --empty-glyph: 72px; /* 图形容器边长 */
+  --empty-glyph-icon: 28px; /* 内部图标尺寸 */
+  --empty-min-h: 320px; /* 空态最小高度：避免浮在大留白正中 */
+
+  /* 触控与焦点（WCAG 2.5.5） */
+  --tap-min: 44px;
+  --focus-ring-w: 2px;
+  --focus-ring-offset: 2px;
+
+  /* 粘性页头 / 表格吸底分页：只用一道 1px 收边 + 极浅下投影，
+   * 目的是"让内容从下面滑过去"这件事被看见，不是画一根分割线。 */
+  --shadow-sticky: 0 1px 0 color-mix(in srgb, var(--color-border) 70%, transparent),
+    0 8px 16px -16px rgba(45, 38, 20, 0.5);
+  --shadow-table-foot: 0 -1px 0 color-mix(in srgb, var(--color-border) 70%, transparent),
+    0 -8px 16px -16px rgba(45, 38, 20, 0.4);
+
+  /* ---------- [V3] 图表 ----------
+   * 本项目没有图表依赖（package.json 里无 recharts/d3），趋势图手写 <svg>。
+   * 配色只取「纸 / 墨 / 蓝绿」同族，禁紫禁粉。
+   * 四个序列按使用频率排序：1 是主指标（用量/消耗），2 是人数类，3 是异常类，
+   * 4 是同环比/历史对照（灰，主动退到后面）。 */
+  --chart-1: #598bfd; /* 品牌蓝（主序列） */
+  --chart-2: #35b3c9; /* 青蓝 */
+  --chart-3: #a9761b; /* 赭石（冷调里唯一的暖点，用来拉开序列） */
+  --chart-4: #8a8674; /* 暖灰（对照） */
+  /* 网格 / 轴线随主题翻转：color-mix 的基色是 --color-text，亮色取深、暗色取浅 */
+  --chart-grid: color-mix(in srgb, var(--color-text) 9%, transparent);
+  --chart-axis: color-mix(in srgb, var(--color-text) 16%, transparent);
+  --chart-label: var(--color-text-tertiary);
+  --chart-fill-1: color-mix(in srgb, var(--chart-1) 10%, transparent);
+  --chart-fill-2: color-mix(in srgb, var(--chart-2) 10%, transparent);
+  --chart-dot-ring: var(--color-surface); /* 数据点外圈用纸色"挖"出来 */
+  --chart-line-w: 2px;
+  --chart-dot-r: 3px;
+  --chart-bar-r: 2px;
+  --chart-bar-min-w: 6px;
+  --chart-bar-max-w: 24px;
+  --chart-h: 180px; /* 主图高度 */
+  --chart-h-sm: 64px; /* 卡内 mini 趋势（sparkline） */
+  --chart-plot-top: 8px;
+  --chart-plot-right: 8px;
+  --chart-plot-bottom: 24px; /* 让出 x 轴标签 */
+  --chart-plot-left: 44px; /* 让出 y 轴标签 */
 }
 
-/* 暗色：暖黑工作室（暗房），青柠更亮，卡面靠明度上浮 */
+/* 暗色：暖黑工作室（暗房），蓝绿更亮，卡面靠明度上浮 */
 [data-theme='dark'] {
   --color-bg: #0b0a07;
   --color-bg-subtle: #11100b;
@@ -219,26 +336,33 @@
   --color-border-faint: #201d13;
   --color-border-strong: #423c27;
 
-  /* 暗色下「主按钮」改用奶油白：深色底上黑按钮会消失 */
-  --color-brand: #efe9d6;
-  --color-brand-hover: #fffdf0;
-  --color-brand-active: #ffffff;
-  --color-brand-subtle: #26231a;
-  --color-brand-text: #dad4bf;
+  /* 暗色下「主按钮」用亮蓝：深色底上黑按钮会消失，亮蓝 + 深墨字对比 5.7:1 */
+  --color-brand: #7ba4ff;
+  --color-brand-hover: #96b7ff;
+  --color-brand-active: #a9c4ff;
+  --color-brand-subtle: #16233d;
+  --color-brand-text: #b7cdff;
 
-  --color-accent: #d6ff6e;
-  --color-accent-strong: #c3f04d;
-  --color-accent-soft: #212a10;
-  --color-accent-ink: #dfeeae;
-  --color-on-accent: #1a1f05;
+  --color-brand-blue: #598bfd;
+  --color-brand-mint: #9ad4cb;
+  --color-brand-cyan: #35b3c9;
 
-  --gradient-brand: linear-gradient(135deg, #fffdf2 0%, #efe9d6 55%, #d8d2bd 100%);
-  --gradient-brand-soft: linear-gradient(135deg, #1b1912 0%, #1f2413 100%);
-  --gradient-accent: linear-gradient(135deg, #e9ffb0 0%, #d6ff6e 48%, #b7e84f 100%);
+  --color-accent: #4cc6da;
+  --color-accent-strong: #6ad6e6;
+  --color-accent-soft: #0f2a30;
+  --color-accent-ink: #a9e7f0;
+  --color-on-accent: #052028;
 
-  --color-select: #b7e84f;
-  --color-select-soft: #212a10;
-  --color-select-line: #c3f04d;
+  --gradient-brand: linear-gradient(135deg, #8fb2ff 0%, #5b8cf5 50%, #3f6fd8 100%);
+  --gradient-brand-soft: linear-gradient(135deg, #111a2c 0%, #0f2730 100%);
+  --gradient-accent: linear-gradient(135deg, #b9ece2 0%, #4cc6da 48%, #2ba3b8 100%);
+  --gradient-diffuse: radial-gradient(120% 90% at 12% 0%, rgba(89, 139, 253, 0.2), transparent 58%),
+    radial-gradient(100% 80% at 92% 8%, rgba(53, 179, 201, 0.16), transparent 56%),
+    radial-gradient(90% 70% at 50% 100%, rgba(154, 212, 203, 0.12), transparent 60%);
+
+  --color-select: #7ba4ff;
+  --color-select-soft: #16233d;
+  --color-select-line: #5b8cf5;
 
   --color-success: #4ade9b;
   --color-success-subtle: #0f2a20;
@@ -247,7 +371,7 @@
   --color-danger: #ff8a80;
   --color-danger-subtle: #2a1416;
   --color-info: #6ea8ff;
-  --color-focus-ring: #c3f04d;
+  --color-focus-ring: #7ba4ff;
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-sheet: 0 1px 2px rgba(0, 0, 0, 0.45), 0 4px 14px -4px rgba(0, 0, 0, 0.4);
@@ -255,12 +379,28 @@
   --shadow-float: 0 8px 20px -8px rgba(0, 0, 0, 0.55), 0 32px 72px -24px rgba(0, 0, 0, 0.65);
   --shadow-drag: 0 12px 28px -8px rgba(0, 0, 0, 0.65), 0 48px 96px -28px rgba(0, 0, 0, 0.75);
   --shadow-paper-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --shadow-glow: 0 0 0 1px rgba(214, 255, 110, 0.45), 0 8px 34px -8px rgba(180, 230, 80, 0.4);
+  --shadow-glow: 0 0 0 1px rgba(123, 164, 255, 0.4), 0 8px 34px -8px rgba(76, 198, 218, 0.35);
 
   --overlay: rgba(0, 0, 0, 0.68);
   --color-scrim: rgba(0, 0, 0, 0.88);
   --color-scrim-text: #f4f1e7;
 
-  --ambient-1: radial-gradient(760px 520px at 18% 8%, rgba(160, 200, 70, 0.16), transparent 66%);
-  --ambient-2: radial-gradient(680px 460px at 88% 4%, rgba(120, 100, 60, 0.22), transparent 62%);
+  --ambient-1: radial-gradient(760px 520px at 18% 8%, rgba(89, 139, 253, 0.18), transparent 66%);
+  --ambient-2: radial-gradient(680px 460px at 88% 4%, rgba(53, 179, 201, 0.16), transparent 62%);
+  --ambient-3: radial-gradient(520px 420px at 62% 92%, rgba(154, 212, 203, 0.1), transparent 64%);
+
+  /* ---------- [V3] 页面壳 / 表格 / 图表：暗色对应值 ----------
+   * 布局刻度（gutter / max-width / 行高 / 圆角）是纯尺寸，暗色不覆盖，
+   * 只覆盖「跟明度有关」的两项：投影与图表色。 */
+  --shadow-sticky: 0 1px 0 var(--color-border), 0 8px 16px -16px rgba(0, 0, 0, 0.9);
+  --shadow-table-foot: 0 -1px 0 var(--color-border), 0 -8px 16px -16px rgba(0, 0, 0, 0.85);
+
+  /* 暗底上橄榄绿会糊成一团，四条全部提亮、降饱和，靠明度区分序列 */
+  --chart-1: #7ba4ff; /* 亮品牌蓝 */
+  --chart-2: #4cc6da; /* 亮青蓝 */
+  --chart-3: #e0b463; /* 暖琥珀 */
+  --chart-4: #8d8778; /* 暖灰（对照） */
+  --chart-fill-1: color-mix(in srgb, var(--chart-1) 14%, transparent);
+  --chart-fill-2: color-mix(in srgb, var(--chart-2) 14%, transparent);
+  --chart-dot-ring: var(--color-surface);
 }

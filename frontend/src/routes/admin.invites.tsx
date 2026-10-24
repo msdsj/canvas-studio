@@ -9,6 +9,7 @@ import { FormField } from '@/components/ui/form-field'
 import { Modal } from '@/components/ui/modal'
 import { Pagination } from '@/components/ui/pagination'
 import { InviteCodeTable } from '@/components/admin/InviteCodeTable'
+import { TableCard } from '@/components/ui/table'
 import { adminApi } from '@/lib/api/admin'
 import { useToast } from '@/hooks/use-toast'
 import { errorMessage } from '@/lib/errors'
@@ -62,20 +63,22 @@ function AdminInvitesPage() {
         </Button>
       }
     >
-      <InviteCodeTable
-        invites={invites}
-        loading={loading}
-        onCopy={copy}
-        onToggle={(invite) =>
-          adminApi
-            .updateInvite(invite.id, invite.status === 'active' ? 'disabled' : 'active')
-            .then(() => void load())
-            .catch((e) => toast.error(errorMessage(e, te)))
-        }
-        onDelete={(invite) =>
-          adminApi.deleteInvite(invite.id).then(() => void load()).catch((e) => toast.error(errorMessage(e, te)))
-        }
-      />
+      <TableCard>
+        <InviteCodeTable
+          invites={invites}
+          loading={loading}
+          onCopy={copy}
+          onToggle={(invite) =>
+            adminApi
+              .updateInvite(invite.id, invite.status === 'active' ? 'disabled' : 'active')
+              .then(() => void load())
+              .catch((e) => toast.error(errorMessage(e, te)))
+          }
+          onDelete={(invite) =>
+            adminApi.deleteInvite(invite.id).then(() => void load()).catch((e) => toast.error(errorMessage(e, te)))
+          }
+        />
+      </TableCard>
 
       <Pagination
         page={page}

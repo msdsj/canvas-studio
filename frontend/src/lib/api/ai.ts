@@ -95,11 +95,15 @@ export interface PolishVariant {
   length: number
 }
 
+/** 润色强度：light=只补细节；pro=优化表达（默认）。 */
+export type PolishStrength = 'light' | 'pro'
+
 export interface PolishResult {
   text: string
   variants: PolishVariant[]
   original: string
   mode: string
+  strength?: PolishStrength
   engine: 'relay' | 'local'
   model: string
   elapsed_ms: number
@@ -179,6 +183,7 @@ export const aiApi = {
     mode?: PolishMode
     variants?: number
     context?: Record<string, unknown>
+    strength?: PolishStrength
   }): Promise<PolishResult> => {
     // 兼容旧后端（只返回 text/notes）：滚动升级时前端不至于因为少一个字段而崩
     const data = await api.post<PolishResult & { notes?: string[] }>('/ai/polish', payload)

@@ -5,9 +5,11 @@ import {
   Copy,
   Download,
   Ellipsis,
+  FolderPlus,
   Loader2,
   MessageSquarePlus,
   Plus,
+  RotateCw,
   Scissors,
   Shuffle,
   SquareDashedMousePointer,
@@ -51,6 +53,12 @@ export interface ImageActionBarProps {
   onReference: () => void
   onCopy: () => void
   onDelete: () => void
+  /** 顺时针旋转 90°（本地操作，不扣额度） */
+  onRotate?: () => void
+  /** 收进团队 / 个人素材库（本地操作，不扣额度） */
+  onAddToLibrary?: () => void
+  /** 正在加入素材库 */
+  addingToLibrary?: boolean
 }
 
 /** 操作条与图片的间距：拉开一些，别压在图片边缘、挡住视线 */
@@ -84,6 +92,9 @@ export function ImageActionBar({
   onReference,
   onCopy,
   onDelete,
+  onRotate,
+  onAddToLibrary,
+  addingToLibrary,
 }: ImageActionBarProps) {
   const { t } = useTranslation('stage')
   const barRef = useRef<HTMLDivElement>(null)
@@ -205,6 +216,23 @@ export function ImageActionBar({
         <Shuffle size={14} />
       </BarButton>
       <span data-bar-item aria-hidden className="mx-0.5 h-4 w-px bg-border" />
+
+      {onRotate && (
+        <BarButton compact label="旋转" hint="顺时针旋转 90°（不消耗额度）" onClick={onRotate}>
+          <RotateCw size={14} />
+        </BarButton>
+      )}
+      {onAddToLibrary && (
+        <BarButton
+          compact
+          label="收进素材库"
+          hint="保存到素材库，之后可复用（不消耗额度）"
+          onClick={onAddToLibrary}
+          loading={addingToLibrary}
+        >
+          <FolderPlus size={14} />
+        </BarButton>
+      )}
 
       <BarButton compact label={t('bar.download')} hint={t('bar.download_hint')} onClick={() => onDownload('png')}>
         <Download size={14} />

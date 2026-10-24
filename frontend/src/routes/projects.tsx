@@ -78,6 +78,7 @@ function ProjectsPage() {
       <AppShell>
           <PageShell
             title={t('title')}
+            description={t('subtitle')}
             actions={
               <Button onClick={() => setCreateOpen(true)}>
                 <Plus size={16} /> {t('create')}
@@ -93,16 +94,19 @@ function ProjectsPage() {
               onDelete={setDeleteTarget}
             />
 
-            <Pagination
-              page={page}
-              size={size}
-              total={total}
-              onPageChange={setPage}
-              onSizeChange={(s) => {
-                setSize(s)
-                setPage(1)
-              }}
-            />
+            {/* 只有一页时不显示分页条：孤零零一条"共 1 条"贴在页面底部，比没有更奇怪 */}
+            {total > size && (
+              <Pagination
+                page={page}
+                size={size}
+                total={total}
+                onPageChange={setPage}
+                onSizeChange={(s) => {
+                  setSize(s)
+                  setPage(1)
+                }}
+              />
+            )}
           </PageShell>
       </AppShell>
 

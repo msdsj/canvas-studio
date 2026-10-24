@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
+import { Cpu, LogOut, ShieldCheck, User } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute'
 import { PageShell } from '@/components/layout/PageShell'
@@ -15,20 +16,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { AIConfigDialog } from '@/components/ai/AIConfigDialog'
 import { meApi } from '@/lib/api/me'
+import { aiApi, type RelayStatus } from '@/lib/api/ai'
 import { useAuth } from '@/hooks/use-auth'
 import { useAuthStore } from '@/stores/auth'
 import { useLanguage } from '@/hooks/use-language'
 import { useTheme } from '@/hooks/use-theme'
 import { useToast } from '@/hooks/use-toast'
 import { errorMessage } from '@/lib/errors'
-import type { SupportedLanguage } from '@/i18n'
-import type { ThemeMode } from '@/stores/theme'
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
 })
 
+/**
+ * 账户设置。
+ *
+ * v3 改动：从「一列卡片堆叠」改成 **左分区导航 + 右内容**（左 184px / 列间距 32px /
+ * 右列 ≤720px）。改造前四块内容（资料 / 密码 / 中转站 / 会话）平铺在一条窄列里，
+ * 用户找不到"AI 中转站在哪"，而它恰恰是最需要被看见的一块。
+ */
 function SettingsPage() {
   const { t } = useTranslation('settings')
   const { t: te } = useTranslation()
@@ -47,6 +55,19 @@ function SettingsPage() {
   const [confirm, setConfirm] = useState('')
   const [savingProfile, setSavingProfile] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
+  const [relay, setRelay] = useState<RelayStatus | null>(null)
+  const [relayOpen, setRelayOpen] = useState(false)
+
+  useEffect(() => {
+    setDisplayName(user?.display_name ?? '')
+  }, [user?.display_name])
+
+  useEffect(() => {
+    void aiApi
+      .status()
+      .then(setRelay)
+      .catch(() => setRelay(null))
+  }, [])
 
   const saveProfile = async () => {
     setSavingProfile(true)
@@ -90,16 +111,41 @@ function SettingsPage() {
     }
   }
 
+  const sections = [
+    { id: 'profile', label: t('nav.profile'), icon: User },
+    { id: 'relay', label: t('nav.relay'), icon: Cpu },
+    { id: 'security', label: t('nav.security'), icon: ShieldCheck },
+    { id: 'danger', label: t('nav.danger'), icon: LogOut },
+  ]
+
   return (
     <ProtectedRoute>
       <AppShell>
-          <PageShell
-            title={t('title')}
-            width="narrow"
-          >
-            <div className="flex flex-col gap-5">
-              <Card className="flex flex-col gap-4">
-                <h2 className="text-md font-semibold text-text">{t('profile.title')}</h2>
+        <PageShell title={t('title')} description={t('subtitle')}>
+          <div className="flex gap-8">
+            <nav className="hidden w-[184px] shrink-0 flex-col gap-1 lg:flex">
+              {sections.map((section) => {
+                const Icon = section.icon
+                return (
+                  <a
+                    key={section.id}
+                    href={`#${section.id}`}
+                    className="flex items-center gap-2.5 rounded-[10px] px-3 py-2 text-ui text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+                  >
+                    <Icon size={16} />
+                    {section.label}
+                  </a>
+                )
+              })}
+            </nav>
+
+            <div className="flex min-w-0 flex-1 flex-col gap-5 lg:max-w-[720px]">
+              {/* ---------- 账户资料 ---------- */}
+              <Card id="profile" className="flex scroll-mt-24 flex-col gap-4">
+                <div>
+                  <h2 className="text-md font-semibold text-text">{t('profile.title')}</h2>
+                  <p className="mt-1 text-caption text-text-tertiary">{t('profile.desc')}</p>
+                </div>
                 <FormField label={t('profile.email')}>
                   <Input value={user?.email ?? ''} disabled />
                 </FormField>
@@ -107,7 +153,7 @@ function SettingsPage() {
                   <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
                 </FormField>
                 <FormField label={t('profile.locale')}>
-                  <Select value={language} onValueChange={(v) => setLanguage(v as SupportedLanguage)}>
+                  <Select value={language} onValueChange={(v) => setLanguage(v as never)}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -123,7 +169,7 @@ function SettingsPage() {
                 <FormField label={t('profile.theme')}>
                   <Select
                     value={mode}
-                    onValueChange={(v) => setMode(v as ThemeMode, themeTriggerRef.current)}
+                    onValueChange={(v) => setMode(v as 'light' | 'dark' | 'system', themeTriggerRef.current)}
                   >
                     <SelectTrigger ref={themeTriggerRef}>
                       <SelectValue />
@@ -136,42 +182,103 @@ function SettingsPage() {
                   </Select>
                 </FormField>
                 <div className="flex justify-end">
-                  <Button loading={savingProfile} onClick={saveProfile}>
+                  <Button loading={savingProfile} onClick={() => void saveProfile()}>
                     {te('common:action.save')}
                   </Button>
                 </div>
               </Card>
 
-              <Card className="flex flex-col gap-4">
-                <h2 className="text-md font-semibold text-text">{t('password.title')}</h2>
+              {/* ---------- AI 中转站 ---------- */}
+              <Card id="relay" className="flex scroll-mt-24 flex-col gap-3">
+                <div>
+                  <h2 className="text-md font-semibold text-text">{t('relay.title')}</h2>
+                  <p className="mt-1 text-caption text-text-tertiary">{t('relay.desc')}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-[12px] bg-bg-subtle px-4 py-3">
+                  <RelayFact
+                    label={t('relay.status')}
+                    value={relay?.configured ? t('relay.ready') : t('relay.not_ready')}
+                    ok={relay?.configured}
+                  />
+                  <RelayFact label={t('relay.model')} value={relay?.model || '—'} />
+                  <RelayFact label={t('relay.source')} value={relay?.provider_name || '—'} />
+                </div>
+                <div className="flex justify-end">
+                  <Button variant="secondary" onClick={() => setRelayOpen(true)}>
+                    {t('relay.manage')}
+                  </Button>
+                </div>
+              </Card>
+
+              {/* ---------- 安全 ---------- */}
+              <Card id="security" className="flex scroll-mt-24 flex-col gap-4">
+                <div>
+                  <h2 className="text-md font-semibold text-text">{t('password.title')}</h2>
+                  <p className="mt-1 text-caption text-text-tertiary">{t('password.desc')}</p>
+                </div>
                 <FormField label={t('password.old')}>
-                  <Input type="password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} />
+                  <Input
+                    type="password"
+                    value={oldPassword}
+                    onChange={(e) => setOldPassword(e.target.value)}
+                  />
                 </FormField>
                 <FormField label={t('password.new')}>
-                  <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+                  <Input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                  />
                 </FormField>
                 <FormField label={t('password.confirm')}>
                   <Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
                 </FormField>
                 <div className="flex justify-end">
-                  <Button loading={savingPassword} onClick={changePassword}>
+                  <Button loading={savingPassword} onClick={() => void changePassword()}>
                     {t('password.submit')}
                   </Button>
                 </div>
               </Card>
 
-              <Card className="flex flex-col gap-3">
-                <h2 className="text-md font-semibold text-text">{t('sessions.title')}</h2>
-                <p className="text-sm text-text-secondary">{t('sessions.desc')}</p>
+              {/* ---------- 危险操作 ---------- */}
+              <Card id="danger" className="flex scroll-mt-24 flex-col gap-3 border-danger/30">
+                <div>
+                  <h2 className="text-md font-semibold text-danger">{t('danger.title')}</h2>
+                  <p className="mt-1 text-caption text-text-tertiary">{t('sessions.desc')}</p>
+                </div>
                 <div className="flex justify-end">
-                  <Button variant="danger" onClick={logoutAll}>
-                    {t('sessions.logout_all')}
+                  <Button variant="danger" onClick={() => void logoutAll()}>
+                    <LogOut size={15} /> {t('sessions.logout_all')}
                   </Button>
                 </div>
               </Card>
             </div>
-          </PageShell>
+          </div>
+        </PageShell>
       </AppShell>
+
+      <AIConfigDialog open={relayOpen} onOpenChange={setRelayOpen} />
     </ProtectedRoute>
+  )
+}
+
+function RelayFact({ label, value, ok }: { label: string; value: string; ok?: boolean }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="text-micro text-text-tertiary">{label}</span>
+      <span className="flex items-center gap-1.5 truncate text-caption font-medium text-text">
+        {ok !== undefined && (
+          <span
+            aria-hidden
+            className={
+              ok
+                ? 'h-1.5 w-1.5 shrink-0 rounded-full bg-success'
+                : 'h-1.5 w-1.5 shrink-0 rounded-full bg-text-faint'
+            }
+          />
+        )}
+        {value}
+      </span>
+    </div>
   )
 }

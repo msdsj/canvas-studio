@@ -7,6 +7,7 @@ import {
   Images,
   Loader2,
   Plus,
+  Quote,
   Settings2,
   Sparkles,
   Trash2,
@@ -44,10 +45,10 @@ import {
   type SkillStepState,
 } from '@/lib/api/chat'
 import { ApiError, apiUrl } from '@/lib/api/client'
-import { generateApi } from '@/lib/api/generate'
+import { generateApi, type InferredParams } from '@/lib/api/generate'
 import { events } from '@/lib/events'
 import { errorMessage, errorTextByCode } from '@/lib/errors'
-import { parseServerTime } from '@/lib/utils'
+import { cn, parseServerTime } from '@/lib/utils'
 import { loadPlacedUrls, readNotifiedResults, writeNotifiedResults } from '@/lib/task-persistence'
 import { useUIStore } from '@/stores/ui'
 import { useComposerHandoff } from '@/stores/composer'
@@ -74,6 +75,7 @@ import { GenerationResultCard } from './GenerationResultCard'
 import { ConfirmCountCard, type ConfirmCardState } from './ConfirmCountCard'
 import { ClarifyCard, type ClarifyState } from './ClarifyCard'
 import { PolishPopover } from './PolishPopover'
+import { ParamPanel } from './ParamPanel'
 import { AIConfigDialog } from '@/components/ai/AIConfigDialog'
 import { SessionSelector } from './SessionSelector'
 
@@ -111,6 +113,8 @@ interface ChatPanelProps {
   selection?: CanvasSelectionContext | null
   /** 「缺少底图」时把用户带回画布（不传则该按钮不出现） */
   onFocusCanvas?: () => void
+  /** 点「已在画布 · 定位」时把画布视口移到那张图上 */
+  onLocateResult?: (url: string) => void
   /** 首页交接下来的一句话：会话就绪后自动提交（只消费一次） */
   initialPrompt?: string | null
   /** 首页选好的参考图，随首次提交一起上传 */
@@ -259,6 +263,7 @@ export function ChatPanel({
   onPickAsset,
   selection,
   onFocusCanvas,
+  onLocateResult,
   initialPrompt,
   initialFiles,
   onInitialConsumed,
@@ -277,7 +282,19 @@ export function ChatPanel({
 
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [messages, setMessages] = useState<ChatMessageType[]>([])
+  /** 还有更早的历史消息（向上滚动/点按钮加载） */
+  const [hasOlder, setHasOlder] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  /** 引用回复：把被引用的原话带进输入框 */
+  const [quote, setQuote] = useState<{ id: string; author: string; text: string } | null>(null)
   const [input, setInput] = useState('')
+  /** 输入框旁的「原始 / AI 优化」开关：默认 AI 优化，不再用弹窗打断。 */
+  const [polishMode, setPolishMode] = useState<'ai' | 'raw'>('ai')
+  /** 参数面板：自动识别结果 + 用户手动覆盖 */
+  const [params, setParams] = useState<InferredParams | null>(null)
+  const [paramLoading, setParamLoading] = useState(false)
+  const [paramOverride, setParamOverride] = useState<{ aspect?: string; size?: string } | null>(null)
+  const paramTimerRef = useRef<number | null>(null)
   const [creating, setCreating] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null)
@@ -407,6 +424,47 @@ export function ChatPanel({
     void loadRelay()
   }, [loadRelay])
 
+  /**
+   * 参数跟随需求：输入防抖 420ms 后向后端要一份推断结果。
+   *
+   * 为什么不在前端算：场景词表与「上游支持的尺寸档位」都在后端，
+   * 前端再维护一份必然漂移；面板上写 16:9、实际出图却是正方形，
+   * 比没有面板更伤信任。
+   */
+  useEffect(() => {
+    const text = input.trim()
+    if (paramTimerRef.current) window.clearTimeout(paramTimerRef.current)
+    if (!text) {
+      setParams(null)
+      setParamLoading(false)
+      return
+    }
+    let cancelled = false
+    setParamLoading(true)
+    paramTimerRef.current = window.setTimeout(() => {
+      generateApi
+        .inferParams({
+          prompt: text,
+          kind: 'generate',
+          aspect: paramOverride?.aspect,
+          size: paramOverride?.size,
+        })
+        .then((next) => {
+          if (!cancelled) setParams(next)
+        })
+        .catch(() => {
+          /* 推断失败不打断输入：面板保留上一次结果 */
+        })
+        .finally(() => {
+          if (!cancelled) setParamLoading(false)
+        })
+    }, 420)
+    return () => {
+      cancelled = true
+      if (paramTimerRef.current) window.clearTimeout(paramTimerRef.current)
+    }
+  }, [input, paramOverride?.aspect, paramOverride?.size])
+
   /*
    * 本地缓存的模型可能已被管理员下线（团队换了中转站/模型名）。
    * 这里静默纠正到清单里的第一个，而不是等用户点了发送才报「模型不存在」——
@@ -428,9 +486,11 @@ export function ChatPanel({
     const request = ++messagesRequestRef.current
     setMessagesLoading(true)
     try {
-      const page = await chatApi.listMessages(id)
+      // 首屏只取最新 20 条：历史很长的会话一次拉 100 条会明显拖慢首屏
+      const page = await chatApi.listMessages(id, { size: 20, latest: true })
       if (sessionIdRef.current !== id || request !== messagesRequestRef.current) return false
       setMessages(page.items)
+      setHasOlder(Boolean(page.has_more))
       return true
     } catch {
       return false
@@ -438,6 +498,26 @@ export function ChatPanel({
       if (sessionIdRef.current === id && request === messagesRequestRef.current) setMessagesLoading(false)
     }
   }, [])
+
+  /** 向上加载更早的消息（prepend，保持滚动位置由浏览器锚定）。 */
+  const loadOlder = useCallback(async () => {
+    const first = messages[0]
+    if (!sessionId || !first || loadingOlder) return
+    setLoadingOlder(true)
+    try {
+      const page = await chatApi.listMessages(sessionId, { size: 20, before: first.id })
+      setMessages((prev) => {
+        const seen = new Set(prev.map((item) => item.id))
+        const older = page.items.filter((item) => !seen.has(item.id))
+        return older.length ? [...older, ...prev] : prev
+      })
+      setHasOlder(Boolean(page.has_more) && page.items.length > 0)
+    } catch {
+      /* 向上加载失败不打断当前阅读 */
+    } finally {
+      setLoadingOlder(false)
+    }
+  }, [messages, sessionId, loadingOlder])
 
   const loadSessions = useCallback(
     async (selectIfEmpty = true) => {
@@ -1033,6 +1113,22 @@ export function ChatPanel({
     [loadMessages, loadRelay, refreshTasks, sessionId, toast, ta, te, handleQuotaError]
   )
 
+  /**
+   * 选区上下文：`buildMask` 是前端函数，不能进 JSON；
+   * 其余字段（底图 id、尺寸、区域坐标）原样带给后端做需求分析。
+   */
+  const selectionPayload = useMemo(() => {
+    if (!selection) return null
+    return {
+      asset_id: selection.asset_id ?? null,
+      mask_asset_id: selection.mask_asset_id ?? null,
+      width: selection.width,
+      height: selection.height,
+      has_doodle: selection.has_doodle,
+      regions: selection.regions,
+    }
+  }, [selection])
+
   /** 全链路提交：语义分析 → 澄清 / 提示词 → 生图。返回是否真的发出了请求。 */
   const submitCompose = async (
     content: string,
@@ -1068,6 +1164,30 @@ export function ChatPanel({
 
     let settled = false
     let inputLoaded = false
+
+    /*
+     * 「AI 优化」模式：先把用户这句话润色一版，再交给生图链路。
+     * 传给后端的 `content` 仍是用户原话（消息气泡要显示他自己写的），
+     * 优化后的指令单独放在 `refined` 里，只影响出图。
+     * 润色失败就退回原话，绝不因为这一步把整个提交卡死。
+     */
+    let refinedText = ''
+    if (polishMode === 'ai' && content.trim().length >= 8) {
+      try {
+        const polished = await aiApi.polish({
+          text: content,
+          scene: 'composer',
+          mode: 'auto',
+          variants: 1,
+          strength: 'pro',
+        })
+        const candidate = polished.variants[0]?.text?.trim() ?? ''
+        if (candidate && candidate !== content.trim()) refinedText = candidate
+      } catch {
+        refinedText = ''
+      }
+    }
+
     composeCancelRef.current = chatApi.composeStream(
       {
         session_id: sessionId,
@@ -1077,6 +1197,10 @@ export function ChatPanel({
           ...(refsOverride ?? refs).map((item) => item.id),
           ...(mentionIds ?? []),
         ],
+        selection: selectionPayload,
+        size: params?.size,
+        aspect: params?.aspect,
+        refined: refinedText || undefined,
         model: imageModel,
         generation_params: paramsSnapshot,
       },
@@ -1230,16 +1354,56 @@ export function ChatPanel({
       return
     }
 
+    // 引用回复：把被引用的原话作为 blockquote 带进这一轮上下文。
+    // 不做隐式拼接——用户能在气泡里看见自己引用了什么。
+    const composed = quote ? `> 引用：${quote.text}\n\n${content}` : content
+
     // 只有请求真的发出去才清空输入：被额度/并发拦下时不能吞掉用户写的内容
     // @ 引用图先落地成资产 id，再随原话一起提交（图生图链路靠它拿到底图）
     const mentionIds = await resolveMentionIds(composerRefs)
-    const started = await submitCompose(content, undefined, mentionIds)
+    const started = await submitCompose(composed, undefined, mentionIds)
     if (!started) return
     setInput('')
+    setQuote(null)
     clearDraft()
     setRefs([])
     clearComposerRefs()
   }
+
+  /** 引用一条消息：只带 80 字摘要，避免整段长回复把输入框撑爆。 */
+  const quoteMessage = useCallback((message: ChatMessageType) => {
+    const text = message.content.replace(/\s+/g, ' ').trim().slice(0, 80)
+    if (!text) return
+    setQuote({ id: message.id, author: message.role === 'user' ? '你' : 'Agent', text })
+  }, [])
+
+  /** 撤回自己的消息（软删），失败时如实提示，不做乐观删除。 */
+  const recallMessage = useCallback(
+    async (message: ChatMessageType) => {
+      try {
+        await chatApi.deleteMessage(message.id)
+        setMessages((prev) => prev.filter((item) => item.id !== message.id))
+        toast.success('已撤回这条消息')
+      } catch (error) {
+        toast.error('撤回失败', errorMessage(error, te))
+      }
+    },
+    [toast, te]
+  )
+
+  /** 一键清空当前对话（软删全部消息，画布与素材不受影响）。 */
+  const clearConversation = useCallback(async () => {
+    if (!sessionId || messages.length === 0) return
+    if (!window.confirm('清空当前对话的全部消息？画布上的图片不会被删除。')) return
+    try {
+      await chatApi.deleteMessages(messages.map((item) => item.id))
+      setMessages([])
+      setHasOlder(false)
+      toast.success('已清空对话')
+    } catch (error) {
+      toast.error('清空失败', errorMessage(error, te))
+    }
+  }, [sessionId, messages, toast, te])
 
   // --------------------------------------------------------------------- //
   // 首页交接：进入工作室后自动提交那句话（只消费一次）
@@ -1502,6 +1666,17 @@ export function ChatPanel({
 
         <button
           type="button"
+          onClick={() => void clearConversation()}
+          disabled={messages.length === 0}
+          title="清空当前对话"
+          aria-label="清空当前对话"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-surface-hover hover:text-danger disabled:opacity-40"
+        >
+          <Trash2 size={14} />
+        </button>
+
+        <button
+          type="button"
           onClick={() => setConfigOpen(true)}
           title={
             configured
@@ -1581,6 +1756,21 @@ export function ChatPanel({
               />
             )}
 
+            {/* 懒加载更早的消息：首屏只拉 20 条，这里按需向上续 */}
+            {hasOlder && !messagesLoading && (
+              <div className="flex justify-center pb-1">
+                <button
+                  type="button"
+                  onClick={() => void loadOlder()}
+                  disabled={loadingOlder}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-full bg-surface px-3 text-micro text-text-secondary shadow-sheet ring-1 ring-inset ring-border-faint transition-colors hover:bg-surface-hover disabled:opacity-60"
+                >
+                  {loadingOlder ? <Loader2 size={11} className="animate-spin" /> : null}
+                  {loadingOlder ? '正在加载更早的消息…' : '加载更早的消息'}
+                </button>
+              </div>
+            )}
+
             {timeline.map((entry) => {
               if (entry.kind === 'message') {
                 const isLatestReply = entry.message.id === latestReplyId
@@ -1609,6 +1799,8 @@ export function ChatPanel({
                       traceOpen={isLatestReply}
                       skillId={compose?.skill_id || null}
                       skillName={run?.skill?.name || null}
+                      onQuote={quoteMessage}
+                      onRecall={entry.message.role === 'user' ? recallMessage : undefined}
                     />
                     {run && (
                       <div className="pl-[30px]">
@@ -1725,6 +1917,7 @@ export function ChatPanel({
                           onRegenerate={handleRegenerate}
                           onPreview={(task, target) => setPreview({ url: target, prompt: task.prompt })}
                           onReference={referenceImage}
+                          onLocate={onLocateResult}
                         />
                       </div>
                     ))}
@@ -1746,6 +1939,7 @@ export function ChatPanel({
                       onRegenerate={handleRegenerate}
                       onPreview={(task, url) => setPreview({ url, prompt: task.prompt })}
                       onReference={referenceImage}
+                      onLocate={onLocateResult}
                     />
                   </div>
                 </div>
@@ -1887,6 +2081,35 @@ export function ChatPanel({
         onRemoveMention={removeComposerRef}
         onImageFiles={(files) => void handleImageFiles(files)}
         focusSignal={refFocusSignal}
+        paramSlot={
+          hasSelection || composing ? null : (
+            <div className="flex flex-col gap-1.5">
+              {quote && (
+                <div className="flex items-start gap-1.5 rounded-md bg-bg-subtle px-2 py-1.5 text-micro leading-relaxed text-text-secondary">
+                  <Quote size={11} className="mt-[2px] shrink-0 text-text-faint" />
+                  <span className="min-w-0 flex-1 truncate">
+                    引用 {quote.author}：{quote.text}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setQuote(null)}
+                    aria-label="取消引用"
+                    className="shrink-0 rounded-full p-0.5 text-text-faint transition-colors hover:bg-surface-hover hover:text-text"
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              )}
+              <ParamPanel
+                value={params}
+                loading={paramLoading}
+                manual={Boolean(paramOverride?.aspect || paramOverride?.size)}
+                onChange={(next) => setParamOverride((prev) => ({ ...prev, ...next }))}
+                onReset={() => setParamOverride(null)}
+              />
+            </div>
+          )
+        }
         aboveSlot={
           composing || analysisActive ? null : (
             <PromptGuide
@@ -1897,7 +2120,7 @@ export function ChatPanel({
           )
         }
         topRightSlot={
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-1">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button type="button" title="提示词历史" aria-label="提示词历史" className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-tertiary hover:bg-surface-hover hover:text-text">
@@ -1927,7 +2150,33 @@ export function ChatPanel({
                 </>}
               </DropdownMenuContent>
             </DropdownMenu>
-            <PolishPopover text={input} scene="composer" onApply={(next) => updateInput(next)} disabled={!input.trim()} />
+            {/* 原始 / AI 润色：一键切换，不再用弹窗打断输入 */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={polishMode === 'ai'}
+              title={
+                polishMode === 'ai'
+                  ? '当前使用 AI 优化后的指令；点击改用你的原始描述'
+                  : '当前使用你的原始描述；点击改用 AI 优化后的指令'
+              }
+              onClick={() => setPolishMode((prev) => (prev === 'ai' ? 'raw' : 'ai'))}
+              className={cn(
+                'inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-1.5 text-micro transition-colors',
+                polishMode === 'ai'
+                  ? 'bg-brand-subtle text-brand-text'
+                  : 'text-text-tertiary hover:bg-bg-subtle hover:text-text-secondary'
+              )}
+            >
+              <Sparkles size={11} />
+              {polishMode === 'ai' ? 'AI 优化' : '原始'}
+            </button>
+            <PolishPopover
+              text={input}
+              scene="composer"
+              onApply={(next) => updateInput(next)}
+              disabled={!input.trim()}
+            />
           </div>
         }
         attachSlot={

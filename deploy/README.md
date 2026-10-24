@@ -1,4 +1,4 @@
-# canvas-studio 部署说明
+# msdsj 部署说明
 
 三组件独立可部署：`frontend`（nginx:80）、`backend`（FastAPI:8000）、`gateway`（FastAPI:8100）。
 

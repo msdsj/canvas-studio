@@ -131,7 +131,9 @@ async def test_image_api_metadata_cannot_upgrade_count_or_quality_and_quota_matc
     assert response.status_code == 200, response.text
     task_id = response.json()["data"]["id"]
     assert len(calls) == 1 and calls[0]["n"] == 1 and calls[0]["quality"] == "standard"
-    assert calls[0]["size"] == "1024x1024" and calls[0]["model"] == "gpt-image-2"
+    # 参数自适应：未显式给 size 时按「文本 > 场景」推断（通用兜底 4:3，
+    # 不再是全局正方形）；但 params 里的 4096x4096 绝不能覆盖执行参数。
+    assert calls[0]["size"] == "1536x1024" and calls[0]["model"] == "gpt-image-2"
     async with AsyncSessionLocal() as db:
         task = await db.get(GenerationTask, task_id)
         user = (await db.execute(select(User).where(User.email == "parameter-billing@example.com"))).scalar_one()

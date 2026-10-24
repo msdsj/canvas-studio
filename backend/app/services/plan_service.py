@@ -18,14 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import config_service
 from app.services import edit_ops as ops_module
-from app.services import prompt_service
+from app.services import param_service, prompt_service, text_llm
 from app.services.edit_handlers import (
     EditHandler,
     load_handlers,
     render_catalog,
     resolve_handler,
 )
-from app.services.gateway_client import gateway_client
 from app.utils.errors import AppError, ErrorCode
 from app.utils.logging import get_logger
 
@@ -82,9 +81,48 @@ def _normalize_regions(raw: Any) -> list[dict[str, Any]]:
     return regions
 
 
-def _build_user_message(message: str, regions: list[dict[str, Any]]) -> str:
-    """拼装用户消息：区域清单（编号 + 归一化坐标）+ 原始需求。"""
+def _build_user_message(
+    message: str,
+    regions: list[dict[str, Any]],
+    history: list[dict[str, Any]] | None = None,
+    canvas: dict[str, Any] | None = None,
+) -> str:
+    """拼装用户消息：对话上下文 + 画布操作信息 + 区域清单 + 原始需求。
+
+    这是「标准化需求解析模板」的落地：模型每次都能看到同样的四段结构，
+    输出才能稳定成 JSON，后端才敢直接拿去拆任务。
+    """
     chunks: list[str] = []
+
+    # ① 对话上下文（只取最近 6 轮，避免把提示词撑爆；越近越相关）
+    if history:
+        lines: list[str] = []
+        for item in history[-6:]:
+            if not isinstance(item, dict):
+                continue
+            role = "用户" if str(item.get("role")) == "user" else "助手"
+            content = str(item.get("content") or "").strip().replace("\n", " ")
+            if content:
+                lines.append(f"- {role}：{content[:300]}")
+        if lines:
+            chunks.append("对话上下文（最近 6 条，供理解指代）：\n" + "\n".join(lines))
+
+    # ② 画布操作信息：选中图片 / 选区 / 操作类型
+    if canvas:
+        facts: list[str] = []
+        if canvas.get("image_id"):
+            facts.append(f"- 选中图片 ID：{canvas['image_id']}")
+        if canvas.get("image_size"):
+            size = canvas["image_size"]
+            if isinstance(size, dict):
+                facts.append(f"- 原图尺寸：{size.get('width')}×{size.get('height')}")
+        if canvas.get("op_type"):
+            facts.append(f"- 画布操作类型：{canvas['op_type']}")
+        if canvas.get("selection_count") is not None:
+            facts.append(f"- 选区数量：{canvas['selection_count']}")
+        if facts:
+            chunks.append("画布操作信息：\n" + "\n".join(facts))
+
     if regions:
         lines = [
             f"- 区域{item['index']}：x={item['region']['x']}, y={item['region']['y']}, "
@@ -95,6 +133,13 @@ def _build_user_message(message: str, regions: list[dict[str, Any]]) -> str:
     else:
         chunks.append("用户没有框选任何区域，本次需求作用于整张图片。")
     chunks.append(f"用户需求：{message.strip()}")
+    chunks.append(
+        "任务约束：\n"
+        "- 必须拆解为可执行的生图/修图子任务，一个独立产出对应一条 op；\n"
+        "- 「先抠图再换背景」这类复合需求必须拆成多条，不要合并；\n"
+        "- 每条 op 的 prompt 必须自带完整上下文（改哪里、改成什么、保持什么不变）；\n"
+        "- 只输出 JSON，不要解释文字。"
+    )
     return "\n\n".join(chunks)
 
 
@@ -179,13 +224,18 @@ async def plan_edit(
     regions: Any = None,
     model: str | None = None,
     handlers: dict[str, EditHandler] | None = None,
+    history: list[dict[str, Any]] | None = None,
+    canvas: dict[str, Any] | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """把自然语言需求解析为结构化编辑计划。
 
     :param message: 用户原话
     :param regions: 已框选区域（``[{index, region:{x,y,w,h}}]`` 或纯 ``[{x,y,w,h}]``）
     :param model: 覆盖意图分析模型
-    :return: ``{reply, ops, outputs, summary, demo}``
+    :param history: 最近的对话消息（``[{role, content}]``），用于理解指代
+    :param canvas: 画布上下文（选中图片 id、尺寸、操作类型）
+    :return: ``{reply, ops, tasks, outputs, summary, params, demo}``
     """
     text = (message or "").strip()
     if not text:
@@ -210,7 +260,7 @@ async def plan_edit(
         "model": model_name,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": _build_user_message(text, normalized_regions)},
+            {"role": "user", "content": _build_user_message(text, normalized_regions, history, canvas)},
         ],
         "stream": False,
         "temperature": 0.2,
@@ -218,18 +268,28 @@ async def plan_edit(
 
     demo = False
     content = ""
+
+    # 两条链路（用户中转站 → 网关兜底）由 text_llm 统一裁决；
+    # 之前这里只走网关，导致「中转站连接正常、AI 分析却报不可用」。
     try:
-        # 网关内部统一走通用文本 provider；如果配置了独立 LLM，则由网关
-        # 使用独立地址，否则自动复用 TEXT_API_BASE_URL。
-        result = await gateway_client.llm_completions(payload)
-        demo = bool(result.get("demo"))
-        content = _extract_content(result)
+        completion = await text_llm.complete(
+            db,
+            user_id,
+            payload["messages"],
+            json_mode=True,
+            temperature=0.2,
+            max_tokens=1600,
+            model=model_name,
+            error_hint=(
+                "意图分析服务暂时不可用：请到「AI 中转站」检查连接（网关地址 / Key / 模型），"
+                "测试通过后再试；也可以先用「框选 + 逐区域填写指令」的方式。"
+            ),
+        )
+        content = completion.content
+        demo = completion.demo
     except AppError as exc:
         logger.warning("意图分析调用失败：%s %s", exc.code, exc.message)
-        raise AppError(
-            exc.code,
-            "意图分析服务暂时不可用，请改用「框选 + 逐区域填写指令」的方式",
-        ) from exc
+        raise
 
     parsed = _extract_json(content)
     plan_source = "model"
@@ -263,9 +323,52 @@ async def plan_edit(
     if plan_source != "model":
         thinking.append("这次没能可靠理解需求，建议手动选择每个区域的处理方式")
 
+    # 结构化子任务：每条 op 就是一个独立产出，带上它自己的执行参数。
+    # 前端据此在画布上一次性铺出 N 张占位卡（而不是等第一张回来才建第二张）。
+    source_size = None
+    if isinstance(canvas, dict) and isinstance(canvas.get("image_size"), dict):
+        try:
+            source_size = (
+                int(canvas["image_size"].get("width")),
+                int(canvas["image_size"].get("height")),
+            )
+        except (TypeError, ValueError):
+            source_size = None
+    base_params = param_service.infer(
+        text,
+        kind="edit" if resolved_ops else "generate",
+        source_image=source_size,
+    )
+    tasks: list[dict[str, Any]] = []
+    for position, op in enumerate(resolved_ops, start=1):
+        handler = catalog_handlers.get(op["handler"])
+        params: dict[str, Any] = {
+            "size": base_params["size"],
+            "aspect": base_params["aspect"],
+            "quality": base_params["quality"],
+            "style_strength": base_params["style_strength"],
+        }
+        if handler is not None and handler.output == "sprite":
+            # 抠图产出的是透明素材，尺寸跟随主体而不是画幅
+            params.update({"size": "auto", "aspect": "主体原比例", "transparent": True})
+        tasks.append(
+            {
+                "index": position,
+                "region_index": op["region_index"],
+                "region": op["region"],
+                "handler": op["handler"],
+                "label": (handler.label if handler is not None else f"任务 {position}")[:40],
+                "instruction": op["prompt"] or (handler.label if handler is not None else text),
+                "params": params,
+            }
+        )
+
     return {
         "reply": reply or (summary or "已理解你的需求"),
         "ops": resolved_ops,
+        "tasks": tasks,
+        "task_count": len(tasks),
+        "params": base_params,
         "outputs": [item.to_dict() for item in previews],
         "summary": summary,
         "demo": demo,

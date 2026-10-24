@@ -35,7 +35,7 @@
   --color-brand-active: var(--color-brand-active);
   --color-brand-subtle: var(--color-brand-subtle);
   --color-brand-text: var(--color-brand-text);
-  /* [NEW] 青柠信号色 */
+  /* [NEW] 青蓝信号色 */
   --color-accent: var(--color-accent);
   --color-accent-strong: var(--color-accent-strong);
   --color-accent-soft: var(--color-accent-soft);
@@ -111,9 +111,16 @@
   body {
     margin: 0;
     background-color: var(--color-bg);
-    /* 首页环境光：两团极淡的青柠 / 暖砂，让纸底有纵深，不至于像一张白纸 */
-    background-image: var(--ambient-1), var(--ambient-2);
-    background-attachment: fixed;
+    /* [V3] 环境光从 body 上摘除。
+     *
+     * 它本来只服务首页，但 body 是全站共享的，于是 /assets /projects
+     * /settings /usage /admin/* 的左上角常年糊着一层黄绿雾，看起来像
+     * "没擦干净的背景"。首页的纵深其实由 routes/index.tsx 自己的
+     * aurora 层（3 团 blur 光斑 + 噪点）承担，并不依赖这里。
+     *
+     * 现在：全站 = 纯净纸底 + 3.5% 纸张噪点；只有需要氛围的页面在自己的
+     * 根节点上放 `.cs-ambient`（见 tokens.css 的 --ambient-1/2）。 */
+    background-image: var(--texture-paper);
     color: var(--color-text);
     font-family: var(--font-sans);
     /* 正文下限 15px / 中文行高 1.72（汉字满格，比英文多 0.1） */
@@ -193,7 +200,7 @@
   --color-brand-hover: var(--color-brand-hover);
   --color-surface-primary-container: var(--color-brand-subtle);
   --color-on-primary-container: var(--color-brand-text);
-  /* 框选矩形：这是「机器的几何」，用橄榄色，不是青柠信号色 */
+  /* 框选矩形：这是「机器的几何」，用深蓝，不是青蓝信号色 */
   --color-selection: var(--color-select-line);
   --island-bg-color: var(--color-surface-raised);
   --color-surface-lowest: var(--color-surface-raised);
@@ -303,7 +310,7 @@
 }
 
 /* ---------------------------------------------------------------------------
- * 主按钮：墨黑渐变。用渐变而不是纯色，是「实体按钮」的光泽来源。
+ * 主按钮：深蓝渐变。用渐变而不是纯色，是「实体按钮」的光泽来源。
  * ------------------------------------------------------------------------- */
 .cs-gradient-brand {
   background-color: var(--color-brand);
@@ -314,16 +321,40 @@
   background-image: var(--gradient-brand-soft);
 }
 
-/* [NEW] 青柠信号渐变：发送键激活 / AI 生成中 */
+/* 青蓝信号渐变：发送键激活 / AI 生成中 */
 .cs-gradient-accent {
   background-color: var(--color-accent);
   background-image: var(--gradient-accent);
   color: var(--color-accent-ink);
 }
 
+/* 弥散渐变：卡片 / 英雄区的柔和三色光晕（蓝 → 青 → 薄荷）。
+ * 用在「需要一点氛围但不抢内容」的地方：营销卡、空态插画底、统计卡顶部。
+ * 低饱和 + 大半径 = 弥散，不会出现色带。 */
+.cs-gradient-diffuse {
+  background-image: var(--gradient-diffuse);
+}
+
+/* 弥散描边：给卡片一圈极淡的蓝绿渐变描边（代替纯色描边） */
+.cs-ring-diffuse {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--color-surface), var(--color-surface)) padding-box,
+    var(--gradient-accent) border-box;
+}
+
 /* [NEW] 纸纹：首页与空态铺一层，让大面积留白有质感 */
 .cs-grain {
   background-image: var(--texture-paper);
+}
+
+/* [V3] 环境光：**只给首页 / 营销页**在根节点手动挂上。
+ * 内容页（列表、表格、设置、管理后台）一律不要挂——那会让左上角发黄绿雾。
+ * 这就是 body 上那层全局环境光的替代品，作用域从「全站」收窄成「按需」。 */
+.cs-ambient {
+  background-image: var(--ambient-1), var(--ambient-2), var(--ambient-3);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
 }
 
 /* [NEW] 玻璃胶囊：浮在内容之上的工具条 / 顶栏 */
@@ -338,7 +369,7 @@
   border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
 }
 
-/* [NEW] 青柠光晕（悬停/激活）：不是描边，是一层外发光 */
+/* 青蓝光晕（悬停/激活）：不是描边，是一层外发光 */
 .cs-glow {
   box-shadow: var(--shadow-glow);
 }
@@ -427,7 +458,7 @@
   animation: cs-rise 0.42s var(--ease-out) both;
 }
 
-/* 生成中的骨架：青柠光带扫过，表示「AI 正在动作」 */
+/* 生成中的骨架：青蓝光带扫过，表示「AI 正在动作」 */
 /*
  * 只动伪元素的 transform，交给合成线程：旧版动 background-position，
  * 每帧都要在主线程重绘（工作台头部的「升级 Pro」常驻，空闲时也停不下来）。
@@ -465,5 +496,6 @@
 }
 
 [data-theme='dark'] body {
-  background-image: var(--ambient-1), var(--ambient-2);
+  /* [V3] 与亮色一致：只保留纸张噪点，不再铺环境光 */
+  background-image: var(--texture-paper);
 }

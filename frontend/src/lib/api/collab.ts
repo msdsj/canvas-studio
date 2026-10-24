@@ -16,6 +16,8 @@ export interface CollabParticipant {
   color: string
   cursor: { x: number; y: number } | null
   selection: string[]
+  /** 对方当前视口（有值才能「跟随视角」） */
+  viewport?: { zoom: number; scrollX: number; scrollY: number } | null
   can_write: boolean
 }
 

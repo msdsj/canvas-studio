@@ -41,7 +41,9 @@ export function AuditLogTable({ logs, loading }: AuditLogTableProps) {
           <TableRow key={log.id}>
             <TableCell className="max-w-[200px] truncate">{log.actor_email || '—'}</TableCell>
             <TableCell>
-              <Badge variant="soft">{log.action}</Badge>
+              {/* 原始 action 是机器码（pool_import / pro_redeem…），
+                  直接摆在界面上等于让用户去读代码。这里映射成可读动作。 */}
+              <Badge variant="soft">{t(`logs.actions.${log.action}`, { defaultValue: log.action })}</Badge>
             </TableCell>
             <TableCell className="max-w-[280px] truncate font-mono text-xs text-text-secondary">
               {log.target_type}:{log.target_id ?? '-'}

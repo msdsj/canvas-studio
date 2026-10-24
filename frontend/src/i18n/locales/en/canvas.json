@@ -14,7 +14,11 @@
     "download": "Download",
     "align": "Align",
     "upload": "Upload image",
-    "layers": "Layers"
+    "layers": "Layers",
+    "comments": "Comments",
+    "comments_hint": "Drop a pin on the canvas / @mention a teammate",
+    "versions": "Versions",
+    "versions_hint": "Version history · restore in one click"
   },
   "save": {
     "saving": "Saving…",

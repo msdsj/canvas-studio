@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     )
 
     # 应用元信息
-    app_name: str = "canvas-studio-backend"
+    app_name: str = "msdsj-backend"
     app_version: str = "1.0.0"
 
     # 安全 / JWT
@@ -93,6 +93,11 @@ class Settings(BaseSettings):
     # Demo / 任务状态机 / 网关超时
     demo_mode: str = "off"  # auto | on | off; applies to chat responses only
     max_active_tasks_per_user: int = 12
+    # 生图并发上限：进程内信号量。上游只有几条并发额度时把它调小，
+    # 多出来的任务会在本进程排队（进度 5%），而不是一起超时。
+    image_concurrency: int = 4
+    # 等待队列上限：超过直接拒绝，避免内存里堆无限等待的协程。
+    image_queue_max: int = 200
     idempotency_window_seconds: int = 300
     # 任务超时必须大于网关读超时，否则「上游还在画」会被我们自己判成失败
     task_timeout_seconds: int = 330

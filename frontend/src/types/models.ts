@@ -30,6 +30,10 @@ export interface CanvasProject {
   name: string
   description: string
   thumbnail_url?: string | null
+  /** 项目封面（最新画布里最新的图片元素）：后端 v3 新增 */
+  cover_url?: string | null
+  /** 项目内元素数（不含已删除元素） */
+  item_count?: number
   created_at?: string | null
   updated_at?: string | null
   canvases?: Canvas[]
@@ -222,6 +226,12 @@ export interface PoolStats {
   limited: number
   abnormal: number
   disabled: number
+  /** local=本地独立路由；upstream=账号在上游由它调度；none=没有可用账号 */
+  routing_mode?: 'local' | 'upstream' | 'none'
+  upstream_total?: number
+  upstream_healthy?: number
+  effective_total?: number
+  effective_available?: number
 }
 
 export interface PoolAccount {
@@ -248,6 +258,25 @@ export interface Overview {
   users_active: number
   pool: PoolStats
   quota_consumed_today: number
+  /** 近 14 天按天聚合：新增用户 / 生成图片数 / 消耗积分 */
+  series?: { date: string; users_new: number; images: number; quota: number }[]
+  /** 最近动态：最多 6 条 */
+  recent?: { at: string; kind: 'user' | 'quota' | 'pool' | 'audit'; text: string }[]
+  /** 待处理事项 */
+  pending?: {
+    users_pending_verification: number
+    pool_abnormal: number
+    pool_limited: number
+  }
+}
+
+/** 额度汇总（GET /api/quota/summary）。 */
+export interface QuotaSummary {
+  balance: number
+  total_granted: number
+  total_consumed: number
+  series: { date: string; consumed: number; granted: number }[]
+  by_type: { type: string; count: number; amount: number; abs_amount: number }[]
 }
 
 export interface AuditLog {

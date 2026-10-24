@@ -17,6 +17,7 @@ from app.routers import (
     announcements,
     assets,
     auth,
+    canvas_collab,
     canvases,
     collab,
     chat,
@@ -127,6 +128,7 @@ app.include_router(auth.router)
 app.include_router(me.router)
 app.include_router(projects.router)
 app.include_router(canvases.router)
+app.include_router(canvas_collab.router)
 app.include_router(collab.router)
 app.include_router(assets.router)
 app.include_router(chat.router)

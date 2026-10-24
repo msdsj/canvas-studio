@@ -42,6 +42,8 @@ interface GenerationResultCardProps {
   onPreview?: (task: GenerationTask, url: string) => void
   /** 把这张图作为 @ 引用插进输入框（后续指令以它为底图） */
   onReference?: (url: string) => void
+  /** 已在画布上时：点一下定位到画布里的那张图 */
+  onLocate?: (url: string) => void
 }
 
 /** 出图的等待节奏（秒）：通常 30–60s；60s 起提示偏慢，240s 交给用户决定 */
@@ -98,6 +100,7 @@ function modelLabel(model: unknown): string | null {
 export function GenerationResultCard({
   task,
   placedUrls = [],
+  onLocate,
   busy,
   offline = false,
   onAddToCanvas,
@@ -188,7 +191,7 @@ export function GenerationResultCard({
       const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = objectUrl
-      a.download = `zleap-${task.id.slice(0, 6)}-${index + 1}.png`
+      a.download = `MSDSJ-${task.id.slice(0, 6)}-${index + 1}.png`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -271,9 +274,23 @@ export function GenerationResultCard({
         </div>
 
         {placed && (
-          <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full bg-scrim/80 px-1.5 py-0.5 text-micro leading-none text-scrim-text backdrop-blur-sm">
-            <Check size={10} /> {t('task.placed')}
-          </span>
+          onLocate ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                onLocate(url)
+              }}
+              title="在画布上定位这张图"
+              className="absolute left-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full bg-scrim/80 px-1.5 py-0.5 text-micro leading-none text-scrim-text backdrop-blur-sm transition-colors hover:bg-scrim"
+            >
+              <Check size={10} /> {t('task.placed')} · 定位
+            </button>
+          ) : (
+            <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full bg-scrim/80 px-1.5 py-0.5 text-micro leading-none text-scrim-text backdrop-blur-sm">
+              <Check size={10} /> {t('task.placed')}
+            </span>
+          )
         )}
       </div>
     )
@@ -293,8 +310,13 @@ export function GenerationResultCard({
           {batchLabel && <p className="min-w-0 py-0.5 font-medium text-text [overflow-wrap:anywhere]">{batchLabel}</p>}
         </div>
       )}
-      {/* 状态行：状态 · 用时 | 模型 · 比例 */}
-      <div className="mb-2 flex min-w-0 items-center gap-1.5">
+      {/* 状态行：状态 · 用时 | 模型 · 比例
+       *
+       * 320px 级的对话列里这一行放不下「长状态文案 + 模型徽章 + 比例」，
+       * 出厂写法（`truncate` + `overflow-hidden` + `shrink-0`）会把模型名裁成
+       * 「GPT Im…」——用户看不出这是哪个模型。改成允许换行：
+       * 状态文案先占满，模型/比例整体落到第二行，信息一个字都不丢。 */}
+      <div className="mb-2 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
         {succeeded ? (
           <span className="inline-flex shrink-0 items-center gap-1 text-micro font-medium text-text-secondary">
             <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-accent text-on-accent">
@@ -306,8 +328,9 @@ export function GenerationResultCard({
             )}
           </span>
         ) : failed ? (
-          <span className="inline-flex shrink-0 items-center gap-1 text-micro font-medium text-danger">
-            <AlertCircle size={12} /> {t(`task.${task.status}`)}
+          <span className="line-clamp-2 min-w-0 text-micro font-medium leading-snug text-danger">
+            <AlertCircle size={12} className="mr-1 inline align-[-1px]" />
+            {t(`task.${task.status}`)}
           </span>
         ) : active ? (
           <span className="cs-agent-shine shrink-0 text-micro font-medium">
@@ -316,9 +339,9 @@ export function GenerationResultCard({
         ) : (
           <span className="shrink-0 text-micro font-medium text-text-tertiary">{t('task.cancelled')}</span>
         )}
-        <span className="ml-auto flex min-w-0 items-center gap-1 overflow-hidden">
+        <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
           {model && (
-            <span className="truncate rounded-full bg-bg-subtle px-1.5 py-0.5 text-micro text-text-tertiary">
+            <span className="whitespace-nowrap rounded-full bg-bg-subtle px-1.5 py-0.5 text-micro text-text-tertiary">
               {model}
             </span>
           )}
@@ -380,10 +403,15 @@ export function GenerationResultCard({
         </div>
       )}
 
+      {/* 失败态：原因说明 / 退款提示 各占一行，标题在上方状态行里可折行。
+       * 之前两段文案挤在同一行内边距里，窄列下正文每行只剩 3–4 个字。 */}
       {failed && (
-        <div className="mb-2 rounded-sm bg-danger-subtle/60 px-2.5 py-2">
-          <p className="text-caption font-medium text-danger">{failText}</p>
-          <p className="mt-0.5 text-micro text-text-tertiary">{t('task.failed_hint')}</p>
+        <div className="mb-2 flex flex-col gap-1 rounded-sm bg-danger-subtle/60 px-2.5 py-2">
+          <p className="text-caption font-medium leading-snug text-danger [overflow-wrap:anywhere]">{failText}</p>
+          <p className="flex items-start gap-1 text-micro leading-snug text-text-secondary">
+            <RotateCcw size={11} className="mt-0.5 shrink-0" aria-hidden />
+            <span className="min-w-0">{t('task.failed_hint')}</span>
+          </p>
         </div>
       )}
 
@@ -394,19 +422,24 @@ export function GenerationResultCard({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-1.5">
+      {/* 操作行：按钮标签一律不折行（Button 自带 whitespace-nowrap）。
+       * 窄列下允许「按钮之间」换行 / 拉伸，但不接受文字被压成两行或标题被裁。 */}
+      <div className="flex flex-wrap items-center gap-1.5 [&>button]:max-w-full">
         {succeeded ? (
           <>
             {unplaced.length > 0 ? (
-              <Button size="sm" disabled={busy} onClick={() => onAddToCanvas?.(task)}>
-                <ImagePlus size={14} />
-                {urls.length > 1 && unplaced.length === urls.length
-                  ? t('task.add_all_to_canvas')
-                  : t('task.add_to_canvas')}
+              <Button size="sm" className="min-w-0 flex-1" disabled={busy} onClick={() => onAddToCanvas?.(task)}>
+                <ImagePlus size={14} className="shrink-0" />
+                <span className="truncate">
+                  {urls.length > 1 && unplaced.length === urls.length
+                    ? t('task.add_all_to_canvas')
+                    : t('task.add_to_canvas')}
+                </span>
               </Button>
             ) : (
-              <span className="inline-flex h-8 items-center gap-1 px-1 text-caption text-text-tertiary">
-                <Check size={13} className="text-success" /> {t('task.all_placed')}
+              <span className="inline-flex h-8 min-w-0 items-center gap-1 px-1 text-caption text-text-tertiary">
+                <Check size={13} className="shrink-0 text-success" />
+                <span className="truncate">{t('task.all_placed')}</span>
               </span>
             )}
             <Button
@@ -414,19 +447,25 @@ export function GenerationResultCard({
               variant="ghost"
               disabled={busy}
               onClick={() => onRegenerate?.(task)}
-              className="ml-auto"
+              className="shrink-0"
             >
-              <RefreshCw size={14} /> {t('task.regenerate')}
+              <RefreshCw size={14} className="shrink-0" /> {t('task.regenerate')}
             </Button>
           </>
         ) : failed ? (
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate?.(task)}>
-            <RotateCcw size={14} /> {t('task.retry')}
+          <Button
+            size="sm"
+            variant="secondary"
+            className="w-full"
+            disabled={busy}
+            onClick={() => onRegenerate?.(task)}
+          >
+            <RotateCcw size={14} className="shrink-0" /> {t('task.retry')}
           </Button>
         ) : active ? (
           onCancel && (
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => onCancel(task)}>
-              <CircleStop size={14} /> {t('task.stop')}
+              <CircleStop size={14} className="shrink-0" /> {t('task.stop')}
             </Button>
           )
         ) : (

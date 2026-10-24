@@ -13,6 +13,8 @@ import { QuotaBadge } from './QuotaBadge'
 import { NotificationBell } from './NotificationBell'
 import { UserMenu } from './UserMenu'
 import { useAuth } from '@/hooks/use-auth'
+import { BrandMark } from '@/components/brand/BrandMark'
+import { cn } from '@/lib/utils'
 
 const NAV = [
   { to: '/workspace', key: 'workspace', icon: LayoutGrid },
@@ -35,6 +37,11 @@ const ACCOUNT = [
  *
  * 其它页面（项目 / 素材 / 任务 / 用量…）仍是列表型页面，需要一条明确的
  * 返回与切换入口，所以保留这条轻量顶栏。
+ *
+ * v3 改动：**导航不再只藏在左上角一个九宫格图标里**。
+ * 改造前 8 个页面的主导航全部收在一个 15px 的下拉里——用户在任何一个
+ * 内容页都看不见自己还能去哪。现在 ≥1280 直接显示水平主导航，
+ * 1280 以下才收进下拉（触发按钮同时从 15px 放大到 18px，不再是"猜").
  */
 export function TopBar() {
   const { t } = useTranslation('common')
@@ -48,17 +55,20 @@ export function TopBar() {
 
   if (pathname.startsWith('/workspace')) return null
 
+  const isActive = (to: string) => pathname === to || pathname.startsWith(`${to}/`)
+
   return (
     <header className="mx-2.5 mt-2.5 flex h-11 shrink-0 items-center justify-between gap-3 rounded-[14px] bg-surface/70 px-2 shadow-sheet ring-1 ring-inset ring-border-faint backdrop-blur-md">
       <div className="flex min-w-0 items-center gap-1.5">
+        {/* 窄屏才出现的下拉入口 */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
               aria-label={t('nav.workspace')}
-              className="flex h-7 w-7 items-center justify-center rounded-[8px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+              className="flex h-8 w-8 items-center justify-center rounded-[8px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text xl:hidden"
             >
-              <LayoutGrid size={15} />
+              <LayoutGrid size={18} />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-48">
@@ -82,10 +92,29 @@ export function TopBar() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Link to="/workspace" className="flex shrink-0 items-center gap-2 text-text">
-          <span aria-hidden className="cs-logo-mark h-5 w-5" />
-          <span className="text-ui font-semibold leading-none tracking-[-0.01em]">我的工作室</span>
+        <Link to="/" className="flex shrink-0 items-center gap-2 text-text">
+          <BrandMark className="h-5 w-5" />
+          {/* 手机上只留图标：文字与额度徽标会在 390px 宽里叠字 */}
+          <span className="hidden text-ui font-semibold leading-none tracking-[-0.01em] sm:inline">
+            {t('nav.studio')}
+          </span>
         </Link>
+
+        {/* 宽屏主导航：把"还能去哪"直接摆在眼前 */}
+        <nav className="ml-3 hidden items-center gap-1 xl:flex">
+          {nav.map((item) => (
+            <NavLink key={item.to} to={item.to} active={isActive(item.to)}>
+              {t(`nav.${item.key}`)}
+            </NavLink>
+          ))}
+          <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+          {ACCOUNT.map((item) => (
+            <NavLink key={item.to} to={item.to} active={isActive(item.to)}>
+              {t(`nav.${item.key}`)}
+            </NavLink>
+          ))}
+        </nav>
+
         {canvasName && (
           <>
             <span className="mx-1 hidden h-4 w-px bg-border sm:block" />
@@ -102,5 +131,35 @@ export function TopBar() {
         <UserMenu />
       </div>
     </header>
+  )
+}
+
+/** 顶栏导航项：选中时用墨黑下划线（青柠每屏只留给 ≤2 处信号）。 */
+function NavLink({
+  to,
+  active,
+  children,
+}: {
+  to: string
+  active: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <Link
+      to={to}
+      className={cn(
+        'relative flex h-8 items-center rounded-[8px] px-2.5 text-ui font-medium transition-colors duration-[160ms]',
+        active ? 'text-text' : 'text-text-secondary hover:text-text',
+      )}
+    >
+      {children}
+      <span
+        aria-hidden
+        className={cn(
+          'pointer-events-none absolute inset-x-2 -bottom-[7px] h-[2px] rounded-full bg-brand transition-opacity duration-[160ms]',
+          active ? 'opacity-100' : 'opacity-0',
+        )}
+      />
+    </Link>
   )
 }

@@ -11,8 +11,9 @@ class GenerateImageRequest(BaseModel):
 
     prompt: str = Field(min_length=1, max_length=4000)
     model: str = Field(default="gpt-image-2", max_length=64)
-    size: str = Field(default="1024x1024", max_length=32)
-    quality: str = Field(default="standard", max_length=16)  # standard | hd
+    # auto = 交给 param_service 按「文本 > 场景语义」推断，禁止全局正方形兜底
+    size: str = Field(default="auto", max_length=32)
+    quality: str = Field(default="standard", max_length=16)  # standard | hd | auto
     n: int = Field(default=1, ge=1, le=4)
     session_id: str | None = None
     canvas_id: str | None = None
@@ -36,3 +37,6 @@ class PlanRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     regions: list[dict[str, Any]] = Field(default_factory=list)
     canvas_id: str | None = None
+    # 标准化解析模板的四段输入：历史上下文 + 画布操作信息
+    history: list[dict[str, Any]] = Field(default_factory=list)
+    canvas: dict[str, Any] = Field(default_factory=dict)

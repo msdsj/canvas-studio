@@ -146,9 +146,24 @@ async def delete_session(db: AsyncSession, user: User, session_id: str) -> None:
 
 
 async def list_messages(
-    db: AsyncSession, user: User, session_id: str, page: int, size: int
+    db: AsyncSession,
+    user: User,
+    session_id: str,
+    page: int,
+    size: int,
+    *,
+    latest: bool = False,
+    before: str | None = None,
 ) -> tuple[list[ChatMessage], int]:
-    """分页查询会话消息（时间正序）。"""
+    """分页查询会话消息（时间正序）。
+
+    - 默认：老接口语义，`page` 从最早一条开始数；
+    - `latest=True`：返回**最新** `size` 条（首屏只加载 20 条就走这条）；
+    - `before=<message_id>`：返回该消息之前（更早）的 `size` 条，用于向上滚动加载。
+
+    `latest` / `before` 的结果仍按时间正序返回：前端拿到就能直接 prepend，
+    不需要再 reverse 一次（反转顺序是分页聊天最常见的 off-by-one 来源）。
+    """
     await get_session(db, user, session_id)
     base = select(ChatMessage).where(
         ChatMessage.session_id == session_id, ChatMessage.deleted_at.is_(None)
@@ -159,9 +174,22 @@ async def list_messages(
         ).scalar()
         or 0
     )
-    result = await db.execute(
-        base.order_by(ChatMessage.created_at.asc()).offset((page - 1) * size).limit(size)
-    )
+    if before:
+        anchor = (
+            await db.execute(
+                select(ChatMessage.created_at).where(
+                    ChatMessage.id == before, ChatMessage.session_id == session_id
+                )
+            )
+        ).scalar_one_or_none()
+        if anchor is not None:
+            base = base.where(ChatMessage.created_at < anchor)
+    stmt = base.order_by(ChatMessage.created_at.desc() if (latest or before) else ChatMessage.created_at.asc())
+    if latest or before:
+        rows = list((await db.execute(stmt.limit(size))).scalars().all())
+        rows.reverse()
+        return rows, total
+    result = await db.execute(stmt.offset((page - 1) * size).limit(size))
     return list(result.scalars().all()), total
 
 

@@ -5,6 +5,7 @@ import { gsap } from '@/lib/gsap'
 import { shouldReduceMotion } from '@/lib/motion'
 import { ArtImage } from './ArtImage'
 import { useVisibleLoop } from './use-visible-loop'
+import { BrandMark } from '@/components/brand/BrandMark'
 
 const STEP_KEYS = ['understand', 'plan', 'skill', 'generate'] as const
 
@@ -133,7 +134,7 @@ export function CanvasPreview() {
           </div>
           <div data-reply className="mt-1 text-caption leading-relaxed text-text-secondary">
             <span className="mb-1 flex items-center gap-1.5 text-micro font-semibold text-text">
-              <span className="cs-logo-mark h-3.5 w-3.5" aria-hidden /> zleap Agent
+              <BrandMark className="h-3.5 w-3.5" /> MSDSJ Agent
             </span>
             {t('preview.reply')}
           </div>

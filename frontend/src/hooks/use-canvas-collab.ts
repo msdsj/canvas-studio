@@ -29,7 +29,11 @@ interface UseCanvasCollabResult {
   /** 发一批本地改动。返回 false 表示没连上（调用方应回退到整场景保存） */
   sendPatch: (patch: CanvasPatch) => boolean
   /** 更新光标/选区（节流交给调用方） */
-  sendPresence: (cursor: { x: number; y: number } | null, selection?: string[]) => void
+  sendPresence: (
+    cursor: { x: number; y: number } | null,
+    selection?: string[],
+    viewport?: { zoom: number; scrollX: number; scrollY: number }
+  ) => void
   /** 主动请求全量重同步 */
   requestResync: () => void
 }
@@ -247,10 +251,14 @@ export function useCanvasCollab({
   }, [])
 
   const sendPresence = useCallback(
-    (cursor: { x: number; y: number } | null, selection?: string[]) => {
+    (
+      cursor: { x: number; y: number } | null,
+      selection?: string[],
+      viewport?: { zoom: number; scrollX: number; scrollY: number }
+    ) => {
       const ws = socketRef.current
       if (!ws || ws.readyState !== WebSocket.OPEN) return
-      ws.send(JSON.stringify({ type: 'presence', cursor, selection }))
+      ws.send(JSON.stringify({ type: 'presence', cursor, selection, viewport }))
     },
     [],
   )

@@ -50,6 +50,11 @@
     "item_off": "Off",
     "item_on": "On",
     "from_team": "From team",
-    "count": "{{count}} skills"
+    "count": "{{count}} skills",
+    "no_results_desc": "Try another keyword, or enable a pack first.",
+    "clear_filter": "Clear filters",
+    "reset": "Reset",
+    "hint_1": "Skills are prompt references, not fill-in-the-blank templates",
+    "hint_2": "The most relevant ones are picked automatically at generation time"
   }
 }

@@ -18,7 +18,10 @@
     "note": "备注",
     "time": "时间",
     "empty": "暂无流水记录",
-    "filter_all": "全部类型"
+    "filter_all": "全部类型",
+    "empty_desc": "生成图片、编辑图片或与 AI 对话都会在这里留下记录。",
+    "hint_1": "生成失败的请求会自动退回额度",
+    "hint_2": "管理员手动调整也会记在同一本账上"
   },
   "type": {
     "grant": "赠送",
@@ -31,5 +34,19 @@
     "processing": "处理中",
     "success": "成功",
     "refunded": "已回滚"
+  },
+  "subtitle": "每一笔生成与编辑都会记账，这里能看到余额怎么来的、花到哪里去了",
+  "total_consumed": "累计消耗",
+  "consumed_today": "今日消耗",
+  "trend": {
+    "title": "消耗趋势",
+    "desc": "按天聚合的消耗与入账积分",
+    "days": "近 {{days}} 天",
+    "consumed": "消耗",
+    "granted": "入账",
+    "empty": "这段时间还没有消耗记录"
+  },
+  "filter": {
+    "all": "全部"
   }
 }

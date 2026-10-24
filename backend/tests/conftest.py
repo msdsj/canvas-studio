@@ -16,6 +16,21 @@ os.environ.setdefault("CS_MAX_ACTIVE_TASKS_PER_USER", "12")
 
 Path("./data").mkdir(parents=True, exist_ok=True)
 
+# 会话开始前先删掉上一次遗留的测试库。
+#
+# 用例的 `client` 夹具每例都会 drop_all + create_all，但 SQLite 的 -wal/-shm
+# 残留会让「删表」偶发锁失败，表没删干净 → 下一个用例拿到旧行数据，
+# 于是报 `StaleDataError: UPDATE ... 0 rows matched` 这类看不懂的错。
+# 本地跑久了 WAL 会涨到几 MB（实测 4.3MB），踩中概率不低。
+# 测试库是可再生数据，直接删最省事。
+for _suffix in ("", "-wal", "-shm"):
+    _stale = Path(_TEST_DB + _suffix)
+    try:
+        if _stale.exists():
+            _stale.unlink()
+    except OSError:
+        pass
+
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402

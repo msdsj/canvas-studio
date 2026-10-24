@@ -23,7 +23,9 @@ from app.services import (
     access,
     asset_service,
     generate_service,
+    param_service,
     plan_service,
+    queue_service,
     task_service,
 )
 from app.services import chat_service as _chat  # 复用 sse_chunk
@@ -58,19 +60,27 @@ async def generate_image(
 ) -> dict:
     """创建文生图任务（幂等，异步执行）。"""
     key = idempotency_key or generate_service.new_idempotency_key()
+    # 参数自适应：size=auto 时按「文本里的比例 > 文本里的像素 > 场景语义」推断，
+    # 绝不再给全局正方形兜底（见 param_service 模块注释）。
+    resolved = param_service.infer(
+        payload.prompt,
+        kind="generate",
+        override_size=None if payload.size in {"", "auto"} else payload.size,
+        override_aspect=str(payload.params.get("aspect") or "") or None,
+    )
     ctx = await access.current_context(db, user)
     task, created = await generate_service.create_image_task(
         db,
         user.id,
         prompt=payload.prompt,
         model=payload.model,
-        size=payload.size,
-        quality=payload.quality,
+        size=resolved["size"],
+        quality=payload.quality if payload.quality != "auto" else resolved["quality"],
         n=payload.n,
         session_id=payload.session_id,
         canvas_id=payload.canvas_id,
         idempotency_key=key,
-        extra=payload.params,
+        extra={**payload.params, "aspect": resolved["aspect"], "param_source": resolved["source"]},
         team=ctx.team,
     )
     if created:
@@ -216,7 +226,14 @@ async def plan_edit(
     确认后再带 `ops` 调用 `POST /api/generate/edit` 真正执行。
     能力清单由注册表动态注入提示词——管理员新增能力后，分析结果自动支持它。
     """
-    result = await plan_service.plan_edit(db, message=payload.message, regions=payload.regions)
+    result = await plan_service.plan_edit(
+        db,
+        message=payload.message,
+        regions=payload.regions,
+        history=payload.history,
+        canvas=payload.canvas,
+        user_id=user.id,
+    )
     return envelope(result)
 
 
@@ -232,6 +249,53 @@ async def list_capabilities(
             "handlers": [item.to_public() for item in handlers.values()],
         }
     )
+
+
+@router.get("/param-presets")
+async def list_param_presets(user: User = Depends(get_current_user)) -> dict:
+    """画幅预设 + 场景规则：前端参数面板与产品文档共用一份定义。"""
+    return envelope(
+        {
+            "presets": param_service.presets(),
+            "scenes": param_service.scene_rules(),
+            "default_aspect": param_service.DEFAULT_ASPECT,
+        }
+    )
+
+
+@router.post("/params")
+async def infer_params(
+    payload: dict[str, Any],
+    user: User = Depends(get_current_user),
+) -> dict:
+    """根据需求文本推断画幅/质量/强度（只读，不创建任务、不计费）。
+
+    前端在输入框里防抖调用它，参数面板实时显示「系统会按 16:9 出图」，
+    用户也可以随时手动覆盖。
+    """
+    text = str(payload.get("prompt") or payload.get("message") or "")
+    kind = "edit" if str(payload.get("kind") or "generate") == "edit" else "generate"
+    source = payload.get("source_image") if isinstance(payload.get("source_image"), dict) else None
+    source_size = None
+    if source:
+        try:
+            source_size = (int(source.get("width")), int(source.get("height")))
+        except (TypeError, ValueError):
+            source_size = None
+    result = param_service.infer(
+        text,
+        kind=kind,
+        override_size=str(payload.get("size") or "") or None,
+        override_aspect=str(payload.get("aspect") or "") or None,
+        source_image=source_size,
+    )
+    return envelope(result)
+
+
+@router.get("/queue")
+async def queue_status(user: User = Depends(get_current_user)) -> dict:
+    """生成队列的实时水位（前端展示「前面还有 N 个任务」）。"""
+    return envelope(queue_service.snapshot())
 
 
 @router.get("/tasks")

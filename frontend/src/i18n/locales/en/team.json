@@ -33,7 +33,10 @@
     "seats_label": "Seats",
     "seats_hint": "Adjust as needed — you can change this later",
     "shared_quota_label": "Enable shared quota",
-    "shared_quota_hint": "Members' generations bill the team pool instead of personal balance"
+    "shared_quota_hint": "Members' generations bill the team pool instead of personal balance",
+    "hint_1": "A team space shares skill packs, assets and credits",
+    "hint_2": "Members keep their own canvases; what is shared is the standard",
+    "hint_3": "Every action is written to the audit log"
   },
   "overview": {
     "seats": "Seats",

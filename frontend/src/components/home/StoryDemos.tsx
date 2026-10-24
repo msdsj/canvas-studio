@@ -38,7 +38,9 @@ export function ChatToCanvasDemo() {
       return { x: b.left + b.width / 2 - (a.left + a.width / 2), y: b.top + b.height / 2 - (a.top + a.height / 2) }
     }
 
-    const tl = gsap.timeline({ repeat: -1, repeatDelay: 0.4, defaults: { ease: 'csPaper' } })
+    // 节奏：结果常驻。改造前每轮 4.5s 里有约 2s 右侧画布是空的，
+    // 用户滚到这一屏只看到"一句话 + 一块空板"，以为功能没做完。
+    const tl = gsap.timeline({ repeat: -1, repeatDelay: 0.15, defaults: { ease: 'csPaper' } })
     tl.set(from, { autoAlpha: 0, y: 10 })
       .set(ghost, { autoAlpha: 0, x: 0, y: 0, scale: 1 })
       .set(to, { autoAlpha: 0, scale: 0.6 })
@@ -49,8 +51,9 @@ export function ChatToCanvasDemo() {
       .to(ghost, { x: () => delta().x, y: () => delta().y, scale: 2.4, duration: 0.85, ease: 'power3.inOut' })
       .to(ghost, { autoAlpha: 0, duration: 0.25 }, '-=0.2')
       .to(to, { autoAlpha: 1, scale: 1, duration: 0.7, ease: 'back.out(1.5)' }, '<')
-      .to({}, { duration: 1.6 })
-      .to([from, to], { autoAlpha: 0, duration: 0.4 })
+      .to({}, { duration: 2.4 })
+      .to(from, { autoAlpha: 0, duration: 0.3 })
+      .to(to, { autoAlpha: 0, duration: 0.25 }, '<')
 
     const ro = new ResizeObserver(() => tl.invalidate())
     ro.observe(root)
@@ -96,7 +99,7 @@ export function RegionEditDemo() {
 
   useVisibleLoop(ref, (root) => {
     const q = gsap.utils.selector(root)
-    const tl = gsap.timeline({ repeat: -1, repeatDelay: 0.5, defaults: { ease: 'csPaper' } })
+    const tl = gsap.timeline({ repeat: -1, repeatDelay: 0.2, defaults: { ease: 'csPaper' } })
     tl.set(q('[data-box]'), { scale: 0, transformOrigin: '0% 0%', autoAlpha: 1 })
       .set(q('[data-chip]'), { autoAlpha: 0, y: 8 })
       // 用 clip-path 揭开而不是 scaleX：图片不会被横向挤扁
@@ -153,7 +156,9 @@ export function DecomposeDemo() {
 
   useVisibleLoop(ref, (root) => {
     const q = gsap.utils.selector(root)
-    const tl = gsap.timeline({ repeat: -1, repeatDelay: 0.4, defaults: { ease: 'csPaper' } })
+    // 节奏：结果常驻。改造前每轮 4.5s 里有约 2s 右侧画布是空的，
+    // 用户滚到这一屏只看到"一句话 + 一块空板"，以为功能没做完。
+    const tl = gsap.timeline({ repeat: -1, repeatDelay: 0.15, defaults: { ease: 'csPaper' } })
     tl.set(q('[data-req]'), { autoAlpha: 0, y: -8 })
       .set(q('[data-part]'), { autoAlpha: 0, scale: 0.6, y: -24 })
       .set(q('[data-line]'), { strokeDashoffset: 1 })
@@ -164,8 +169,8 @@ export function DecomposeDemo() {
       .to(q('[data-part]'), { autoAlpha: 1, scale: 1, y: 0, duration: 0.5, stagger: 0.1, ease: 'back.out(1.6)' }, '<0.15')
       .to(q('[data-tick]'), { scale: 1, duration: 0.3, stagger: 0.22, ease: 'back.out(2)' }, '+=0.2')
       .to(q('[data-result]'), { autoAlpha: 1, y: 0, duration: 0.6, ease: 'back.out(1.3)' }, '+=0.15')
-      .to({}, { duration: 1.6 })
-      .to(q('[data-req], [data-part], [data-result]'), { autoAlpha: 0, duration: 0.4 })
+      .to({}, { duration: 2.2 })
+      .to(q('[data-req], [data-part], [data-result]'), { autoAlpha: 0, duration: 0.28 })
     return tl
   })
 

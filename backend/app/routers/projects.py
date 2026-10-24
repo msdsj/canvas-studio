@@ -53,6 +53,8 @@ async def create_project(
             "name": project.name,
             "description": project.description,
             "thumbnail_url": None,
+            "cover_url": None,
+            "item_count": 0,
             "created_at": project.created_at,
             "updated_at": project.updated_at,
         }
@@ -68,13 +70,16 @@ async def get_project(
     """获取项目详情（含画布列表）。"""
     project = await project_service.get_project(db, user, project_id)
     canvases = await canvas_service.list_by_project(db, user, project_id)
+    card = await project_service.project_card(db, project.id)
     return envelope(
         {
             "id": project.id,
             "owner_id": project.owner_id,
             "name": project.name,
             "description": project.description,
-            "thumbnail_url": await project_service._project_thumbnail(db, project.id),
+            "thumbnail_url": card.get("thumbnail_url"),
+            "cover_url": card.get("cover_url"),
+            "item_count": int(card.get("item_count") or 0),
             "created_at": project.created_at,
             "updated_at": project.updated_at,
             "canvases": [CanvasOut.model_validate(c).model_dump() for c in canvases],

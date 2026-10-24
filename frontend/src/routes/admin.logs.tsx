@@ -6,6 +6,7 @@ import { AdminShell } from '@/components/layout/AdminShell'
 import { Input } from '@/components/ui/input'
 import { Pagination } from '@/components/ui/pagination'
 import { AuditLogTable } from '@/components/admin/AuditLogTable'
+import { TableCard } from '@/components/ui/table'
 import { adminApi } from '@/lib/api/admin'
 import { useToast } from '@/hooks/use-toast'
 import { errorMessage } from '@/lib/errors'
@@ -61,7 +62,9 @@ function AdminLogsPage() {
         </div>
       </div>
 
-      <AuditLogTable logs={logs} loading={loading} />
+      <TableCard>
+        <AuditLogTable logs={logs} loading={loading} />
+      </TableCard>
 
       <Pagination
         page={page}

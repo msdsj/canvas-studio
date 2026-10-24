@@ -513,5 +513,6 @@ async def polish(
         mode=payload.mode,
         variants=payload.variants,
         context=payload.context,
+        strength=payload.strength,
     )
     return envelope(PolishResult(**result).model_dump())

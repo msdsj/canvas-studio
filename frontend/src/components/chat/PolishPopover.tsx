@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, ChevronDown, Loader2, RotateCcw, ShieldCheck, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { aiApi, POLISH_MODES, type PolishMode, type PolishResult } from '@/lib/api/ai'
+import { aiApi, POLISH_MODES, type PolishMode, type PolishResult, type PolishStrength } from '@/lib/api/ai'
 import { ApiError } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 
@@ -75,6 +75,8 @@ export function PolishPopover({
 }: PolishPopoverProps) {
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<PolishMode>('auto')
+  /** 润色强度：轻度=只补细节；专业=优化表达（默认） */
+  const [strength, setStrength] = useState<PolishStrength>('pro')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<PolishResult | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -86,7 +88,7 @@ export function PolishPopover({
   const blocked = disabled || empty
 
   const run = useCallback(
-    async (nextMode: PolishMode) => {
+    async (nextMode: PolishMode, nextStrength: PolishStrength = strength) => {
       if (!text.trim()) return
       setLoading(true)
       setError(null)
@@ -99,6 +101,7 @@ export function PolishPopover({
           mode: nextMode,
           variants: 2,
           context,
+          strength: nextStrength,
         })
         setResult(data)
         setSelected(data.variants[0]?.id ?? null)
@@ -108,7 +111,7 @@ export function PolishPopover({
         setLoading(false)
       }
     },
-    [text, scene, context]
+    [text, scene, context, strength]
   )
 
   // 打开即按当前模式跑一次：用户点开就能看到结果，少一次点击
@@ -120,6 +123,12 @@ export function PolishPopover({
   const changeMode = (next: PolishMode) => {
     setMode(next)
     void run(next)
+  }
+
+  const changeStrength = (next: PolishStrength) => {
+    if (next === strength) return
+    setStrength(next)
+    void run(mode, next)
   }
 
   const apply = () => {
@@ -218,6 +227,36 @@ export function PolishPopover({
               {item.label}
             </button>
           ))}
+        </div>
+
+        {/* 润色强度：默认「专业」，切到「轻度」只补细节、不许换词 */}
+        <div className="flex items-center gap-1 border-b border-border-faint px-3 py-1.5">
+          <span className="mr-1 text-micro text-text-tertiary">强度</span>
+          {(
+            [
+              { id: 'light' as const, label: '轻度润色', hint: '只补全细节，尽量保留原句' },
+              { id: 'pro' as const, label: '专业润色', hint: '优化表达与术语，主体不变' },
+            ]
+          ).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              title={item.hint}
+              aria-pressed={strength === item.id}
+              onClick={() => changeStrength(item.id)}
+              className={cn(
+                'rounded-full px-2 py-0.5 text-micro transition-colors',
+                strength === item.id
+                  ? 'bg-accent-soft text-accent-ink ring-1 ring-inset ring-accent-strong'
+                  : 'text-text-tertiary hover:bg-bg-subtle hover:text-text-secondary'
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+          <span className="ml-auto text-micro text-text-faint">
+            {strength === 'light' ? '保守' : '默认'}
+          </span>
         </div>
 
         {/* 保真结论：只在后端明确给了判断时出现，保持信息密度克制 */}

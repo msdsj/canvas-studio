@@ -10,7 +10,9 @@
   "empty": {
     "title": "No assets yet",
     "desc": "Generate or upload your first asset in the workspace.",
-    "cta": "Create"
+    "cta": "Create",
+    "hint_1": "Your first generated image is archived here automatically",
+    "hint_2": "Uploaded references are kept around and can be cited again"
   },
   "card": {
     "use": "Use in canvas",
@@ -24,5 +26,11 @@
     "size": "Size",
     "created_at": "Created",
     "prompt": "Prompt"
+  },
+  "subtitle": "Generated images and uploaded references live here — drag any of them back onto a canvas.",
+  "scope": {
+    "all": "All",
+    "mine": "Mine",
+    "team": "Shared"
   }
 }

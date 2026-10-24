@@ -1,8 +1,8 @@
 {
   "brand": {
-    "name": "zleap",
-    "product": "zleap Canvas",
-    "company": "zleap Deep Space",
+    "name": "MSDSJ",
+    "product": "MSDSJ AI Canvas",
+    "company": "MSDSJ",
     "tag": "AI Design Agent"
   },
   "nav": {
@@ -23,7 +23,7 @@
   "composer": {
     "aria": "Describe your request to the design agent",
     "placeholders": [
-      "Key visual for the zleap AgentOS launch, deep-space violet, neon glow…",
+      "Key visual for the MSDSJ Design AgentOS launch, deep-space violet, neon glow…",
       "Minimal coffee brand poster, warm paper texture, centered layout",
       "E-commerce hero: glass perfume bottle, soft light, light gray backdrop",
       "Turn this photo into a Japanese film look, keep the expression"
@@ -147,9 +147,9 @@
     "placeholder": "Describe the image you want…"
   },
   "footer": {
-    "rights": "© {{year}} zleap",
+    "rights": "© {{year}} MSDSJ",
     "slogan": "Design the agent way",
-    "about": "An AI design agent by zleap. Chat is the canvas, box to edit — professional design for everyone.",
+    "about": "An AI design agent by MSDSJ. Chat is the canvas, box to edit — professional design for everyone.",
     "columns": [
       {
         "title": "Product",
@@ -182,10 +182,10 @@
         ]
       },
       {
-        "title": "zleap",
+        "title": "MSDSJ",
         "links": [
           {
-            "label": "zleap",
+            "label": "MSDSJ",
             "href": "#"
           },
           {
@@ -197,7 +197,7 @@
     ]
   },
   "preview": {
-    "window": "zleap Canvas · Autumn camping poster",
+    "window": "MSDSJ AI Canvas · Autumn camping poster",
     "user": "Make an autumn camping poster, plus a mountain scene",
     "reply": "Generated 2 images with the Outdoor Poster skill — both are on the canvas. Box any area you want changed and tell me how.",
     "edit": "Turn the sky into an aurora",
@@ -229,7 +229,7 @@
     ]
   },
   "story": {
-    "eyebrow": "Why zleap Canvas",
+    "eyebrow": "Why MSDSJ AI Canvas",
     "title": "Not another prompt box — a design partner that thinks",
     "chat": {
       "tag": "Chat is the canvas",
@@ -368,7 +368,7 @@
     "items": [
       {
         "q": "How is this different from other AI image tools?",
-        "a": "zleap Canvas is a design agent: it understands and breaks down your request, checks direction with you when needed, then uses matching design skills. Results land on an infinite canvas where you can box any region and keep editing instead of starting over."
+        "a": "MSDSJ AI Canvas is a design agent: it understands and breaks down your request, checks direction with you when needed, then uses matching design skills. Results land on an infinite canvas where you can box any region and keep editing instead of starting over."
       },
       {
         "q": "Can I use it if I'm not sure what I want?",

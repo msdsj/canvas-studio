@@ -167,7 +167,15 @@ export function CanvasNavigator({ api, elements, selectionCard }: CanvasNavigato
   }
 
   return (
-    <div className="pointer-events-none absolute bottom-[calc(max(10px,env(safe-area-inset-bottom))+52px)] right-2.5 z-20 @4xl:bottom-[max(10px,env(safe-area-inset-bottom))] flex flex-col items-end gap-1.5">
+    /*
+     * 整列恒定「底部工具岛之上」52px：不随容器变宽而落到最底排。
+     *
+     * 之前 @4xl 会把整列压到底（bottom 10px），那时 dock 只有 ~520px、右边还有空位；
+     * 现在 dock 不再压缩文字（每个按钮都 shrink-0 + nowrap），宽到 ~750px，
+     * 与右下这列在 1440 视口下会横向重叠 59px——导航器的 map/film 会被 dock 压住。
+     * 让整列永远留在 dock 这一排之上，任何宽度都不会互相遮挡。
+     */
+    <div className="pointer-events-none absolute bottom-[calc(max(10px,env(safe-area-inset-bottom))+52px)] right-2.5 z-20 flex flex-col items-end gap-1.5">
       {selectionCard && (
         <div
           ref={cardRef}

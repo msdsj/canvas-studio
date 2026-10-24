@@ -1,5 +1,5 @@
 {
-  "app_name": "zleap Canvas",
+  "app_name": "MSDSJ AI Canvas",
   "tagline": "AI infinite-canvas creation platform",
   "action": {
     "confirm": "Confirm",
@@ -51,7 +51,8 @@
     "usage": "Usage",
     "settings": "Settings",
     "admin": "Admin",
-    "tasks": "Tasks"
+    "tasks": "Tasks",
+    "studio": "My Studio"
   },
   "unit": {
     "credits": "credits",

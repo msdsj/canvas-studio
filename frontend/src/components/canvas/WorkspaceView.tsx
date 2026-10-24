@@ -17,6 +17,9 @@ import { LayerPanel } from './LayerPanel'
 import { UploadPromptDialog } from './UploadPromptDialog'
 import { ImagePreviewPanel } from './ImagePreviewPanel'
 import { CanvasNavigator } from './stage/CanvasNavigator'
+import { CollabPanel, CommentPins, type CollabTab } from './collab/CollabPanel'
+import { RemoteCursors } from './collab/RemoteCursors'
+import { useCanvasComments } from './collab/useCanvasComments'
 import { GeneratingCard } from './stage/GeneratingCard'
 import { RevealLayer, type RevealLayerHandle } from './stage/RevealLayer'
 import { CanvasDropZone } from './stage/CanvasDropZone'
@@ -552,6 +555,84 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   const [interacting, setInteracting] = useState(false)
   /** 正在提交的一键操作（按钮转圈，防连点重复扣费） */
   const [quickBusy, setQuickBusy] = useState<LineageOp | null>(null)
+  /** 正在把选中图片收进素材库 */
+  const [addingToLibrary, setAddingToLibrary] = useState(false)
+  /** 协作面板（评论 / 版本）与打点态 */
+  const [collabOpen, setCollabOpen] = useState(false)
+  const [collabTab, setCollabTab] = useState<CollabTab>('comments')
+  const [placingComment, setPlacingComment] = useState(false)
+  const [activeCommentId, setActiveCommentId] = useState<string | null>(null)
+  /** 刚打下、还没写内容的评论点 */
+  const [draftPin, setDraftPin] = useState<{ x: number; y: number } | null>(null)
+  /** 画布视口：评论点按它换算到屏幕坐标 */
+  const [viewport, setViewport] = useState({ zoom: 1, scrollX: 0, scrollY: 0 })
+  const commentState = useCanvasComments(canvasId)
+
+  // --------------------------------------------------------------------- //
+  // 在线状态：光标 + 视口（「跟随协作者视角」靠后者）
+  // --------------------------------------------------------------------- //
+  const presenceRef = useRef(collabScene.sendPresence)
+  presenceRef.current = collabScene.sendPresence
+  const viewportRef = useRef(viewport)
+  viewportRef.current = viewport
+  const presenceTickRef = useRef(0)
+  const cursorTickRef = useRef(0)
+  /** 正在跟随的协作者（null = 自由浏览） */
+  const [followingId, setFollowingId] = useState<string | null>(null)
+
+  // 视口变化：350ms 节流上报，避免拖拽时每帧一发
+  useEffect(() => {
+    if (collabScene.status !== 'online') return
+    const now = Date.now()
+    if (now - presenceTickRef.current < 350) return
+    presenceTickRef.current = now
+    presenceRef.current(null, undefined, viewport)
+  }, [viewport, collabScene.status])
+
+  /** 鼠标在画布上移动：把屏幕坐标换成场景坐标广播出去（100ms 节流）。 */
+  const handlePresenceMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (collabScene.status !== 'online') return
+    const now = Date.now()
+    if (now - cursorTickRef.current < 100) return
+    cursorTickRef.current = now
+    const rect = event.currentTarget.getBoundingClientRect()
+    const view = viewportRef.current
+    presenceRef.current(
+      {
+        x: (event.clientX - rect.left) / view.zoom - view.scrollX,
+        y: (event.clientY - rect.top) / view.zoom - view.scrollY,
+      },
+      undefined,
+      view
+    )
+  }, [collabScene.status])
+
+  /**
+   * 跟随协作者：把对方的视口写进本地 appState。
+   * 对方每次 presence 更新都会触发这里，于是「跟随」是真的实时跟随，
+   * 而不是只在点的那一刻跳过去。
+   */
+  useEffect(() => {
+    if (!followingId || !api) return
+    const target = collabScene.participants.find((item) => item.id === followingId)
+    if (!target) {
+      setFollowingId(null)
+      return
+    }
+    if (!target.viewport) return
+    try {
+      api.updateScene({
+        appState: {
+          scrollX: target.viewport.scrollX,
+          scrollY: target.viewport.scrollY,
+          zoom: { value: target.viewport.zoom },
+        },
+      })
+    } catch {
+      /* 对方视口不可用时保持原位 */
+    }
+  }, [followingId, collabScene.participants, api])
+
   /** 版本对比：两张图的 dataUrl 与版本号 */
   const [compare, setCompare] = useState<{
     before: { url: string; version: number }
@@ -774,6 +855,16 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
 
   const handleChange = useCallback(
     (nextElements: CanvasState['elements'], files: Record<string, unknown>, appState: Record<string, unknown>) => {
+      // 评论点 / 打点坐标都依赖视口：平移缩放时顺手同步一次（只在真的变了才 setState）
+      const zoomState = appState.zoom as { value?: number } | number | undefined
+      const nextZoom = Number(typeof zoomState === 'object' ? zoomState?.value : zoomState) || 1
+      const nextScrollX = Number(appState.scrollX || 0)
+      const nextScrollY = Number(appState.scrollY || 0)
+      setViewport((prev) =>
+        prev.zoom === nextZoom && prev.scrollX === nextScrollX && prev.scrollY === nextScrollY
+          ? prev
+          : { zoom: nextZoom, scrollX: nextScrollX, scrollY: nextScrollY }
+      )
       const scene: CanvasState = {
         elements: nextElements,
         files,
@@ -1429,6 +1520,148 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     }
   }
 
+  /**
+   * 单图滚轮缩放：光标在哪张图上，滚轮就缩哪张图。
+   *
+   * 为什么不交给 Excalidraw：它把 wheel 一律当成画布缩放。但用户的心理模型是
+   * 「我现在盯着这张图，我想把它放大看看细节」——尤其在几十张图的画布上，
+   * 缩放整块画布会把周围内容全推走。这里在捕获阶段拦下事件：
+   * - 命中图片 → 只改这张图的宽高，并保持光标下的画面点不动（放大不跑偏）；
+   * - 没命中 → 放行，仍然是画布缩放；
+   * - Ctrl / Cmd / Alt + 滚轮 → 一律放行（保住「强制缩放画布」的肌肉记忆）。
+   */
+  useEffect(() => {
+    if (!api || editTarget) return
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      const shell = target?.closest?.('.cs-canvas-shell') as HTMLElement | null
+      if (!shell || !target || !shell.contains(target)) return
+      const app = api.getAppState() as Record<string, unknown>
+      if (app.viewModeEnabled) return
+
+      const rect = shell.getBoundingClientRect()
+      const zoomState = app.zoom as { value?: number } | number | undefined
+      const zoom = Number(typeof zoomState === 'object' ? zoomState?.value : zoomState) || 1
+      const scrollX = Number(app.scrollX || 0)
+      const scrollY = Number(app.scrollY || 0)
+      const sceneX = (event.clientX - rect.left) / zoom - scrollX
+      const sceneY = (event.clientY - rect.top) / zoom - scrollY
+
+      const images = allSceneElements(api).filter(
+        (el) => el.type === 'image' && !(el as { isDeleted?: boolean }).isDeleted
+      )
+      const hit = [...images].reverse().find((el) => {
+        const x = Number(el.x ?? 0)
+        const y = Number(el.y ?? 0)
+        const w = Number(el.width ?? 0)
+        const h = Number(el.height ?? 0)
+        return sceneX >= x && sceneX <= x + w && sceneY >= y && sceneY <= y + h
+      })
+      if (!hit) {
+        // 没命中图片 = 画布缩放：给出明确的上下限（20%–400%）。
+        // Excalidraw 自带 10%–3000%，滚过头会缩成一个小点、或放大到只剩几个像素，
+        // 用户既看不出自己在哪，也很难缩回来。越界时直接吞掉这次滚轮。
+        const step = Math.exp(-event.deltaY * 0.0016)
+        const next = zoom * step
+        if (next < 0.2 || next > 4) {
+          event.preventDefault()
+          event.stopPropagation()
+        }
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      const width = Number(hit.width ?? 0)
+      const height = Number(hit.height ?? 0)
+      if (!width || !height) return
+      const factor = Math.exp(-event.deltaY * 0.0016)
+      // 下限 40px（还能看见、能点中）；上限 4096（原图分辨率量级）
+      const nextW = Math.min(4096, Math.max(40, width * factor))
+      const scale = nextW / width
+      const nextH = height * scale
+      // 光标在原图中的相对位置保持不变 → 放大时不会「跑出视野」
+      const ratioX = (sceneX - Number(hit.x ?? 0)) / width
+      const ratioY = (sceneY - Number(hit.y ?? 0)) / height
+      const nextX = sceneX - ratioX * nextW
+      const nextY = sceneY - ratioY * nextH
+
+      api.updateScene({
+        elements: allSceneElements(api).map((el) =>
+          el.id === hit.id
+            ? { ...el, x: nextX, y: nextY, width: nextW, height: nextH }
+            : el
+        ),
+        captureUpdate: 'IMMEDIATELY' as never,
+      })
+    }
+    window.addEventListener('wheel', onWheel, { passive: false, capture: true })
+    return () => window.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions)
+  }, [api, editTarget])
+
+  /** 顺时针旋转 90°：纯本地变换，不消耗额度。 */
+  const rotateElement = (id: string) => {
+    if (!api) return
+    api.updateScene({
+      elements: allSceneElements(api).map((el) =>
+        el.id === id
+          ? { ...el, angle: ((Number(el.angle) || 0) + Math.PI / 2) % (Math.PI * 2) }
+          : el
+      ),
+      captureUpdate: 'IMMEDIATELY' as never,
+    })
+  }
+
+  /** 把画布上的图收进素材库：之后在「从素材库选择」里能直接复用。 */
+  const addElementToLibrary = async (el: CanvasElement) => {
+    if (!api || addingToLibrary) return
+    const dataUrl = elementImageDataUrl(api, el)
+    if (!dataUrl) {
+      toast.error('这张图暂时读不出来，稍后再试')
+      return
+    }
+    setAddingToLibrary(true)
+    try {
+      const blob = await (await fetch(dataUrl)).blob()
+      const ext = blob.type.includes('jpeg') ? 'jpg' : 'png'
+      const file = new File([blob], `canvas-${el.id.slice(0, 6)}.${ext}`, { type: blob.type })
+      await assetsApi.upload(file)
+      toast.success('已收进素材库', '在素材库里可以继续复用或分享给团队')
+    } catch (error) {
+      toast.error('保存到素材库失败', errorMessage(error, te))
+    } finally {
+      setAddingToLibrary(false)
+    }
+  }
+
+  /** 对话里点「已在画布 · 定位」：找到那张图并把视口推过去（顺带选中）。 */
+  const locateResultOnCanvas = (url: string) => {
+    if (!api) return
+    const element = allSceneElements(api).find(
+      (el) =>
+        el.type === 'image' &&
+        (el.customData as { sourceUrl?: string } | undefined)?.sourceUrl === url
+    )
+    if (!element) {
+      toast.info('这张图还没放进画布', '在结果卡上点「放入画布」即可')
+      return
+    }
+    focusSceneBox(
+      api,
+      {
+        x: Number(element.x ?? 0),
+        y: Number(element.y ?? 0),
+        w: Number(element.width ?? 0),
+        h: Number(element.height ?? 0),
+      },
+      { padding: 140, maxZoom: 1.2 }
+    )
+    api.updateScene({ appState: { selectedElementIds: { [element.id]: true } } })
+    useUIStore.getState().setMobileSegment('canvas')
+  }
+
   /** 取消画布上一个生成中的任务：后端会退回额度，占位卡立即收起。 */
   const cancelPlaceholder = async (taskIdToCancel: string) => {
     try {
@@ -1802,7 +2035,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
           <div
             data-panel
             data-agent-composer
-            className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[16px] bg-surface shadow-sheet md:mr-2 md:w-[318px] lg:w-[330px] xl:w-[368px]"
+            className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[16px] bg-surface shadow-sheet md:mr-2 md:w-[320px] lg:w-[336px] xl:w-[372px]"
           >
             <AgentPanelHeader onCreateSession={() => void handleCreateSession()} />
             <div className="min-h-0 flex-1">
@@ -1811,6 +2044,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
                 sessionId={sessionId || null}
                 selection={selectionCtx}
                 onFocusCanvas={() => useUIStore.getState().setMobileSegment('canvas')}
+                onLocateResult={locateResultOnCanvas}
                 onSessionChange={handleSessionChange}
                 onAddResultToCanvas={handleAddResultToCanvas}
                 onResultsReady={autoPlaceResults}
@@ -1878,6 +2112,11 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
                     status={collabScene.status}
                     participants={collabScene.participants}
                     selfId={user?.id}
+                    onFollow={(participant) =>
+                      setFollowingId((prev) => (prev === participant.id ? null : participant.id))
+                    }
+                    followingId={followingId}
+                    onUnfollow={() => setFollowingId(null)}
                   />
                 ) : null
               }
@@ -1885,6 +2124,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
           </CanvasTopBar>
           <div
             ref={canvasCardRef}
+            onPointerMove={handlePresenceMove}
             className={cn(
               // 画布做成浮起的纸卡：留出外边距 + 软角 + 暖灰阴影，
               // 底色用 --color-canvas（比纸底深一档），让图片浮起来；
@@ -1921,12 +2161,106 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
             {api && visibleCount === 0 && placeholders.length === 0 && !editTarget && (
               <EmptyCanvas onUpload={() => uploadInputRef.current?.click()} onPickAsset={openAssetPicker} />
             )}
+
+            {/* 协作者光标：只画不拦，跟随画布一起平移缩放 */}
+            {api && !editTarget && (
+              <RemoteCursors
+                participants={collabScene.participants}
+                selfId={user?.id}
+                viewport={viewport}
+              />
+            )}
+
+            {/* 打点评论：评论点跟随画布平移缩放；打点模式下整层接管点击 */}
+            {api && !editTarget && (
+              <CommentPins
+                comments={commentState.items}
+                viewport={viewport}
+                placing={placingComment}
+                activeId={activeCommentId}
+                draft={draftPin}
+                onPlace={(x, y) => {
+                  setPlacingComment(false)
+                  setDraftPin({ x, y })
+                  setCollabOpen(true)
+                  setCollabTab('comments')
+                }}
+                onOpen={(comment) => {
+                  setActiveCommentId(comment.id)
+                  setCollabOpen(true)
+                  setCollabTab('comments')
+                }}
+              />
+            )}
+
+            <CollabPanel
+              canvasId={canvasId ?? ''}
+              open={collabOpen && Boolean(api) && !editTarget}
+              tab={collabTab}
+              onTab={setCollabTab}
+              onClose={() => {
+                setCollabOpen(false)
+                setPlacingComment(false)
+              }}
+              comments={commentState.items}
+              loading={commentState.loading}
+              canWrite={collabScene.canWrite}
+              activeId={activeCommentId}
+              placing={placingComment}
+              onTogglePlacing={() => {
+                setCollabOpen(true)
+                setCollabTab('comments')
+                setPlacingComment((prev) => !prev)
+              }}
+              onOpenComment={(comment) => setActiveCommentId(comment.id)}
+              onAddComment={async (content, parentId) => {
+                const anchor =
+                  draftPin ?? commentState.items.find((item) => item.id === activeCommentId)
+                const created = await commentState.add({
+                  content,
+                  x: anchor?.x ?? 0,
+                  y: anchor?.y ?? 0,
+                  parent_id: parentId ?? null,
+                })
+                setDraftPin(null)
+                if (created) setActiveCommentId(created.id)
+                return created
+              }}
+              onResolve={(id, resolved) => commentState.resolve(id, resolved)}
+              onDelete={(id) => commentState.remove(id)}
+              onRestored={() => {
+                void (async () => {
+                  if (!canvasId) return
+                  try {
+                    const fresh = await canvasesApi.get(canvasId)
+                    const state = fresh.state
+                    if (state && api) {
+                      api.updateScene({
+                        elements: state.elements as never[],
+                        captureUpdate: 'IMMEDIATELY' as never,
+                      })
+                    }
+                  } catch {
+                    toast.error('画布刷新失败', '请手动刷新页面查看恢复后的版本')
+                  }
+                })()
+              }}
+            />
             <CanvasToolbar
               api={api}
               history={history}
               onAddImage={openAssetPicker}
               onUpload={() => uploadInputRef.current?.click()}
               onDeleteSelected={handleDeleteSelected}
+              onComments={() => {
+                setCollabOpen((prev) => !prev)
+                setCollabTab('comments')
+              }}
+              commentCount={commentState.unresolved}
+              onVersions={() => {
+                setCollabOpen(true)
+                setCollabTab('versions')
+              }}
               layersSlot={
                 <LayerPanel
                   api={api}
@@ -1982,6 +2316,9 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
                 }}
                 onCopy={() => void handleCopySelected()}
                 onDelete={() => handleDeleteElement(barTarget.id)}
+                onRotate={() => rotateElement(barTarget.id)}
+                onAddToLibrary={() => void addElementToLibrary(barTarget)}
+                addingToLibrary={addingToLibrary}
               />
             )}
 

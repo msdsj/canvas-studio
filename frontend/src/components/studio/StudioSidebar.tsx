@@ -297,7 +297,9 @@ export function StudioSidebar({
   return (
     <aside
       className={cn(
-        'flex min-h-0 w-[268px] shrink-0 flex-1 flex-col overflow-hidden rounded-[16px] bg-surface shadow-sheet',
+        // 320px（lg 以上）：268px 时卡片里的「放入画布 / 重新生成」会被挤成两行、
+        // 标题被裁成省略号；lg 以下仍按抽屉浮层的 268px，避免吃掉画布宽度。
+        'flex min-h-0 w-[268px] shrink-0 flex-1 flex-col overflow-hidden rounded-[16px] bg-surface shadow-sheet lg:w-[320px]',
         className
       )}
     >

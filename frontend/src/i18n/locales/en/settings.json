@@ -6,7 +6,8 @@
     "display_name": "Display name",
     "locale": "Language",
     "theme": "Theme",
-    "saved": "Profile saved"
+    "saved": "Profile saved",
+    "desc": "Your display name shows in team member lists; language and theme affect only you."
   },
   "password": {
     "title": "Change password",
@@ -14,7 +15,8 @@
     "new": "New password",
     "confirm": "Confirm new password",
     "submit": "Update password",
-    "success": "Password updated, please sign in again"
+    "success": "Password updated, please sign in again",
+    "desc": "Changing your password signs out every device; you will need to sign in again."
   },
   "sessions": {
     "title": "Devices",
@@ -26,5 +28,22 @@
   "danger": {
     "title": "Account actions",
     "logout": "Sign out"
+  },
+  "subtitle": "Profile, model routing and account security live here.",
+  "nav": {
+    "profile": "Profile",
+    "relay": "AI relay",
+    "security": "Security",
+    "danger": "Danger zone"
+  },
+  "relay": {
+    "title": "AI relay",
+    "desc": "You decide which model route chat and image generation use; changes apply immediately.",
+    "status": "Status",
+    "ready": "Connected",
+    "not_ready": "Not configured",
+    "model": "Model",
+    "source": "Source",
+    "manage": "Manage relay"
   }
 }

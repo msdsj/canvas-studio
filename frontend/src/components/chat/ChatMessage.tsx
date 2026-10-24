@@ -1,6 +1,6 @@
 import { memo, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { Check, Copy, Quote, ThumbsDown, ThumbsUp, Undo2 } from 'lucide-react'
 import { Markdown } from './Markdown'
 import { AgentGlyph } from './agent/AgentGlyph'
 import { AgentTrace, type TraceStep } from './agent/AgentTrace'
@@ -21,6 +21,10 @@ interface ChatMessageProps {
   /** 本次套用的设计技能 */
   skillId?: string | null
   skillName?: string | null
+  /** 引用回复：把这条消息带进输入框 */
+  onQuote?: (message: ChatMessageType) => void
+  /** 撤回：仅本人的消息可撤回 */
+  onRecall?: (message: ChatMessageType) => void
 }
 
 function formatTime(value?: string | null): string {
@@ -76,7 +80,7 @@ function ActionButton({
  *
  * 中间处理信息（最终提示词）不在这里出现。
  */
-function ChatMessageInner({ message, streaming, images, traceSteps, traceOpen, skillId, skillName }: ChatMessageProps) {
+function ChatMessageInner({ message, streaming, images, traceSteps, traceOpen, skillId, skillName, onQuote, onRecall }: ChatMessageProps) {
   const { t } = useTranslation('chat')
   const { t: ta } = useTranslation('agent')
   const isUser = message.role === 'user'
@@ -102,7 +106,17 @@ function ChatMessageInner({ message, streaming, images, traceSteps, traceOpen, s
         {/* 头部：时间 · 你（右对齐），与 Agent 侧的「名字 · 时间」镜像 */}
         <div className="flex items-center gap-1.5 pr-0.5">
           {message.content && (
-            <span className="opacity-60 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+            <span className="flex items-center gap-0.5 opacity-60 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+              {onQuote && (
+                <ActionButton label="引用" onClick={() => onQuote(message)}>
+                  <Quote size={12} />
+                </ActionButton>
+              )}
+              {onRecall && (
+                <ActionButton label="撤回" onClick={() => onRecall(message)}>
+                  <Undo2 size={12} />
+                </ActionButton>
+              )}
               <ActionButton
                 label={copied ? ta('feedback.copied') : ta('feedback.copy')}
                 onClick={() => void copy()}
@@ -132,7 +146,7 @@ function ChatMessageInner({ message, streaming, images, traceSteps, traceOpen, s
           </div>
         )}
         {message.content && (
-          // 墨色实底：用户自己的话要一眼和 Agent 的回答分开（对标 zleap 软件开发的对话）
+          // 墨色实底：用户自己的话要一眼和 Agent 的回答分开（对标一线生产力工具的对话）
           <div className="max-w-[86%] rounded-[16px] rounded-tr-[6px] bg-brand px-3.5 py-2 text-text-inverse shadow-sheet">
             <p className="whitespace-pre-wrap text-ui leading-[1.65] [overflow-wrap:anywhere]">
               {message.content}
@@ -193,6 +207,11 @@ function ChatMessageInner({ message, streaming, images, traceSteps, traceOpen, s
 
         {message.content && !streaming && (
           <div className="mt-1 flex items-center gap-0.5 text-text-tertiary opacity-70 transition-opacity group-hover:opacity-100">
+            {onQuote && (
+              <ActionButton label="引用" onClick={() => onQuote(message)}>
+                <Quote size={13} />
+              </ActionButton>
+            )}
             <ActionButton label={copied ? ta('feedback.copied') : ta('feedback.copy')} onClick={() => void copy()}>
               {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
             </ActionButton>

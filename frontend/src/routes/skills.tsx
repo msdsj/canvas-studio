@@ -1,21 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Package, Save, Search, Sparkles } from 'lucide-react'
+import { Loader2, Package, Save, Search, Sparkles, Undo2 } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute'
+import { PageShell, PageTabs } from '@/components/layout/PageShell'
 import { Button } from '@/components/ui/button'
-import { Card, CardDescription, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { EmptyState } from '@/components/ui/empty-state'
 import { useToast } from '@/hooks/use-toast'
+import { SkillPackCard } from '@/components/skills/SkillPackCard'
 import {
   skillsApi,
   type SkillPackItem,
   type SkillPackSummary,
 } from '@/lib/api/onboarding'
 import { errorMessage } from '@/lib/errors'
-import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/skills')({
   component: SkillsPage,
@@ -32,6 +33,13 @@ type Tab = 'packs' | 'items'
  *
  * 团队包在这里是只读的：成员可以说「我不用这条」，但不能把团队的规范整体删掉
  * （那会影响别人）。所以团队包只显示来源，不提供开关。
+ *
+ * v3 改动：
+ * - 改用统一的 `PageShell`，容器从 1024 放到 1280，页头/间距与其它页面一致；
+ * - tabs 从内容区搬进页头；
+ * - **底部保存条改为悬浮胶囊**：改造前它 `sticky bottom-0` 压在最后一行卡片上，
+ *   导致最后一张卡的开关点不到、标题被裁掉一半；
+ * - 滚动容器补底部安全间距（`--shell-bottom-pad-float`），任何一行都不会被遮。
  */
 function SkillsPage() {
   const { t } = useTranslation('onboarding')
@@ -128,137 +136,88 @@ function SkillsPage() {
   return (
     <ProtectedRoute>
       <AppShell>
-        <div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-4 overflow-auto p-6">
-          <header className="flex flex-col gap-1">
-            <h1 className="flex items-center gap-2 text-h2 font-semibold tracking-[-0.01em] text-text">
-              <Sparkles size={18} className="text-accent-ink" />
-              {t('skills.title')}
-            </h1>
-            <p className="max-w-[62ch] text-caption leading-relaxed text-text-secondary">
-              {t('skills.subtitle')}
-            </p>
-          </header>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 rounded-full bg-bg-subtle p-1">
-              {(['packs', 'items'] as Tab[]).map((key) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setTab(key)}
-                  className={cn(
-                    'rounded-full px-3 py-1 text-caption transition-colors',
-                    tab === key
-                      ? 'bg-surface text-text shadow-xs'
-                      : 'text-text-tertiary hover:text-text-secondary',
-                  )}
-                >
-                  {key === 'packs' ? t('skills.tab_packs') : t('skills.tab_items')}
-                </button>
-              ))}
-            </div>
-
-            {teamPacks.length > 0 && (
-              <span className="rounded-full bg-accent-soft px-2.5 py-1 text-[11px] text-accent-ink">
+        <PageShell
+          title={t('skills.title')}
+          description={t('skills.subtitle')}
+          bottomPad="float"
+          tabs={
+            <PageTabs
+              items={[
+                { key: 'packs', label: t('skills.tab_packs'), count: packs.length },
+                { key: 'items', label: t('skills.tab_items'), count: items.length },
+              ]}
+              value={tab}
+              onChange={(key) => setTab(key as Tab)}
+            />
+          }
+          actions={
+            teamPacks.length > 0 ? (
+              <span className="rounded-full bg-accent-soft px-2.5 py-1 text-micro text-accent-ink">
                 {t('skills.from_team')} · {teamPacks.length}
               </span>
-            )}
-
-            {tab === 'items' && (
-              <label className="relative ml-auto flex w-56 items-center">
+            ) : undefined
+          }
+        >
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 size={18} className="animate-spin text-text-tertiary" />
+            </div>
+          ) : tab === 'packs' ? (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {packs.map((pack) => (
+                <SkillPackCard
+                  key={pack.key}
+                  pack={pack}
+                  active={selected.includes(pack.key)}
+                  fromTeam={teamPacks.includes(pack.key)}
+                  onToggle={togglePack}
+                />
+              ))}
+            </div>
+          ) : filteredItems.length === 0 ? (
+            <EmptyState
+              icon={Sparkles}
+              title={t('skills.no_results')}
+              description={t('skills.no_results_desc')}
+              action={
+                query
+                  ? { label: t('skills.clear_filter'), onClick: () => setQuery('') }
+                  : undefined
+              }
+              hints={[t('skills.hint_1'), t('skills.hint_2')]}
+            />
+          ) : (
+            <div className="flex flex-col gap-2">
+              <label className="relative mb-2 flex w-full max-w-[320px] items-center">
                 <Search
-                  size={13}
-                  className="pointer-events-none absolute left-2.5 text-text-tertiary"
+                  size={15}
+                  className="pointer-events-none absolute left-3 text-text-tertiary"
                 />
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder={t('skills.search_placeholder')}
-                  className="h-8 pl-7 text-caption"
+                  className="h-9 pl-9 text-caption"
                 />
               </label>
-            )}
-          </div>
-
-          {loading ? (
-            <div className="flex flex-1 items-center justify-center">
-              <Loader2 size={18} className="animate-spin text-text-tertiary" />
-            </div>
-          ) : tab === 'packs' ? (
-            <>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {packs.map((pack) => {
-                  const active = selected.includes(pack.key)
-                  const fromTeam = teamPacks.includes(pack.key)
-                  return (
-                    <Card
-                      key={pack.key}
-                      interactive
-                      onClick={() => togglePack(pack.key)}
-                      className={cn(
-                        'flex flex-col gap-1 p-3 transition-colors',
-                        active && 'border-accent-strong bg-accent-soft/30',
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <CardTitle className="text-caption">{pack.name}</CardTitle>
-                        {fromTeam && (
-                          <span className="shrink-0 rounded-full bg-accent-soft px-1.5 py-0.5 text-[9px] text-accent-ink">
-                            {t('skills.from_team')}
-                          </span>
-                        )}
-                      </div>
-                      <CardDescription className="line-clamp-2 text-[11px]">
-                        {pack.description || pack.category}
-                      </CardDescription>
-                      <span className="mt-auto flex items-center justify-between text-[10px] text-text-tertiary">
-                        <span>{t('skills.count', { count: pack.count })}</span>
-                        <span className={active ? 'text-accent-ink' : ''}>
-                          {active ? t('skills.pack_enabled') : t('skills.pack_disabled')}
-                        </span>
-                      </span>
-                    </Card>
-                  )
-                })}
-              </div>
-
-              <div className="sticky bottom-0 flex items-center gap-2 border-t border-border/70 bg-bg/95 py-3 backdrop-blur">
-                <Button loading={saving} disabled={!dirty} onClick={() => void save()}>
-                  <Save size={14} /> {t('skills.save')}
-                </Button>
-                {dirty && (
-                  <span className="text-[11px] text-text-tertiary">
-                    {selected.length} / {packs.length}
-                  </span>
-                )}
-              </div>
-            </>
-          ) : filteredItems.length === 0 ? (
-            <p className="py-12 text-center text-caption text-text-tertiary">
-              {t('skills.no_results')}
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-1.5">
               {filteredItems.map((item) => {
                 const fromTeam = teamPacks.includes(item.pack_key)
                 return (
-                  <li
+                  <div
                     key={item.id}
-                    className="flex items-start gap-3 rounded-[12px] border border-border/70 bg-surface px-3 py-2.5"
+                    className="flex items-start gap-3 rounded-[12px] border border-border/70 bg-surface px-4 py-3 transition-colors hover:border-border-strong"
                   >
-                    <Package size={14} className="mt-0.5 shrink-0 text-text-tertiary" />
-                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="flex items-center gap-1.5">
-                        <span className="truncate text-caption font-medium text-text">
-                          {item.title}
-                        </span>
+                    <Package size={15} className="mt-0.5 shrink-0 text-text-tertiary" />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className="flex items-center gap-2">
+                        <span className="truncate text-ui font-medium text-text">{item.title}</span>
                         {fromTeam && (
-                          <span className="shrink-0 rounded-full bg-accent-soft px-1.5 py-0.5 text-[9px] text-accent-ink">
+                          <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-micro text-accent-ink">
                             {t('skills.from_team')}
                           </span>
                         )}
                       </span>
-                      <span className="line-clamp-1 text-[11px] text-text-tertiary">
+                      <span className="line-clamp-2 text-caption leading-relaxed text-text-tertiary">
                         {item.summary || item.when_to_use}
                       </span>
                     </div>
@@ -266,13 +225,38 @@ function SkillsPage() {
                       checked
                       disabled={busyItem === item.id}
                       onCheckedChange={(checked) => void toggleItem(item, checked)}
+                      aria-label={item.title}
                     />
-                  </li>
+                  </div>
                 )
               })}
-            </ul>
+            </div>
           )}
-        </div>
+
+          {/* 悬浮保存条：只有真的改了才出现，且不压住任何一行 */}
+          <div
+            className={
+              dirty
+                ? 'fixed bottom-5 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full border border-border bg-surface px-4 py-2 shadow-float transition-all duration-[240ms] ease-[var(--ease-out)]'
+                : 'pointer-events-none fixed bottom-5 left-1/2 z-30 flex -translate-x-1/2 translate-y-3 items-center gap-3 rounded-full border border-border bg-surface px-4 py-2 opacity-0 shadow-float transition-all duration-[240ms] ease-[var(--ease-out)]'
+            }
+          >
+            <span className="text-caption tabular-nums text-text-secondary">
+              {selected.length} / {packs.length}
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!dirty}
+              onClick={() => setSelected(initial)}
+            >
+              <Undo2 size={14} /> {t('skills.reset')}
+            </Button>
+            <Button size="sm" loading={saving} disabled={!dirty} onClick={() => void save()}>
+              <Save size={14} /> {t('skills.save')}
+            </Button>
+          </div>
+        </PageShell>
       </AppShell>
     </ProtectedRoute>
   )

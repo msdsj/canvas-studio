@@ -23,6 +23,20 @@
   --motion-slow: 420ms;
   --motion-slower: 620ms;
 
+  /* ---------- [V3] 四类动效的唯一口径 ----------
+   * 审计发现各页面入场节奏不一（GSAP / CSS / 无），时长散落在 120–580ms。
+   * 从此处起，组件只允许引用这四个值：
+   *   hover   160ms  悬停 / 聚焦 / 选中：只动颜色、阴影、位移 1–2px
+   *   enter   420ms  入场：页头先落，区块随后，列表项错峰
+   *   exit    180ms  退场：比入场快 2.3 倍，关闭不拖沓
+   *   loading 1.5s   骨架脉冲 / 青蓝扫光周期（与 .cs-skeleton 对齐） */
+  --motion-hover: 160ms;
+  --motion-enter: 420ms;
+  --motion-exit: 180ms;
+  --motion-stagger: 60ms; /* 列表错峰步长；超 8 项后不再累加（见 .cs-enter-item） */
+  --motion-loading: 1.5s;
+  --enter-distance: 12px; /* 入场位移量，只走 Y 轴 */
+
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
   --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
@@ -563,6 +577,103 @@ html[data-cs-vt='ripple']::view-transition-new(root) {
 }
 
 /* ===========================================================================
+ * 7b. [V3] 统一入场：页头 → 区块 → 列表项
+ *
+ * 一条规则替代各页面的 GSAP/CSS 混用：
+ *   容器加 .cs-enter，子项加 .cs-enter-item 并写 style={{'--i': n}}。
+ *   位移只有 12px 与 opacity —— 只碰合成层属性，不触发重排。
+ *   错峰到第 8 项封顶（--i 会被 clamp），否则长列表最后一项要等 2 秒才出现。
+ * ========================================================================= */
+.cs-enter {
+  animation: cs-enter var(--motion-enter) var(--ease-out) both;
+}
+
+.cs-enter-item {
+  animation: cs-enter var(--motion-enter) var(--ease-out) both;
+  animation-delay: calc(min(var(--i, 0), 7) * var(--motion-stagger));
+}
+
+@keyframes cs-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, var(--enter-distance), 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* 退场：只用于关闭 / 切走，比入场快一倍多；不保留 fill 之外的任何状态 */
+.cs-exit {
+  animation: cs-exit var(--motion-exit) var(--ease-out) both;
+}
+@keyframes cs-exit {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(0, -6px, 0);
+  }
+}
+
+/* 空状态图形落位：从 96% 长到 100%，比"什么都不动"多一口气，
+ * 又不会像弹跳那样廉价。空状态出现频率低，允许它稍微被看见一次。 */
+.cs-glyph-in {
+  animation: cs-glyph-in var(--motion-enter) var(--ease-out) both;
+}
+@keyframes cs-glyph-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 粘性页头 / 吸底分页：进入"贴住"状态时补投影，不改变任何尺寸，避免内容跳动 */
+.cs-sticky-edge {
+  transition: box-shadow var(--motion-hover) var(--ease-out),
+    background-color var(--motion-hover) var(--ease-out),
+    border-color var(--motion-hover) var(--ease-out);
+}
+.cs-sticky-edge[data-stuck='true'] {
+  box-shadow: var(--shadow-sticky);
+  border-color: transparent;
+}
+.cs-sticky-foot[data-stuck='true'] {
+  box-shadow: var(--shadow-table-foot);
+}
+
+/* 加载：唯一允许的循环动画只做 opacity（骨架）与 transform（扫光 / 转圈），
+ * 不允许动 width/height/background-position —— 那会每帧触发重绘。 */
+.cs-spin {
+  animation: cs-spin 800ms linear infinite;
+}
+@keyframes cs-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+/* 图表绘制入场：stroke 自绘（只用于「刚拿到数据」的第一次渲染，
+ * 刷新数据不重播——重播会让数字变化看起来像页面重载） */
+.cs-draw {
+  stroke-dasharray: var(--draw-len, 1000);
+  stroke-dashoffset: var(--draw-len, 1000);
+  animation: cs-draw 720ms var(--ease-out) both;
+}
+@keyframes cs-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ===========================================================================
  * 8. 无障碍 / 降级
  * ========================================================================= */
 @media (prefers-reduced-motion: reduce) {
@@ -587,4 +698,33 @@ html.cs-lite .cs-animate-breathe,
 html.cs-lite .cs-shimmer,
 html.cs-lite .cs-shimmer::before {
   animation: none !important;
+}
+
+/* [V3] 减弱动效时把入场/绘制直接置为终态。
+ * 全局那条 `animation-duration: 0.01ms` 已经能跑完，但这里显式写清楚终态，
+ * 是为了避免 fill-mode 与延迟叠加后元素卡在 opacity:0（曾出现过这个坑）。 */
+@media (prefers-reduced-motion: reduce) {
+  .cs-enter,
+  .cs-enter-item,
+  .cs-exit,
+  .cs-glyph-in,
+  .cs-draw {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+  .cs-sticky-edge,
+  .cs-sticky-foot {
+    transition: none !important;
+  }
+}
+
+/* [V3] 低性能设备：关掉图表自绘与错峰延迟，内容立即到位 */
+html.cs-lite .cs-draw,
+html.cs-lite .cs-enter-item {
+  animation: none !important;
+  animation-delay: 0ms !important;
+  stroke-dashoffset: 0 !important;
+  opacity: 1 !important;
 }

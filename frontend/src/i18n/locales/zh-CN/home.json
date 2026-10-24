@@ -1,8 +1,8 @@
 {
   "brand": {
-    "name": "zleap",
-    "product": "zleap Canvas",
-    "company": "智跃深空",
+    "name": "MSDSJ",
+    "product": "MSDSJ AI画布",
+    "company": "MSDSJ",
     "tag": "AI Design Agent"
   },
   "nav": {
@@ -23,7 +23,7 @@
   "composer": {
     "aria": "向设计 Agent 描述需求",
     "placeholders": [
-      "为 zleap 设计一张 AgentOS 发布会主视觉，深空蓝紫，霓虹光效…",
+      "为 MSDSJ 设计一张 AgentOS 发布会主视觉，深空蓝紫，霓虹光效…",
       "极简咖啡品牌海报，暖砂纸质感，居中排版",
       "电商主图：透明玻璃香水瓶，柔光，浅灰背景",
       "把这张照片改成日系胶片风格，保留人物神态"
@@ -147,9 +147,9 @@
     "placeholder": "描述你想生成的画面…"
   },
   "footer": {
-    "rights": "© {{year}} 智跃深空 zleap",
+    "rights": "© {{year}} MSDSJ MSDSJ",
     "slogan": "用 Agent 的方式做设计",
-    "about": "智跃深空出品的 AI 设计 Agent。对话即画布，框选即修改，让每个人都能做出专业级设计。",
+    "about": "MSDSJ出品的 AI 设计 Agent。对话即画布，框选即修改，让每个人都能做出专业级设计。",
     "columns": [
       {
         "title": "产品",
@@ -182,10 +182,10 @@
         ]
       },
       {
-        "title": "zleap",
+        "title": "MSDSJ",
         "links": [
           {
-            "label": "智跃深空",
+            "label": "MSDSJ",
             "href": "#"
           },
           {
@@ -197,7 +197,7 @@
     ]
   },
   "preview": {
-    "window": "zleap Canvas · 秋日露营海报",
+    "window": "MSDSJ AI画布 · 秋日露营海报",
     "user": "做一张秋日露营海报，再出一张山景配图",
     "reply": "已按「户外海报」技能生成 2 张，都放到画布上了。想改哪里，直接框出来告诉我。",
     "edit": "把天空换成极光",
@@ -229,7 +229,7 @@
     ]
   },
   "story": {
-    "eyebrow": "Why zleap Canvas",
+    "eyebrow": "Why MSDSJ AI画布",
     "title": "不是又一个出图框，而是会思考的设计搭档",
     "chat": {
       "tag": "对话即画布",
@@ -368,7 +368,7 @@
     "items": [
       {
         "q": "和普通的 AI 出图工具有什么不同？",
-        "a": "zleap Canvas 是一个设计 Agent：它会先理解和拆解需求，必要时向你确认方向，再调用匹配的设计技能出图；结果落在无限画布上，可以框选局部继续修改，而不是每次从头再来。"
+        "a": "MSDSJ AI画布 是一个设计 Agent：它会先理解和拆解需求，必要时向你确认方向，再调用匹配的设计技能出图；结果落在无限画布上，可以框选局部继续修改，而不是每次从头再来。"
       },
       {
         "q": "需求说不清楚也能用吗？",

@@ -319,10 +319,20 @@ export const chatApi = {
   /** 批量删除消息（「全选」后用） */
   deleteMessages: (ids: string[]) =>
     api.post<{ deleted: number }>('/chat/messages/batch-delete', { ids }),
-  listMessages: (sessionId: string, query: PageQuery = {}) =>
-    api.get<PageData<ChatMessage>>(
-      `/chat/sessions/${sessionId}/messages?page=${query.page ?? 1}&size=${query.size ?? 100}`
-    ),
+  listMessages: (
+    sessionId: string,
+    query: PageQuery & { latest?: boolean; before?: string } = {}
+  ) => {
+    const params = new URLSearchParams({
+      page: String(query.page ?? 1),
+      size: String(query.size ?? 20),
+    })
+    if (query.latest) params.set('latest', 'true')
+    if (query.before) params.set('before', query.before)
+    return api.get<PageData<ChatMessage> & { has_more?: boolean }>(
+      `/chat/sessions/${sessionId}/messages?${params.toString()}`
+    )
+  },
 
   /** Skill 声明：编排步骤与规则（可追溯）。 */
   skills: () => api.get<{ skills: SkillDefinition[] }>('/chat/skills'),
@@ -456,6 +466,11 @@ export const chatApi = {
         cfg_scale?: number
         seed?: number
       }
+      /** 参数面板：显式尺寸 / 画幅（不传则由模型与场景决定） */
+      size?: string
+      aspect?: string
+      /** AI 优化后的指令（只影响出图，消息仍显示原话） */
+      refined?: string
     },
     handlers: {
       onStep: (step: ComposeStep) => void

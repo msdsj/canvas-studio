@@ -15,8 +15,7 @@ import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services import config_service, prompt_service
-from app.services.gateway_client import gateway_client
+from app.services import config_service, prompt_service, text_llm
 from app.utils.logging import get_logger
 
 logger = get_logger("app.edit_prompt_service")
@@ -26,22 +25,6 @@ OPTIMIZE_TIMEOUT_SECONDS = 20.0
 _REGION_MARK = re.compile(r"【区域\s*(\d+)\s*】")
 _FENCE = re.compile(r"```[a-zA-Z]*\s*(.*?)```", re.DOTALL)
 _MAX_CHARS = 1200
-
-
-def _extract_content(result: dict) -> str:
-    """从 OpenAI 风格响应里取正文。"""
-    choices = result.get("choices") or []
-    if not choices:
-        return ""
-    message = choices[0].get("message") or {}
-    content = message.get("content")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "".join(
-            str(item.get("text", "")) for item in content if isinstance(item, dict)
-        )
-    return ""
 
 
 def _strip_fence(text: str) -> str:
@@ -69,6 +52,7 @@ async def optimize(
     instruction: str,
     *,
     model: str | None = None,
+    user_id: str | None = None,
 ) -> tuple[str, bool]:
     """优化编辑指令。
 
@@ -92,22 +76,24 @@ async def optimize(
             ).strip()
             or DEFAULT_MODEL
         )
-        # 改写是"锦上添花"，不能把整个任务拖住：20 秒拿不到就直接用原话
-        result = await asyncio.wait_for(
-            gateway_client.llm_completions(
-                {
-                    "model": model_name,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": text},
-                    ],
-                    "stream": False,
-                    "temperature": 0.3,
-                }
+        # 改写是"锦上添花"，不能把整个任务拖住：20 秒拿不到就直接用原话。
+        # 链路与润色/分析一致：有用户中转站就用它，没有才回退网关。
+        if db is None:
+            return text, False
+        completion = await asyncio.wait_for(
+            text_llm.complete(
+                db,
+                user_id,
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": text},
+                ],
+                temperature=0.3,
+                model=model_name,
             ),
             timeout=OPTIMIZE_TIMEOUT_SECONDS,
         )
-        candidate = _strip_fence(_extract_content(result))
+        candidate = _strip_fence(completion.content)
         if not _valid(text, candidate):
             logger.warning("指令优化结果不合法，回退原指令：%s", candidate[:160])
             return text, False

@@ -109,7 +109,9 @@ export function QuotaBadge({
     >
       <Icon size={15} />
       <span>
-        <span ref={numberRef}>{balance}</span> {t('quota.badge_label')}
+        <span ref={numberRef}>{balance}</span>{' '}
+        {/* 手机上只留数字：整句「11534 Creation credits」会把品牌名压到重叠 */}
+        <span className="hidden sm:inline">{t('quota.badge_label')}</span>
       </span>
     </button>
   )

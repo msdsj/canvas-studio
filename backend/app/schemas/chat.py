@@ -77,6 +77,11 @@ class ChatComposeRequest(BaseModel):
     model: str | None = None
     # 生成参数快照：标准参数由编排层执行，provider-specific 参数由适配层透传。
     generation_params: dict[str, Any] = Field(default_factory=dict)
+    # 参数面板：显式指定尺寸/画幅时优先使用（不传则由模型与场景决定）
+    size: str | None = Field(default=None, max_length=32)
+    aspect: str | None = Field(default=None, max_length=16)
+    # AI 优化后的指令：只影响出图，消息气泡仍显示用户原话
+    refined: str | None = Field(default=None, max_length=8000)
 
 
 class ChatConfirmRequest(BaseModel):

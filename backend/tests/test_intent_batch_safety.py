@@ -67,9 +67,38 @@ async def test_remote_only_pool_rejects_multiple_outputs_before_any_charge(clien
     monkeypatch.setattr(gateway_client, "pool_capacity", remote_only_capacity)
     result = _result(await client.post("/api/chat/analyze", json=payload(session, aid), headers=headers))
     assert result["status"] == "failed"
-    assert "按账号路由" in result["reply"]
+    assert "号池里还没有可用账号" in result["reply"]
     balance, tasks, charges = await _snapshot(uid)
     assert balance == before and tasks == charges == spawned == []
+
+
+async def test_upstream_pool_allows_multiple_outputs(client, monkeypatch):
+    """账号在 chatgpt2api（上游）时，多输出必须放行。
+
+    这是本轮修复的核心：用户导入 4 个 ChatGPT 凭据后，本地独立池仍是 0，
+    旧逻辑据此拒绝「拆成 2 张」。网关现在会返回 routing_mode=upstream，
+    预检应按上游健康账号数判断，而不是本地池。
+    """
+    headers, session, uid, aid, _before = await prepare(client)
+    spawned = _install_plan(monkeypatch, plan())
+
+    async def upstream_capacity():
+        return {
+            "total": 0,
+            "healthy": 0,
+            "available": 0,
+            "independent_routing": False,
+            "routing_mode": "upstream",
+            "upstream_total": 4,
+            "upstream_healthy": 4,
+            "effective_total": 4,
+            "effective_available": 4,
+        }
+
+    monkeypatch.setattr(gateway_client, "pool_capacity", upstream_capacity)
+    result = _result(await client.post("/api/chat/analyze", json=payload(session, aid), headers=headers))
+    assert result["status"] == "completed", result
+    assert len(result["tasks"]) == len(spawned) == 2
 
 
 @pytest.mark.parametrize("capability", ["unreachable", "unverified"])

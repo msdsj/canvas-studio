@@ -33,7 +33,10 @@
     "seats_label": "席位数",
     "seats_hint": "按需要调整，之后可以再改",
     "shared_quota_label": "启用共享额度",
-    "shared_quota_hint": "开启后成员生成图片从这里扣费，不再各扣各的"
+    "shared_quota_hint": "开启后成员生成图片从这里扣费，不再各扣各的",
+    "hint_1": "团队空间共享技能包、素材与额度",
+    "hint_2": "成员各自保留画布，共享的是规范",
+    "hint_3": "每次操作都会记进审计日志"
   },
   "overview": {
     "seats": "席位",

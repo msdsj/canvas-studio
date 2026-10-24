@@ -1,6 +1,6 @@
 import { useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ImagePlus, Layers, Redo2, Trash2, Undo2, Upload } from 'lucide-react'
+import { History, ImagePlus, Layers, MessageSquare, Redo2, Trash2, Undo2, Upload } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { gsap } from '@/lib/gsap'
@@ -16,6 +16,11 @@ interface CanvasToolbarProps {
   onDeleteSelected?: () => void
   /** 图层面板（点图标在画布上就地弹出，不再占一条常驻侧栏） */
   layersSlot?: ReactNode
+  /** 打点评论：未解决条数显示成角标 */
+  onComments?: () => void
+  commentCount?: number
+  /** 版本历史 */
+  onVersions?: () => void
   /** 撤销 / 重做（接 Excalidraw 历史栈，见 stage/use-canvas-history） */
   history?: {
     canUndo: boolean
@@ -26,8 +31,16 @@ interface CanvasToolbarProps {
   }
 }
 
+/**
+ * dock 按钮基线：**只允许换行发生在按钮之间，绝不发生在按钮内部**。
+ *
+ * `shrink-0 + whitespace-nowrap` 必须同时在场：dock 是绝对定位居中的，
+ * 它的可用宽度只有「容器宽 - 50%」，一旦内容超了就按 flex 规则压缩每个按钮——
+ * 结果是「Add image to canvas」被压成两行、整条 dock 视觉上歪掉。
+ * 高度固定 h-9（36px）保证图标按钮与文字按钮同高、基线对齐。
+ */
 const DOCK_BUTTON =
-  'relative z-[1] flex h-9 items-center gap-1.5 rounded-[12px] px-2.5 text-caption font-medium text-text-secondary transition-colors duration-200 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring'
+  'relative z-[1] flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[12px] px-2.5 text-caption font-medium text-text-secondary transition-colors duration-200 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring [&_svg]:shrink-0'
 
 /**
  * 画布浮动工具岛（底部居中，对标 Lovart 底部 dock）。
@@ -44,6 +57,9 @@ export function CanvasToolbar({
   onDeleteSelected,
   layersSlot,
   history,
+  onComments,
+  commentCount,
+  onVersions,
 }: CanvasToolbarProps) {
   const { t } = useTranslation('canvas')
   const dockRef = useRef<HTMLDivElement>(null)
@@ -83,7 +99,7 @@ export function CanvasToolbar({
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node)) moveHover(null)
       }}
-      className="absolute bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-[16px] bg-surface-raised/95 p-1 shadow-float ring-1 ring-border-faint backdrop-blur-md"
+      className="absolute bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-10 flex w-max max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-0.5 overflow-x-auto rounded-[16px] bg-surface-raised/95 p-1 shadow-float ring-1 ring-border-faint backdrop-blur-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       <span
         ref={hoverRef}
@@ -122,7 +138,7 @@ export function CanvasToolbar({
               </Tooltip>
             )
           })}
-          <span aria-hidden className="relative z-[1] mx-1 h-5 w-px bg-border" />
+          <span aria-hidden className="relative z-[1] mx-1 h-5 w-px shrink-0 bg-border" />
         </>
       )}
       <Tooltip>
@@ -163,7 +179,48 @@ export function CanvasToolbar({
           </PopoverContent>
         </Popover>
       )}
-      <span aria-hidden className="relative z-[1] mx-1 h-5 w-px bg-border" />
+      <span aria-hidden className="relative z-[1] mx-1 h-5 w-px shrink-0 bg-border" />
+      {onComments && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={t('toolbar.comments')}
+              onClick={onComments}
+              {...hoverProps}
+              className={cn(DOCK_BUTTON, 'relative')}
+            >
+              <MessageSquare size={16} />
+              <span className="hidden @2xl:inline">{t('toolbar.comments')}</span>
+              {(commentCount ?? 0) > 0 && (
+                // 窄容器（只有图标）时角标压在右上角；一旦有文字标签就回到文档流里，
+                // 否则「评论」两个字会被角标盖住半格
+                <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent-strong px-1 text-[9px] font-semibold tabular-nums text-on-accent @2xl:static">
+                  {commentCount}
+                </span>
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{t('toolbar.comments_hint')}</TooltipContent>
+        </Tooltip>
+      )}
+      {onVersions && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={t('toolbar.versions')}
+              onClick={onVersions}
+              {...hoverProps}
+              className={DOCK_BUTTON}
+            >
+              <History size={16} />
+              <span className="hidden @2xl:inline">{t('toolbar.versions')}</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{t('toolbar.versions_hint')}</TooltipContent>
+        </Tooltip>
+      )}
       <Tooltip>
         <TooltipTrigger asChild>
           <button

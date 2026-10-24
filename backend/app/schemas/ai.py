@@ -110,6 +110,8 @@ class PolishRequest(BaseModel):
     mode: Literal["auto", "specific", "professional", "concise", "english", "fix"] = "auto"
     # 变体数量：给用户 1–3 个可选方向，而不是只给一个答案
     variants: int = Field(default=2, ge=1, le=3)
+    # 润色强度：light=只补全细节（严格限长、不换词）；pro=优化表达（默认）
+    strength: Literal["light", "pro"] = "pro"
     # 可选的场景线索（技能 id、画幅、区域能力），只用于让润色更贴题
     context: dict[str, Any] = Field(default_factory=dict)
 
@@ -132,6 +134,7 @@ class PolishResult(BaseModel):
     variants: list[PolishVariant] = Field(default_factory=list)
     original: str = ""
     mode: str = "auto"
+    strength: str = "pro"
     engine: str = "local"
     model: str = ""
     elapsed_ms: int = 0

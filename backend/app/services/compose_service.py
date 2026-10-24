@@ -40,6 +40,7 @@ from app.services import (
     config_service,
     design_skills,
     generate_service,
+    param_service,
     plan_validator,
     prompt_service,
     relay_service,
@@ -417,6 +418,40 @@ def _verbatim_option(text: str, size: str = "1024x1024", image_count: int = 1) -
     }
 
 
+#: 「缺失信息」里**主体级**的关键词——只有这类缺口才值得停下来追问。
+#:
+#: 模型很爱把「海报上的文案」「品牌标识」「活动信息」这类**用户根本没打算给**的东西
+#: 也列进 missing，于是 is_ambiguous=true，平台就停下来问「标识用什么」——
+#: 而模型自己的分析里明明写着「主体、用途、画幅与色调均已明确，可直接开画」。
+#:
+#: 判定原则：**主体/主题/对象/用途缺了才问**；
+#: 文案、标识、细节、活动信息、价格、日期等一律交给 AI 在提示词里自行补齐。
+_CORE_GAP_HINTS: tuple[str, ...] = (
+    "主体",
+    "主题",
+    "题材",
+    "对象",
+    "画什么",
+    "画面内容",
+    "画面主体",
+    "用途",
+    "使用场景",
+)
+
+
+def _core_gaps(missing: list[str]) -> list[str]:
+    """挑出「必须追问」的缺口；其余视为可由 AI 补齐的可选细节。"""
+    core: list[str] = []
+    for item in missing:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        lowered = text.lower()
+        if any(hint in lowered for hint in _CORE_GAP_HINTS):
+            core.append(text)
+    return core
+
+
 def _prompt_is_actionable(analysis: dict[str, Any], text: str) -> bool:
     """判断用户原话是否已经**足够明确、可以原样开工**。
 
@@ -429,7 +464,8 @@ def _prompt_is_actionable(analysis: dict[str, Any], text: str) -> bool:
     """
     if len(text.strip()) < 8:
         return False
-    if [item for item in (analysis.get("missing") or []) if str(item).strip()]:
+    # 只有「主体级」的缺失才拦；文案/活动信息这类可选细节不拦（见 _core_gaps）
+    if _core_gaps([str(item) for item in (analysis.get("missing") or [])]):
         return False
     if not str(analysis.get("subject") or "").strip():
         return False
@@ -747,12 +783,17 @@ async def _pool_capacity() -> dict[str, int] | None:
     from app.services import pool_service
 
     try:
-        stats = await asyncio.wait_for(pool_service.stats(), timeout=2.0)
+        stats = await asyncio.wait_for(pool_service.stats(), timeout=4.0)
     except Exception:  # noqa: BLE001 - 只是展示信息，拿不到就不说
         return None
-    if not stats.get("total"):
+    effective_total = int(stats.get("effective_total") or 0)
+    if not effective_total:
         return None
-    return {"total": int(stats.get("routable_total") or 0), "normal": int(stats.get("routable_available") or 0)}
+    return {
+        "total": effective_total,
+        "normal": int(stats.get("effective_available") or 0),
+        "mode": str(stats.get("routing_mode") or "none"),
+    }
 
 
 async def _schedule_jobs(
@@ -771,7 +812,8 @@ async def _schedule_jobs(
         items.append(f"当前可用 {free} 个并发槽位，需要 {wanted} 个；提交前校验整批，避免遗漏产出")
     pool = await _pool_capacity()
     if pool:
-        items.append(f"可独立路由账号 {pool['normal']}/{pool['total']}；以执行时实际预留为准")
+        source = "本地号池" if pool.get("mode") == "local" else "上游号池"
+        items.append(f"{source}可调度 {pool['normal']}/{pool['total']} 个账号；以执行时实际预留为准")
     return scheduled, items
 
 
@@ -815,8 +857,19 @@ async def stream_compose(
     selection: dict[str, Any] | None = None,
     model: str | None = None,
     generation_params: dict[str, Any] | None = None,
+    size: str | None = None,
+    aspect: str | None = None,
+    refined: str | None = None,
 ) -> AsyncIterator[str]:
-    """SSE：把全链路思考实时吐给前端，最后给出结论（澄清 / 已提交 / 未配置）。"""
+    """SSE：把全链路思考实时吐给前端，最后给出结论（澄清 / 已提交 / 未配置）。
+
+    `size` / `aspect` 来自前端的参数面板（用户手动或自动识别的结果）。
+    传了就以它为准——参数面板上写着「1536×1024」，出图却是正方形，
+    是比不提供面板更糟的体验。
+
+    `refined` 是「AI 优化」开关打开时的改写版指令：只用于分析与出图，
+    用户消息里保存的仍是原话。
+    """
     trace = _Trace()
     raw_text = (content or "").strip()
     requested = generation_params if isinstance(generation_params, dict) else {}
@@ -831,7 +884,11 @@ async def stream_compose(
         if requested.get(key) not in (None, "")
     }
     # 展示与留档保留用户原话；分析与出图用清理掉技能注入负向段的版本
-    text = raw_text
+    text = _strip_skill_negative_tails(raw_text)
+    # AI 优化开关：只有足够长、且确实不同的改写版才采用，防止「优化」把短句改没
+    gen_text = (refined or "").strip()
+    if len(gen_text) < 8 or gen_text == text:
+        gen_text = text
     refs = [str(item) for item in (image_refs or []) if str(item).strip()][:4]
 
     async with AsyncSessionLocal() as db:
@@ -946,7 +1003,7 @@ async def stream_compose(
         # 避免平台预设的风格词覆盖用户的真实需求（例如把写实人像带成 Q 版）。
         shortlisted: list[design_skills.DesignSkill] = []
         user_prompt = (
-            f"用户原话：{text}\n\n"
+            f"用户原话：{gen_text}\n\n"
             f"{_describe_context(assets, selection)}\n\n"
             "请先输出面向用户的分析摘要，再按系统契约输出结构化计划。"
         )
@@ -982,7 +1039,7 @@ async def stream_compose(
                     catalog=catalog,
                 )
             # Validate counts while still inside the visible analysis error path.
-            resolve_jobs(analysis, text)
+            resolve_jobs(analysis, gen_text)
         except AppError as exc:
             step = trace.finish("analyze", status="failed", detail=exc.message)
             yield _sse({"event": "step", "step": dict(step)})
@@ -1073,15 +1130,18 @@ async def stream_compose(
         ambiguity = analysis.get("ambiguity") if isinstance(analysis.get("ambiguity"), dict) else {}
         is_ambiguous = bool(ambiguity.get("is_ambiguous"))
         missing = [str(item) for item in (analysis.get("missing") or []) if str(item).strip()]
-        actionable = _prompt_is_actionable(analysis, text)
-        needs_choice = is_ambiguous or not actionable
+        actionable = _prompt_is_actionable(analysis, gen_text)
+        # 模型说「有歧义」时，只有当缺口是主体级的才值得停下来问；
+        # 缺口只是文案/活动信息这类可选细节 → 按原话直接出图（需求：去掉冗余弹窗）。
+        core_missing = _core_gaps(missing)
+        needs_choice = (is_ambiguous and bool(core_missing)) or not actionable
 
         if needs_choice:
             question = str(ambiguity.get("question") or "").strip()[:200]
             if not question:
                 question = (
-                    f"这句还差一点信息，我先不猜：「{missing[0][:40]}」"
-                    if missing
+                    f"这句还差一点信息，我先不猜：「{(core_missing or missing)[0][:40]}」"
+                    if (core_missing or missing)
                     else "这句我有几种画法，你要哪一种？"
                 )
             reason = str(ambiguity.get("reason") or "").strip()[:200]
@@ -1184,7 +1244,7 @@ async def stream_compose(
         # **原话直用**：不调模型做提示词改写，也不做模板兜底。
         prompt_source = "verbatim"
         plan_data = {
-            "final_prompt": text.strip()[:_MAX_PROMPT],
+            "final_prompt": gen_text[:_MAX_PROMPT],
             "negative": user_negative,
             "aspect": aspect_override or analysis.get("aspect") or "1:1",
             "title": "按你的原话生成",
@@ -1214,8 +1274,27 @@ async def stream_compose(
             plan_data["size"] = plan_validator.aspect_to_size(plan_data["aspect"])
         final_prompt = str(plan_data.get("final_prompt") or "").strip()
         negative = str(plan_data.get("negative") or "").strip()
-        # size 是 aspect 的派生字段（C1）：只从 aspect 推，避免两个字段各说一套
-        size = plan_validator.aspect_to_size(plan_data.get("aspect"))
+        # size 是 aspect 的派生字段（C1）：只从 aspect 推，避免两个字段各说一套。
+        # 参数面板显式给了尺寸时以它为准（用户看到的数字必须等于出图尺寸）。
+        if aspect:
+            plan_data["aspect"] = plan_validator.normalize_aspect(aspect)
+        explicit_size = _normalize_size(size, fallback="") if size else ""
+        size = explicit_size or plan_validator.aspect_to_size(plan_data.get("aspect"))
+        # 参数自适应（需求五）：用户原话里写明的画幅/场景优先于模型给的 aspect。
+        # 模型常把「竖版 3:4 海报」也归成 1:1，结果出的是方图——用户写清楚了，
+        # 就不该被默认值覆盖。只有落在契约枚举内的比例才覆盖，避免破坏 plan 校验。
+        inferred = param_service.infer(gen_text, kind="generate")
+        if (
+            not explicit_size
+            and inferred["source"] in {"text", "scene"}
+            and inferred["aspect"] in plan_validator.ASPECTS
+            and inferred["aspect"] != plan_data.get("aspect")
+        ):
+            size = inferred["size"]
+            plan_data["aspect"] = inferred["aspect"]
+            logger.info("按用户文本修正画幅：%s → %s", size, inferred["aspect"])
+        plan_data["size"] = size
+        # provider 参数：画幅 / 画质 / 用户负向词都要带给适配层
         provider_params = {
             "aspect": plan_data.get("aspect"),
             "quality": quality,
@@ -1357,7 +1436,7 @@ async def stream_compose(
                 # 双击 / 重发同一句需求时，60 秒内复用同一个幂等键；
                 # 用 run.id 会让「每次都是新 run」，幂等形同虚设。
                 idempotency_key=_dedupe_key(
-                    session.id, text, [asset.id for asset in assets], provider_params
+                    session.id, gen_text, [asset.id for asset in assets], provider_params
                 ),
                 model=model,
                 quality=quality,

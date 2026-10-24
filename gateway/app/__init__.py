@@ -1,3 +1,3 @@
-"""canvas-studio 网关应用包。"""
+"""msdsj 网关应用包。"""
 
 __version__ = "1.0.0"

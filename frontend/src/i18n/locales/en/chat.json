@@ -106,7 +106,7 @@
     "queued": "In queue — you're up next",
     "running": "Generating",
     "paused": "Stopped",
-    "cancelled": "Stopped",
+    "cancelled": "Generation stopped",
     "succeeded": "Done",
     "failed": "This one didn't come through",
     "timeout": "Took too long, so I stopped it",
@@ -148,7 +148,8 @@
     "generating_count_one": "Painting {{count}} image",
     "generating_count_other": "Painting {{count}} images",
     "failed_hint": "Credits refunded — rephrase it or just retry",
-    "retrying": "Resubmitted — generating…"
+    "retrying": "Resubmitted — generating…",
+    "retried": "Resubmitted, generating again…"
   },
   "edit": {
     "compare": "Edit compare",
@@ -188,6 +189,20 @@
     "active_tasks_other": "{{count}} generating",
     "relay_connected": "Relay connected: {{name}}",
     "relay_configure": "Configure AI relay",
-    "relay_team_missing": "Chat models for \"{{team}}\" are managed by the platform administrator."
+    "relay_team_missing": "\"{{team}}\" has no model configured yet — ask your team owner."
+  },
+  "tasks": {
+    "title": "Generation history",
+    "subtitle": "Every generation, edit and retry is kept here so you can look back and reproduce.",
+    "scope": {
+      "all": "All",
+      "active": "In progress",
+      "succeeded": "Succeeded",
+      "failed": "Failed"
+    },
+    "empty": "Nothing generated yet",
+    "empty_desc": "Describe what you want in the chat and results will show up here.",
+    "hint_1": "Failed generations are refunded automatically",
+    "hint_2": "\"Retry\" re-runs with exactly the same parameters"
   }
 }

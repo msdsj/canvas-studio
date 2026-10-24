@@ -56,6 +56,44 @@ MODE_HINTS: dict[str, str] = {
     "fix": "消解矛盾与模糊表述",
 }
 
+# ---------------------------------------------------------------------------
+# 润色强度：两档，默认专业档
+# ---------------------------------------------------------------------------
+# light = 只补全细节：保留用户句式，最多补 1–2 个技术参数；
+# pro   = 优化表达：换成设计术语、重组句式，但仍受保真守卫约束。
+STRENGTH_LABELS: dict[str, str] = {"light": "轻度润色", "pro": "专业润色"}
+
+STRENGTH_HINTS: dict[str, str] = {
+    "light": "只补全细节，尽量保留原句",
+    "pro": "优化表达与术语，主体不变",
+}
+
+# 强度对长度上限的额外收紧：轻度档不允许明显变长
+_STRENGTH_CAP: dict[str, tuple[float, int]] = {
+    "light": (1.12, 18),
+    "pro": (1.25, 40),
+}
+
+_STRENGTH_INSTRUCTION: dict[str, str] = {
+    "light": (
+        "本次为「轻度润色」：最大限度保留用户原句的语序与用词，只允许补全缺失的"
+        "技术性细节（如边缘过渡、画幅、必要材质），最多新增 2 个短句，"
+        "禁止改写主体描述、禁止替换同义词、禁止改变语气。"
+    ),
+    "pro": (
+        "本次为「专业润色」：可以在不改变主体、数量、颜色、动作、文字、风格词的前提下，"
+        "把口语表达换成设计行业术语、调整语序让画面描述更可执行。"
+    ),
+}
+
+# 轻度润色的「补细节」素材：只在用户没提任何画质/光影词时追加一句
+_LIGHT_DETAIL: dict[str, str] = {
+    "composer": "，主体细节清晰、光影自然",
+    "region": "，边缘过渡自然，其余部分保持原样",
+    "sidebar": "，画面细节清晰",
+}
+_DETAIL_WORDS = ("清晰", "自然", "细节", "光影", "过渡", "质感", "分辨率")
+
 _MODE_INSTRUCTION: dict[str, str] = {
     "auto": "只补用户确实没提的纯技术渲染参数（最多 2 项），主体、文字、风格词一律原样保留；"
     "原文已经够具体就少改甚至不改。",
@@ -236,9 +274,16 @@ _CJK = re.compile(r"[\u4e00-\u9fff]")
 _LATIN = re.compile(r"[A-Za-z][A-Za-z0-9'\-]*")
 
 
-def _length_cap(original: str, mode: str) -> int:
-    """该模式允许的最大字数：倍数与绝对增量取较大者，但绝不放宽到无边界。"""
+def _length_cap(original: str, mode: str, strength: str = "pro") -> int:
+    """该模式允许的最大字数：倍数与绝对增量取较大者，但绝不放宽到无边界。
+
+    `strength=light` 会把上限再收紧一档——「轻度润色」如果比原文长 50%，
+    用户感知到的是「被重写了」，与这个档位的承诺不符。
+    """
     ratio, extra = _LENGTH_CAP.get(mode, (1.25, 40))
+    if strength == "light":
+        light_ratio, light_extra = _STRENGTH_CAP["light"]
+        ratio, extra = min(ratio, light_ratio), min(extra, light_extra)
     return max(int(len(original) * ratio) + extra, len(original))
 
 
@@ -401,7 +446,12 @@ def _coverage(original: str, candidate: str) -> tuple[float, list[str]]:
 
 
 def _fidelity_guard(
-    original: str, candidate: str, *, mode: str = "auto", cap: int | None = None
+    original: str,
+    candidate: str,
+    *,
+    mode: str = "auto",
+    cap: int | None = None,
+    strength: str = "pro",
 ) -> tuple[str, list[str]]:
     """偏离守卫：宁可少润色，不许改错。
 
@@ -416,7 +466,7 @@ def _fidelity_guard(
     out = (candidate or "").strip()
     if not src or not out:
         return src, ["已回退：候选为空"]
-    limit = cap if cap is not None else _length_cap(src, mode)
+    limit = cap if cap is not None else _length_cap(src, mode, strength)
 
     ratio, missing = _coverage(src, out)
     if len(_key_tokens(src)) >= 3 and len(missing) >= 2:
@@ -529,12 +579,32 @@ def _variant(label: str, text: str, notes: list[str], index: int) -> dict[str, A
 
 
 def local_variants(
-    text: str, scene: str, mode: str = "auto", count: int = 2
+    text: str, scene: str, mode: str = "auto", count: int = 2, strength: str = "pro"
 ) -> list[dict[str, Any]]:
-    """本地规则：确定性、不联网、不编造用户没说的主体。每条结果都过保真守卫。"""
+    """本地规则：确定性、不联网、不编造用户没说的主体。每条结果都过保真守卫。
+
+    `strength=light` 时只做「清理 + 补细节」，不换词、不重组，产物标签也换成
+    「轻度润色」，让用户一眼看出这一档确实更保守。
+    """
     original = text.strip()
     base = _cleanup(original)
     variants: list[dict[str, Any]] = []
+
+    if strength == "light":
+        notes: list[str] = []
+        value = _ensure_tail(base, scene, notes)
+        # 「补全细节」必须真的补点东西：用户没提画质时追加一句最小限度的技术描述。
+        # 只在没超长时加，避免轻度档把句子撑得比专业档还长。
+        if not any(word in value for word in _DETAIL_WORDS):
+            detail = _LIGHT_DETAIL.get(scene, _LIGHT_DETAIL["composer"])
+            if len(value) + len(detail) <= _length_cap(original, mode, strength):
+                value = f"{value.rstrip('。.，,')}{detail}"
+                notes.append("补了一句基础画质要求")
+        if value != original:
+            notes.insert(0, "只补全缺失细节，句式与用词保持原样")
+        guarded, guard_notes = _fidelity_guard(original, value or base, mode=mode, strength=strength)
+        variants.append(_variant(STRENGTH_LABELS["light"], guarded, [*guard_notes, *notes], 1))
+        return variants
 
     if mode in {"auto", "specific", "professional"}:
         notes: list[str] = []
@@ -615,11 +685,11 @@ def _extract_json(text: str) -> dict[str, Any] | None:
 
 
 def _normalize_variants(
-    raw: Any, original: str, mode: str, limit: int
+    raw: Any, original: str, mode: str, limit: int, strength: str = "pro"
 ) -> list[dict[str, Any]]:
     """收敛模型返回的变体：去空、去重、保真守卫、限长。"""
     items = raw if isinstance(raw, list) else []
-    cap = _length_cap(original, mode)
+    cap = _length_cap(original, mode, strength)
     variants: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in items[:limit]:
@@ -634,7 +704,7 @@ def _normalize_variants(
             for note in (item.get("notes") or [])
             if str(note).strip()
         ][:2]
-        guarded, guard_notes = _fidelity_guard(original, text, mode=mode, cap=cap)
+        guarded, guard_notes = _fidelity_guard(original, text, mode=mode, cap=cap, strength=strength)
         if guarded in seen and guarded != text:
             continue
         seen.add(guarded)
@@ -674,23 +744,29 @@ async def polish(
     mode: str = "auto",
     variants: int = 2,
     context: dict[str, Any] | None = None,
+    strength: str = "pro",
 ) -> dict[str, Any]:
-    """润色入口：有中转站走模型，没有走本地规则。"""
+    """润色入口：有中转站走模型，没有走本地规则。
+
+    `strength` 两档：light=只补细节（严格限长、不许换词）；pro=优化表达（默认）。
+    """
     content = (text or "").strip()
     if not content:
         raise AppError(ErrorCode.VALIDATION_ERROR, "先写一句要润色的内容")
     mode = mode if mode in MODE_LABELS else "auto"
+    strength = strength if strength in STRENGTH_LABELS else "pro"
     limit = max(1, min(int(variants or 1), 3))
     original = content
 
     target = await relay_service.resolve_conversation(db, user_id)
     if target is None:
-        items = local_variants(content, scene, mode, limit)
+        items = local_variants(content, scene, mode, limit, strength)
         return {
             "text": items[0]["text"],
             "variants": items,
             "original": original,
             "mode": mode,
+            "strength": strength,
             "engine": "local",
             "model": "",
             "elapsed_ms": 0,
@@ -706,6 +782,8 @@ async def polish(
         skill_block=_skill_block(context, catalog),
         count=str(limit),
     )
+    # 强度指令放在系统提示最前面：它约束的是「能改多少」，必须先于模式生效
+    system_prompt = f"{_STRENGTH_INSTRUCTION[strength]}\n\n{system_prompt}"
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"原文：{content}"},
@@ -723,7 +801,7 @@ async def polish(
     except AppError as exc:
         # 模型挂了不能让润色按钮变成死按钮：退回本地规则，并如实标注
         logger.warning("润色调用中转站失败，退回本地规则：%s", exc.message)
-        items = local_variants(content, scene, mode, limit)
+        items = local_variants(content, scene, mode, limit, strength)
         for item in items:
             item["notes"] = [*item["notes"], f"中转站暂时不可用（{exc.message}）"][:3]
         return {
@@ -731,16 +809,17 @@ async def polish(
             "variants": items,
             "original": original,
             "mode": mode,
+            "strength": strength,
             "engine": "local",
             "model": "",
             "elapsed_ms": int((time.perf_counter() - started) * 1000),
         }
 
     parsed = _extract_json(result["content"]) or {}
-    items = _normalize_variants(parsed.get("variants"), content, mode, limit)
+    items = _normalize_variants(parsed.get("variants"), content, mode, limit, strength)
     if not items:
         logger.warning("润色返回内容无法解析：%s", result["content"][:200])
-        items = local_variants(content, scene, mode, limit)
+        items = local_variants(content, scene, mode, limit, strength)
         for item in items:
             item["notes"] = [*item["notes"], "中转站返回格式不对，已用本地规则"][:3]
         return {
@@ -748,6 +827,7 @@ async def polish(
             "variants": items,
             "original": original,
             "mode": mode,
+            "strength": strength,
             "engine": "local",
             "model": "",
             "elapsed_ms": int((time.perf_counter() - started) * 1000),
@@ -758,6 +838,7 @@ async def polish(
         "variants": items,
         "original": original,
         "mode": mode,
+        "strength": strength,
         "engine": "relay",
         "model": result.get("model", ""),
         "elapsed_ms": int((time.perf_counter() - started) * 1000),

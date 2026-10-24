@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { Sparkles } from 'lucide-react'
 import type { ExcalidrawInitialDataState } from '@excalidraw/excalidraw/types'
 import { CanvasExcali } from '@/components/canvas/CanvasExcali'
 import { normalizeScene } from '@/components/canvas/canvas-helpers'
@@ -10,6 +9,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { EmptyState } from '@/components/ui/empty-state'
 import { canvasesApi } from '@/lib/api/canvases'
 import { useTheme } from '@/hooks/use-theme'
+import { BrandMark } from '@/components/brand/BrandMark'
 
 export const Route = createFileRoute('/share/$token')({
   component: SharePage,
@@ -38,10 +38,8 @@ function SharePage() {
     <div className="flex h-screen flex-col bg-bg">
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-border-faint bg-surface px-4">
         <div className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-brand text-text-inverse">
-            <Sparkles size={16} />
-          </span>
-          <span className="text-md font-semibold text-text">{name || 'zleap Canvas'}</span>
+          <BrandMark className="h-7 w-7" />
+          <span className="text-md font-semibold text-text">{name || 'MSDSJ AI画布'}</span>
         </div>
         <span className="text-micro text-text-tertiary">{t('share.readonly')}</span>
       </header>

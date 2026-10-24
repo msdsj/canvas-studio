@@ -19,11 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.quota import QuotaTransaction
 from app.models.team import Team
 from app.models.user import User
-from app.services import config_service
+from app.services import config_service, usage_stats_service
+from app.services.usage_stats_service import CONSUME_TYPES
 from app.utils.errors import AppError, ErrorCode
 from app.utils.ids import new_id
 
-CONSUME_TYPES = ("consume_image", "consume_edit", "consume_chat")
+# 说明：`CONSUME_TYPES` 定义在 `usage_stats_service`（统计口径的唯一来源），
+# 这里 re-export，历史调用方（如 team_service）继续 `quota_service.CONSUME_TYPES` 即可。
 
 
 async def _balance(db: AsyncSession, user_id: str) -> int:
@@ -50,24 +52,21 @@ async def get_account(db: AsyncSession, user: User, team: Team | None = None) ->
 
     `team` 传入且启用共享池时，`balance` 是团队池余额，并额外给出 `team_id` /
     `team_balance`，前端据此显示「团队共享额度」而不是个人额度。
+
+    统计字段（累计获得 / 累计消耗 / 趋势 / 类型分布）全部来自
+    `usage_stats_service.quota_summary`：口径只有一份，避免「概览和用量页两个数字打架」。
+    注意 `total_granted` 恒为**个人**累计入账，即使余额显示的是团队池余额。
     """
-    total_granted = int(
-        (
-            await db.execute(
-                select(func.coalesce(func.sum(QuotaTransaction.amount), 0)).where(
-                    QuotaTransaction.user_id == user.id,
-                    QuotaTransaction.type == "grant",
-                )
-            )
-        ).scalar()
-        or 0
-    )
+    summary = await usage_stats_service.quota_summary(db, user)
     pool = _pool_team(team)
     balance = team.balance if pool is not None else user.balance
     return {
         "balance": balance,
         "threshold_pct": int(await config_service.get_value(db, "QUOTA_WARN_PCT", 20)),
-        "total_granted": total_granted,
+        "total_granted": summary["total_granted"],
+        "total_consumed": summary["total_consumed"],
+        "series": summary["series"],
+        "by_type": summary["by_type"],
         "prices": await config_service.prices(db),
         "pool": (
             {
@@ -291,18 +290,3 @@ async def list_transactions(
         .limit(size)
     )
     return list(result.scalars().all()), total
-
-
-async def consumed_today(db: AsyncSession) -> int:
-    """统计今日消耗总额（供后台概览）。"""
-    from datetime import date, datetime, time
-
-    from app.utils.ids import utcnow
-
-    today = utcnow().date()
-    start = datetime.combine(today, time.min)
-    stmt = select(func.coalesce(func.sum(func.abs(QuotaTransaction.amount)), 0)).where(
-        QuotaTransaction.type.in_(CONSUME_TYPES),
-        QuotaTransaction.created_at >= start,
-    )
-    return int((await db.execute(stmt)).scalar() or 0)

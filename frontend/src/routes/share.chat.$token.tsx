@@ -19,6 +19,7 @@ import { getToken } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 import { parseServerTime } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
+import { BrandMark } from '@/components/brand/BrandMark'
 
 export const Route = createFileRoute('/share/chat/$token')({
   component: SharedChatPage,
@@ -112,7 +113,7 @@ function SharedChatPage() {
   return (
     <div className="flex h-screen flex-col bg-surface-subtle">
       <header className="flex h-12 shrink-0 items-center gap-2 px-4">
-        <span aria-hidden className="cs-logo-mark h-5 w-5" />
+        <BrandMark className="h-5 w-5" />
         <span className="min-w-0 flex-1 truncate text-ui font-medium text-text">{data.title}</span>
         <span className="shrink-0 text-micro text-text-tertiary">只读</span>
         <Button size="sm" variant="primary" className="h-7 px-3 text-caption" onClick={() => void fork()}>

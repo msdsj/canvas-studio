@@ -12,6 +12,7 @@ from app.models.asset import Asset
 from app.models.audit import AuditLog
 from app.models.canvas import Canvas
 from app.models.chat import ChatMessage, ChatSession
+from app.models.collab_ext import CanvasComment, CanvasVersion
 from app.models.collaboration import CanvasCollaborator
 from app.models.email_token import EmailToken
 from app.models.generation import GenerationTask
@@ -30,7 +31,9 @@ __all__ = [
     "AuditLog",
     "Canvas",
     "CanvasCollaborator",
+    "CanvasComment",
     "CanvasProject",
+    "CanvasVersion",
     "ChatMessage",
     "ChatSession",
     "EmailToken",

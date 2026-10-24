@@ -17,7 +17,26 @@
     "pool_normal": "号池正常",
     "pool_total": "账号总数",
     "pool_limited": "限流账号",
-    "pool_problem": "异常/禁用"
+    "pool_problem": "异常/禁用",
+    "trend_title": "近 14 天走势",
+    "trend_desc": "新增用户、生成图片与消耗积分按天聚合",
+    "trend_days": "近 {{days}} 天",
+    "trend_images": "生成图片",
+    "trend_users": "新增用户",
+    "trend_quota": "消耗积分",
+    "trend_empty_title": "还没有可统计的数据",
+    "trend_empty_desc": "有用户注册或出图记录后，这里会显示按天聚合的走势。",
+    "pending_title": "待处理",
+    "pending_users": "待验证的邮箱",
+    "pending_pool_abnormal": "号池异常账号",
+    "pending_pool_limited": "号池限流账号",
+    "recent_title": "最近动态",
+    "recent_all": "查看全部日志",
+    "recent_empty": "还没有操作记录",
+    "pool_available": "可用 / 总账号数",
+    "images_total": "近 14 天生成图片",
+    "images_hint": "按天聚合的成功出图数",
+    "description": "用户、额度、号池与最近操作都在这里，一屏看完。"
   },
   "users": {
     "search": "搜索邮箱",
@@ -36,7 +55,11 @@
     "empty": "没有匹配的用户",
     "role_all": "全部角色",
     "status_all": "全部状态",
-    "create": "新建用户"
+    "create": "新建用户",
+    "empty_desc": "没有匹配的用户。",
+    "empty_hint_1": "换个邮箱前缀或清掉筛选试试",
+    "empty_hint_2": "可以直接新建一个账号并分配额度",
+    "email": "邮箱"
   },
   "create_user_dialog": {
     "title": "新建用户",
@@ -103,7 +126,8 @@
       "demo": "演示模式",
       "registration": "注册开关",
       "quota": "额度计费",
-      "pool": "号池"
+      "pool": "号池",
+      "prompt": "提示词模板"
     },
     "secret_hint": "敏感值已掩码，留空或不修改则保持不变",
     "save": "保存并推送",
@@ -157,6 +181,27 @@
     "detail": "详情",
     "empty": "暂无日志",
     "search": "搜索操作人",
-    "action_all": "全部动作"
-  }
+    "action_all": "全部动作",
+    "actions": {
+      "pool_import": "导入号池账号",
+      "pool_delete": "移除号池账号",
+      "pool_refresh": "刷新号池账号",
+      "pool_update": "更新号池账号",
+      "pro_redeem": "兑换 Pro 激活码",
+      "pro_code_create": "创建 Pro 激活码",
+      "pro_code_delete": "删除 Pro 激活码",
+      "user_reset_password": "重置用户密码",
+      "user_ban": "封禁用户",
+      "user_unban": "解封用户",
+      "quota_adjust": "调整用户额度",
+      "user_create": "创建用户",
+      "announcement_create": "发布公告",
+      "announcement_update": "更新公告",
+      "announcement_delete": "删除公告",
+      "invite_create": "创建邀请码",
+      "invite_delete": "删除邀请码",
+      "config_update": "修改系统配置"
+    }
+  },
+  "back_to_studio": "返回工作室"
 }

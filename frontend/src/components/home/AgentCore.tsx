@@ -192,7 +192,7 @@ export function AgentCore({ className }: { className?: string }) {
       >
         <defs>
           <radialGradient id={`${gradId}-core`} cx="38%" cy="34%" r="70%">
-            <stop offset="0%" style={{ stopColor: "#f6ffd6" }} />
+            <stop offset="0%" style={{ stopColor: "#DFF7F4" }} />
             <stop offset="45%" style={{ stopColor: "var(--color-accent)" }} />
             <stop
               offset="100%"

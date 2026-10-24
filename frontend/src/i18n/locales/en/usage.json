@@ -18,7 +18,10 @@
     "note": "Note",
     "time": "Time",
     "empty": "No transactions yet",
-    "filter_all": "All types"
+    "filter_all": "All types",
+    "empty_desc": "Generating images, editing images or chatting with the AI all show up here.",
+    "hint_1": "Failed generations are refunded automatically",
+    "hint_2": "Manual admin adjustments are recorded in the same ledger"
   },
   "type": {
     "grant": "Grant",
@@ -31,5 +34,19 @@
     "processing": "Processing",
     "success": "Success",
     "refunded": "Refunded"
+  },
+  "subtitle": "Every generation and edit is billed — here is where the balance comes from and where it goes",
+  "total_consumed": "Total consumed",
+  "consumed_today": "Consumed today",
+  "trend": {
+    "title": "Consumption trend",
+    "desc": "Credits consumed and granted, aggregated by day",
+    "days": "Last {{days}} days",
+    "consumed": "Consumed",
+    "granted": "Granted",
+    "empty": "No consumption in this period"
+  },
+  "filter": {
+    "all": "All"
   }
 }

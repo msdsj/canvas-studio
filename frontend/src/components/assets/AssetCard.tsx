@@ -11,16 +11,39 @@ interface AssetCardProps {
   onPreview?: (asset: Asset) => void
 }
 
-/** 资产卡（复用回画布 / 下载 / 删除）。 */
+/**
+ * 资产的宽高比。
+ *
+ * 极端比例（超长图、细长条）如果原样呈现，卡片会变成一条 2px 的缝，
+ * 网格看起来全是空白。所以把比例夹在 1:2 ~ 2:1 之间。
+ */
+function ratioOf(asset: Asset): string {
+  const w = asset.width || 1
+  const h = asset.height || 1
+  const ratio = w / h
+  const clamped = Math.min(2, Math.max(0.5, ratio))
+  return `${clamped} / 1`
+}
+
+/**
+ * 资产卡（预览 / 复用回画布 / 下载 / 删除）。
+ *
+ * v3 改动：
+ * - 图片区按**素材真实宽高比**排版，不再一律切方。改造前 351×1238 的竖图
+ *   被 `object-cover` 裁成正方形，只剩中间一条，用户根本认不出那是哪张图；
+ * - 底部元信息重排：尺寸在左、三个操作在右，图标统一 16px、间距 8px、垂直居中
+ *   （原来 15px 图标挤在 2px 间隙里，基线还各偏各的）。
+ */
 export function AssetCard({ asset, onUse, onDelete, onPreview }: AssetCardProps) {
   const { t } = useTranslation('assets')
   return (
-    <div className="group overflow-hidden rounded-md bg-surface shadow-sheet">
-      {/* 图片区 = 相纸：3px 近直角 + 白色衬边，与 UI 的 14px 软角形成「硬边图 / 软边界面」对比 */}
+    <div className="group mb-4 break-inside-avoid overflow-hidden rounded-[16px] border border-border/70 bg-surface shadow-sheet transition-[transform,box-shadow] duration-[240ms] ease-[var(--ease-out)] hover:-translate-y-0.5 hover:shadow-lift">
+      {/* 图片区 = 相纸：3px 近直角 + 白色衬边，与 UI 的 16px 软角形成「硬边图 / 软边界面」对比 */}
       <button
         type="button"
         onClick={() => onPreview?.(asset)}
-        className="relative block aspect-square w-full overflow-hidden bg-mat p-[3px]"
+        className="relative block w-full overflow-hidden bg-mat p-[3px]"
+        style={{ aspectRatio: ratioOf(asset) }}
       >
         <img
           src={asset.thumb_url || asset.url}
@@ -34,34 +57,34 @@ export function AssetCard({ asset, onUse, onDelete, onPreview }: AssetCardProps)
           </span>
         )}
       </button>
-      <div className="flex items-center justify-between gap-1 px-2 py-2">
-        <span className="truncate text-caption text-text-tertiary">
+      <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+        <span className="truncate font-mono text-micro tabular-nums text-text-tertiary">
           {asset.width}×{asset.height}
         </span>
-        <div className="flex items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             aria-label={t('card.use')}
-            className="rounded p-1.5 text-text-secondary hover:bg-surface-hover"
+            className="flex h-7 w-7 items-center justify-center rounded-[8px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
             onClick={() => onUse?.(asset)}
           >
-            <ImagePlus size={15} />
+            <ImagePlus size={16} />
           </button>
           <a
             href={assetsApi.downloadUrl(asset.id)}
             download
             aria-label={t('card.download')}
-            className="rounded p-1.5 text-text-secondary hover:bg-surface-hover"
+            className="flex h-7 w-7 items-center justify-center rounded-[8px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
           >
-            <Download size={15} />
+            <Download size={16} />
           </a>
           <button
             type="button"
             aria-label={t('card.delete')}
-            className="rounded p-1.5 text-text-secondary hover:bg-surface-hover hover:text-danger"
+            className="flex h-7 w-7 items-center justify-center rounded-[8px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-danger"
             onClick={() => onDelete?.(asset)}
           >
-            <Trash2 size={15} />
+            <Trash2 size={16} />
           </button>
         </div>
       </div>

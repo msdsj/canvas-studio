@@ -9,13 +9,44 @@ from pydantic import BaseModel, EmailStr, Field
 from app.schemas.common import ORMModel
 
 
+class OverviewSeriesPoint(BaseModel):
+    """概览趋势的一天（按服务器时区 +08:00 切天）。"""
+
+    date: str
+    users_new: int = 0
+    images: int = 0
+    quota: int = 0
+
+
+class OverviewRecentItem(BaseModel):
+    """概览「最近动态」的一条。"""
+
+    at: str | None = None
+    kind: str = "audit"
+    text: str = ""
+
+
+class OverviewPending(BaseModel):
+    """概览「待处理」计数。"""
+
+    users_pending_verification: int = 0
+    pool_abnormal: int = 0
+    pool_limited: int = 0
+
+
 class OverviewOut(BaseModel):
-    """后台概览。"""
+    """后台概览。
+
+    `pool` 里除了计数还有 `routing_mode` 等字符串字段，所以类型放宽为 Any。
+    """
 
     users_total: int = 0
     users_active: int = 0
-    pool: dict[str, int] = Field(default_factory=dict)
+    pool: dict[str, Any] = Field(default_factory=dict)
     quota_consumed_today: int = 0
+    series: list[OverviewSeriesPoint] = Field(default_factory=list)
+    recent: list[OverviewRecentItem] = Field(default_factory=list)
+    pending: OverviewPending = Field(default_factory=OverviewPending)
 
 
 class AdminUserOut(ORMModel):

@@ -5,14 +5,31 @@
  */
 
 /* ---------------------------------------------------------------------------
- * 收起 Excalidraw 原生左下角浮层（缩放 + 撤销/重做）。
- * 缩放由右下角导航器接管、撤销/重做由底部 dock 接管；
- * 浮层只是视觉上隐藏——底部 dock 仍通过它的按钮驱动 Excalidraw 的历史栈，
- * 所以用 visibility 而不是 display:none，保证按钮的 disabled 状态照常更新。
+ * 收起 Excalidraw 原生底部工具条里的「缩放 / 撤销重做」岛。
+ *
+ * 缩放由右下角导航器接管、撤销/重做由底部 dock 接管，同屏出现两组 →
+ * 用户看到两个「− 29% +」，不知道拖哪个。
+ *
+ * ⚠️ 这里只能用 display:none，不能只用 visibility:hidden：
+ * Excalidraw 的 ToolIcon 自带 `visibility: visible`，会把父级设的 hidden 覆盖回来，
+ * 结果是「隐藏了但整块岛照样画在屏幕上」（实测：父级 computed visibility=hidden、
+ * 子按钮 computed visibility=visible，截图里两个缩放岛都还在）。
+ *
+ * 用 display:none 而不是把它们摘出 DOM：底部的撤销/重做仍靠点击原生按钮驱动
+ * Excalidraw 的历史栈（见 stage/use-canvas-history.ts）——display:none 的元素
+ * 依然能被 querySelector 找到、`.click()` 依然生效、disabled 变化依然能被观察到。
  * ------------------------------------------------------------------------- */
 .cs-canvas-shell .layer-ui__wrapper__footer-left {
-  visibility: hidden !important;
-  pointer-events: none !important;
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 原生帮助按钮：保留（Excalidraw 唯一的原生帮助入口），但要让它躲开右下角的
+ * 导航器——footer-left 退出布局后 footer 只剩一个子节点，`space-between`
+ * 会把它推到行首，自然落到左下角空位，与导航器、dock 都不重叠。
+ * ------------------------------------------------------------------------- */
+.cs-canvas-shell .layer-ui__wrapper__footer-right {
+  margin-left: 0 !important;
 }
 
 /* ---------------------------------------------------------------------------
@@ -129,4 +146,36 @@
     linear-gradient(-45deg, transparent 75%, #dedad0 75%);
   background-size: 16px 16px;
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * 画布顶部工具栏（Excalidraw 原生 Island）：把它收进本产品的图标语言。
+ *
+ * - 出厂是 20px 图标 + 36px 按钮，比产品里其它 16px / 32×32 的工具按钮大一号，
+ *   一排看过去「图标大小不一」；这里统一成 16px 图标、32×32 命中区、2px 间距。
+ * - 选中态出厂取 `--color-surface-primary-container`（浅色是米灰、深色是淡紫），
+ *   与青柠 / 墨黑体系不符 → 直接改这两个变量，而不是逐个类覆盖，
+ *   Excalidraw 内部所有「当前选中」的语义都跟着一起正过来。
+ * ------------------------------------------------------------------------- */
+.cs-canvas-shell .excalidraw {
+  --color-surface-primary-container: var(--color-select-soft);
+  --color-on-primary-container: var(--color-select);
+}
+
+.cs-canvas-shell .excalidraw .App-toolbar {
+  gap: 2px;
+}
+
+.cs-canvas-shell .excalidraw .ToolIcon__icon {
+  width: 32px;
+  height: 32px;
+}
+
+.cs-canvas-shell .excalidraw .ToolIcon__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.cs-canvas-shell .excalidraw .ToolIcon__keybinding {
+  font-size: 9px;
 }

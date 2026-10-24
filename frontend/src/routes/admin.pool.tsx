@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select'
 import { PoolStatsCards } from '@/components/admin/PoolStatsCards'
 import { PoolTable } from '@/components/admin/PoolTable'
+import { TableCard } from '@/components/ui/table'
 import { PoolImportDialog, parseInput } from '@/components/admin/PoolImportDialog'
 import { PoolRefreshProgress } from '@/components/admin/PoolRefreshProgress'
 import { adminApi } from '@/lib/api/admin'
@@ -166,17 +167,19 @@ function AdminPoolPage() {
         </div>
       )}
 
-      <PoolTable
-        accounts={accounts}
-        loading={loading}
-        selected={selected}
-        onToggle={(token) =>
-          setSelected((prev) => (prev.includes(token) ? prev.filter((t2) => t2 !== token) : [...prev, token]))
-        }
-        onToggleAll={() => setSelected(selected.length === accounts.length ? [] : accounts.map((a) => a.id))}
-        onDelete={(token) => adminApi.poolDelete([token]).then(() => void load()).catch((e) => toast.error(errorMessage(e, te)))}
-        onToggleStatus={toggleStatus}
-      />
+      <TableCard>
+        <PoolTable
+          accounts={accounts}
+          loading={loading}
+          selected={selected}
+          onToggle={(token) =>
+            setSelected((prev) => (prev.includes(token) ? prev.filter((t2) => t2 !== token) : [...prev, token]))
+          }
+          onToggleAll={() => setSelected(selected.length === accounts.length ? [] : accounts.map((a) => a.id))}
+          onDelete={(token) => adminApi.poolDelete([token]).then(() => void load()).catch((e) => toast.error(errorMessage(e, te)))}
+          onToggleStatus={toggleStatus}
+        />
+      </TableCard>
 
       <PoolImportDialog open={importOpen} onOpenChange={setImportOpen} onSubmit={handleImport} result={importResult} />
     </AdminShell>

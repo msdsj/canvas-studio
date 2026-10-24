@@ -54,21 +54,21 @@ async def send_verify_email(to: str, token: str) -> None:
     """发送邮箱确认邮件。"""
     link = f"{settings.frontend_base_url}/verify-email?token={token}"
     body = (
-        "欢迎使用 Canvas Studio！\n\n"
+        "欢迎使用 MSDSJ！\n\n"
         f"请点击以下链接完成邮箱确认（{settings.verify_token_ttl_hours} 小时内有效）：\n{link}\n"
     )
-    await _send("[Canvas Studio] 邮箱确认", to, body)
+    await _send("[MSDSJ] 邮箱确认", to, body)
 
 
 async def send_reset_email(to: str, token: str) -> None:
     """发送密码重置邮件。"""
     link = f"{settings.frontend_base_url}/reset-password?token={token}"
     body = (
-        "您正在重置 Canvas Studio 密码。\n\n"
+        "您正在重置 MSDSJ 密码。\n\n"
         f"请点击以下链接完成重置（{settings.reset_token_ttl_hours} 小时内有效）：\n{link}\n\n"
         "如果这不是您的操作，请忽略本邮件。\n"
     )
-    await _send("[Canvas Studio] 重置密码", to, body)
+    await _send("[MSDSJ] 重置密码", to, body)
 
 
 def mail_dir() -> str:
@@ -89,4 +89,4 @@ async def send_team_invite_email(to: str, team_name: str, inviter: str, token: s
         f"点击链接接受邀请（7 天内有效）：\n{link}\n\n"
         "如果这不是给你的邀请，忽略本邮件即可。\n"
     )
-    await _send(f"[Canvas Studio] 加入团队「{team_name}」", to, body)
+    await _send(f"[MSDSJ] 加入团队「{team_name}」", to, body)
