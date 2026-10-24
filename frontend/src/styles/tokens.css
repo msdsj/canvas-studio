@@ -153,6 +153,12 @@
     radial-gradient(100% 80% at 92% 8%, rgba(53, 179, 201, 0.2), transparent 56%),
     radial-gradient(90% 70% at 50% 100%, rgba(154, 212, 203, 0.18), transparent 60%);
 
+  /* 页面级弥散：页头 / 侧栏顶部的极淡三色光。
+   * 只在顶部起亮、向下化开——内容区仍然保持纯纸底，不会变成"糊了一层雾"。 */
+  --gradient-diffuse-wash: radial-gradient(58% 130% at 6% 0%, rgba(89, 139, 253, 0.16), transparent 70%),
+    radial-gradient(48% 120% at 94% 0%, rgba(53, 179, 201, 0.14), transparent 68%),
+    radial-gradient(70% 120% at 50% 96%, rgba(154, 212, 203, 0.1), transparent 72%);
+
   /* ---------- 选区几何（蓝，与信号色同族但更沉） ---------- */
   --color-select: #2452c0;
   --color-select-soft: #e9f0fe;
@@ -359,6 +365,11 @@
   --gradient-diffuse: radial-gradient(120% 90% at 12% 0%, rgba(89, 139, 253, 0.2), transparent 58%),
     radial-gradient(100% 80% at 92% 8%, rgba(53, 179, 201, 0.16), transparent 56%),
     radial-gradient(90% 70% at 50% 100%, rgba(154, 212, 203, 0.12), transparent 60%);
+
+  /* 暗底上弥散光要提亮一点才看得见，但透明度仍然压得很低，避免整页发蓝 */
+  --gradient-diffuse-wash: radial-gradient(58% 130% at 6% 0%, rgba(89, 139, 253, 0.22), transparent 70%),
+    radial-gradient(48% 120% at 94% 0%, rgba(53, 179, 201, 0.18), transparent 68%),
+    radial-gradient(70% 120% at 50% 96%, rgba(154, 212, 203, 0.08), transparent 72%);
 
   --color-select: #7ba4ff;
   --color-select-soft: #16233d;

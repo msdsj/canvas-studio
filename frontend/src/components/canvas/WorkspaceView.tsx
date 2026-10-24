@@ -2035,8 +2035,10 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
           <div
             data-panel
             data-agent-composer
-            className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[16px] bg-surface shadow-sheet md:mr-2 md:w-[320px] lg:w-[336px] xl:w-[372px]"
+            className="relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[16px] bg-surface shadow-sheet md:mr-2 md:w-[320px] lg:w-[336px] xl:w-[372px]"
           >
+            {/* 面板顶部的弥散薄雾：蓝 → 青 → 薄荷，把对话区和画布在视觉上分开 */}
+            <div aria-hidden className="cs-diffuse-wash pointer-events-none absolute inset-x-0 top-0 h-52" />
             <AgentPanelHeader onCreateSession={() => void handleCreateSession()} />
             <div className="min-h-0 flex-1">
               <ChatPanel

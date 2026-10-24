@@ -335,6 +335,12 @@
   background-image: var(--gradient-diffuse);
 }
 
+/* 页面级弥散光：页头 / 侧栏顶部的一层三色光，向下化开、不压内容
+ * （蓝 #598BFD → 青 #35B3C9 → 薄荷 #9AD4CB，都取 tokens 里的低透明版本） */
+.cs-diffuse-wash {
+  background-image: var(--gradient-diffuse-wash);
+}
+
 /* 弥散描边：给卡片一圈极淡的蓝绿渐变描边（代替纯色描边） */
 .cs-ring-diffuse {
   border: 1px solid transparent;
