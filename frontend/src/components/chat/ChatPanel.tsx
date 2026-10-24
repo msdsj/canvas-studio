@@ -74,7 +74,6 @@ import { ChatTextarea, type ComposerAttachment } from './ChatTextarea'
 import { GenerationResultCard } from './GenerationResultCard'
 import { ConfirmCountCard, type ConfirmCardState } from './ConfirmCountCard'
 import { ClarifyCard, type ClarifyState } from './ClarifyCard'
-import { PolishPopover } from './PolishPopover'
 import { ParamPanel } from './ParamPanel'
 import { AIConfigDialog } from '@/components/ai/AIConfigDialog'
 import { SessionSelector } from './SessionSelector'
@@ -2171,12 +2170,6 @@ export function ChatPanel({
               <Sparkles size={11} />
               {polishMode === 'ai' ? 'AI 优化' : '原始'}
             </button>
-            <PolishPopover
-              text={input}
-              scene="composer"
-              onApply={(next) => updateInput(next)}
-              disabled={!input.trim()}
-            />
           </div>
         }
         attachSlot={
