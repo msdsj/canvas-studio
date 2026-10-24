@@ -6,7 +6,6 @@ import { useAuth } from '@/hooks/use-auth'
 import { useUIStore } from '@/stores/ui'
 import { useComposerHandoff } from '@/stores/composer'
 import { enterStudio, prefersReducedMotion, useReveal, useSpotlight } from '@/lib/motion'
-import { AgentCore } from '@/components/home/AgentCore'
 import { AgentWorkflowStrip } from '@/components/home/AgentWorkflowStrip'
 import { FloatingSignals } from '@/components/home/FloatingSignals'
 import { HomeComposer, type HomeComposerHandle } from '@/components/home/HomeComposer'
@@ -220,15 +219,11 @@ function HomePage() {
         onRegister={() => openAuth('register', t('auth.register'))}
       />
 
-      {/* 首屏：Agent 核 + 标题 + 状态条 + 大输入框 */}
+      {/* 首屏：状态条 + 标题 + 大输入框 */}
       <main className="relative z-10 flex min-h-[calc(92svh-64px)] items-center justify-center px-4 pb-10 pt-2 sm:px-8 sm:pb-14">
         <FloatingSignals />
         <div className="relative w-full max-w-[800px]">
           <div data-hero className="flex justify-center">
-            <AgentCore className="w-[104px] sm:w-[136px] lg:w-[152px]" />
-          </div>
-
-          <div data-hero className="mt-1 flex justify-center">
             <span className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface/70 px-3 py-1 text-micro font-medium text-text-secondary backdrop-blur">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-strong opacity-70" />
