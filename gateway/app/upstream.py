@@ -12,12 +12,31 @@ from app.utils.errors import ErrorCode
 
 
 def _is_loopback(base_url: str) -> bool:
-    """本地回环地址（localhost/127.0.0.1）判断：平台→上游为本地回环调用，永不走代理。"""
+    """判断「访问自己」的地址：这类调用永不走代理。
+
+    除了 localhost/127.0.0.1，还必须覆盖**本机自建服务对外暴露的域名**——
+    例如中转站挂在 gpt.msdsj.site，但它其实就跑在同一台机器上。
+    如果这类地址走了 VPN 代理，请求会「出国再回国」，轻则慢十倍，
+    重则被链路直接掐断（实测 httpx.ConnectError / PROXY_UNREACHABLE）。
+
+    注意：这里只影响「平台 → 自己家服务」的调用，真正的境外上游
+    （api.openai.com 等）仍然照常走代理。
+    """
     try:
         from urllib.parse import urlparse
 
-        host = urlparse(base_url).hostname or ""
-        return host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+        host = (urlparse(base_url).hostname or "").lower()
+        if not host:
+            return False
+        if host in {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}:
+            return True
+        # 自有域名：跑在同一台服务器上，直连即可
+        if host.endswith(".msdsj.site") or host.endswith(".cheatai.site"):
+            return True
+        # 内网/容器网段
+        if host.startswith(("10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.")):
+            return True
+        return False
     except Exception:  # noqa: BLE001
         return False
 

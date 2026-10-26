@@ -38,8 +38,22 @@ class AccountPool:
             if not batch["active"] and batch["expires_at"] <= now:
                 del self._batches[batch_id]
 
-    def _reserved_accounts(self) -> set[str]:
-        return {account_id for batch in self._batches.values() for account_id in batch["accounts"]}
+    def _reserved_accounts(self, *, exclude_batch_id: str = "") -> set[str]:
+        """Return accounts reserved by *other* batches.
+
+        A task may need an extra account from its own batch's namespace after a
+        failure. Treating every slot as globally reserved made that recovery
+        path collide with unrelated batches. The current batch still excludes
+        accounts already assigned to sibling tasks via its ``used`` set at each
+        call site.
+        """
+        return {
+            account_id
+            for batch_id, batch in self._batches.items()
+            if batch_id != exclude_batch_id
+            for account_id in batch["accounts"]
+            if account_id
+        }
 
     @staticmethod
     def _healthy(item: dict[str, Any], now: float) -> bool:
@@ -217,7 +231,12 @@ class AccountPool:
             return dict(item)
 
     async def acquire_image(
-        self, *, batch_id: str = "", task_id: str = "", batch_total: int = 1
+        self,
+        *,
+        batch_id: str = "",
+        task_id: str = "",
+        batch_total: int = 1,
+        strict: bool = False,
     ) -> dict[str, Any] | None:
         """Acquire one image lease, with strict distinct accounts per batch.
 
@@ -227,9 +246,13 @@ class AccountPool:
         """
         await self._ensure_loaded()
         if not self._accounts:
-            # 本地号池为空：账号在上游自己的号池里，取号与轮询由上游完成。
-            # 不能因为「本地没有可独立路由的账号」就拒绝整批任务——上游每个请求
-            # 会各自分配账号，这正是「自动使用可用账号额度」的正常路径。
+            # 上游账号池没有 per-request 账号选择协议，严格批次不能把多个
+            # 输出交给同一个共享 provider key。单次/兼容请求仍允许上游自行调度。
+            if strict and batch_id:
+                raise GatewayError(
+                    ErrorCode.POOL_UNAVAILABLE,
+                    "本地号池没有可独立路由的账号，未回退到共享 provider；请稍后重试或先导入账号",
+                )
             return None
         if not batch_id:
             account = await self.select(kind="image")
@@ -244,7 +267,7 @@ class AccountPool:
             self._reclaim_batches(now)
             batch = self._batches.get(batch_id)
             if batch is None:
-                reserved = self._reserved_accounts()
+                reserved = self._reserved_accounts(exclude_batch_id=batch_id)
                 candidates = [
                     item for item in self._accounts.values()
                     if self._healthy(item, now)
@@ -252,43 +275,78 @@ class AccountPool:
                     and item["id"] not in reserved
                 ]
                 candidates.sort(key=lambda item: float(item.get("last_used") or 0))
-                # 账号不够时不再整批拒绝：能独立路由的任务各占一个账号，
-                # 剩余任务交给上游号池调度（None 槽位）。可用性优先于严格隔离，
-                # 否则 3 个任务 / 2 个账号这种常态会直接让整批失败。
+                # 编排层可以把这一组任务标记为「每项独立账号」。严格模式下
+                # 必须一次性满足整批，否则让部分任务落到默认 provider 会破坏
+                # 「一项产出 = 一个账号额度」的计费承诺。旧版/单次调用保留
+                # 向上游号池排队的兼容行为。
+                if strict and len(candidates) < batch_total:
+                    raise GatewayError(
+                        ErrorCode.POOL_UNAVAILABLE,
+                        f"本地号池当前只有 {len(candidates)} 个可用账号，无法为 {batch_total} 项产出分配独立账号",
+                    )
                 slots = [item["id"] for item in candidates[:batch_total]]
                 slots.extend([None] * (batch_total - len(slots)))
                 batch = {
                     "total": batch_total,
                     "accounts": slots,
+                    "strict": strict,
                     "tasks": {}, "active": set(), "done": set(),
                     "expires_at": now + max(600, settings.read_timeout * 2),
                 }
                 self._batches[batch_id] = batch
             if batch["total"] != batch_total:
                 raise GatewayError(ErrorCode.VALIDATION_ERROR, "同一图片批次的任务数量不一致")
+            if bool(batch.get("strict")) != strict:
+                raise GatewayError(ErrorCode.VALIDATION_ERROR, "同一图片批次的账号路由策略不一致")
             if task_id in batch["active"] or task_id in batch["done"]:
                 raise GatewayError(ErrorCode.VALIDATION_ERROR, "该图片任务已在执行或已完成，请勿重复提交")
             if len(batch["tasks"]) >= batch_total:
                 raise GatewayError(ErrorCode.VALIDATION_ERROR, "图片批次任务数超过预留账号数量")
-            account_id = batch["accounts"][len(batch["tasks"])]
+            slot_index = len(batch["tasks"])
+            account_id = batch["accounts"][slot_index]
             account = self._accounts.get(account_id) if account_id else None
             if account_id and (account is None or not self._healthy(account, now)):
-                # 预留账号在排队期间进入冷却：就地换一个本轮未占用的健康账号，
-                # 没有可用账号则退化为上游默认调度，而不是让任务失败。
-                used = {value for value in batch["accounts"] if value}
-                reserved = self._reserved_accounts()
-                replacement = next(
-                    (
-                        item for item in self._accounts.values()
-                        if self._healthy(item, now)
-                        and not int(item.get("in_flight") or 0)
-                        and item["id"] not in used
-                        and item["id"] not in reserved
-                    ),
-                    None,
-                )
+                # The reserved credential went stale while this task waited.
+                # Resolve a fresh candidate below under the same lock.
+                account = None
+                account_id = None
+            if account is None:
+                used = {value for value in batch["tasks"].values() if value}
+                batch_accounts = {value for value in batch["accounts"] if value}
+                reserved = self._reserved_accounts(exclude_batch_id=batch_id)
+                candidates = [
+                    item for item in self._accounts.values()
+                    if self._healthy(item, now)
+                    and (
+                        not int(item.get("in_flight") or 0)
+                        if strict
+                        else int(item.get("in_flight") or 0) < int(item.get("max_concurrency") or 2)
+                    )
+                    and item["id"] not in used
+                    and item["id"] not in reserved
+                ]
+                external = [item for item in candidates if item["id"] not in batch_accounts]
+                unstarted = [item for item in candidates if item["id"] in batch_accounts]
+                replacement = (external or unstarted or [None])[0]
                 account = replacement
                 account_id = replacement["id"] if replacement else None
+                if replacement is not None:
+                    replacement_slot = (
+                        batch["accounts"].index(replacement["id"])
+                        if replacement["id"] in batch_accounts
+                        else -1
+                    )
+                    batch["accounts"][slot_index] = account_id
+                    if replacement_slot >= 0 and replacement_slot != slot_index:
+                        batch["accounts"][replacement_slot] = None
+                elif strict:
+                    batch["tasks"][task_id] = None
+                    batch["done"].add(task_id)
+                    batch["expires_at"] = now + max(600, settings.read_timeout * 2)
+                    raise GatewayError(
+                        ErrorCode.POOL_UNAVAILABLE,
+                        "本地号池无法为该任务提供独立账号，未回退到共享 provider，请稍后重试",
+                    )
             batch["tasks"][task_id] = account_id
             batch["active"].add(task_id)
             batch["expires_at"] = now + max(600, settings.read_timeout * 2)
@@ -317,27 +375,36 @@ class AccountPool:
             batch = self._batches.get(batch_id) if batch_id else None
             if batch is not None and task_id in batch["tasks"]:
                 used = {value for key, value in batch["tasks"].items() if value and key != task_id}
-                reserved = self._reserved_accounts()
-                replacement = next(
-                    (
-                        item for item in self._accounts.values()
-                        if self._healthy(item, now)
-                        and int(item.get("in_flight") or 0) < int(item.get("max_concurrency") or 2)
-                        and item["id"] != account_id
-                        and item["id"] not in used
-                        and item["id"] not in reserved
-                    ),
-                    None,
-                )
+                batch_accounts = {value for value in batch["accounts"] if value}
+                reserved = self._reserved_accounts(exclude_batch_id=batch_id)
+                candidates = [
+                    item for item in self._accounts.values()
+                    if self._healthy(item, now)
+                    and int(item.get("in_flight") or 0) < int(item.get("max_concurrency") or 2)
+                    and item["id"] != account_id
+                    and item["id"] not in used
+                    and item["id"] not in reserved
+                ]
+                external = [item for item in candidates if item["id"] not in batch_accounts]
+                unstarted = [item for item in candidates if item["id"] in batch_accounts]
+                preferred = external or unstarted
+                replacement = preferred[0] if preferred else None
                 if replacement is None:
                     return None
                 if old and old is not replacement:
                     # 旧账号的租约在这里释放；换到新账号后才减，换不到时交给
                     # `_image_lease` 的 finally 释放一次，避免并发位被重复归还。
                     old["in_flight"] = max(0, int(old.get("in_flight") or 0) - 1)
+                slot_index = list(batch["tasks"]).index(task_id)
+                replacement_slot = (
+                    batch["accounts"].index(replacement["id"])
+                    if replacement["id"] in batch_accounts
+                    else -1
+                )
                 batch["tasks"][task_id] = replacement["id"]
-                if account_id in batch["accounts"]:
-                    batch["accounts"][batch["accounts"].index(account_id)] = replacement["id"]
+                batch["accounts"][slot_index] = replacement["id"]
+                if replacement_slot >= 0 and replacement_slot != slot_index:
+                    batch["accounts"][replacement_slot] = None
                 replacement["last_used"] = now
                 replacement["last_kind"] = "image"
                 replacement["in_flight"] = int(replacement.get("in_flight") or 0) + 1
@@ -348,7 +415,7 @@ class AccountPool:
             siblings = set()
             if batch is not None:
                 siblings = {value for value in batch["tasks"].values() if value}
-            reserved = self._reserved_accounts()
+            reserved = self._reserved_accounts(exclude_batch_id=batch_id)
             candidates = [
                 item for item in self._accounts.values()
                 if self._healthy(item, now)

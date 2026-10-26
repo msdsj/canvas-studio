@@ -227,6 +227,46 @@ def _reply_text(decision: dict[str, Any], selection: dict[str, Any]) -> str:
     return f"这次产出 1 张：{reason}。我按这个方案直接开始。"
 
 
+def _public_analysis(raw: Any, decision: dict[str, Any]) -> dict[str, Any]:
+    """返回给前端的公开分析摘要。
+
+    模型的原始响应还可能带有供应商私有字段，不能把整个对象直接放进
+    SSE/消息附件。这里只保留面向用户的事实、结论和执行清单，方便左侧
+    对话区把「为什么是 N 张、每张会做什么」展示出来。
+    """
+    source = raw if isinstance(raw, dict) else {}
+    constraints = source.get("constraints")
+    observations = source.get("observations")
+    jobs = decision.get("jobs") if isinstance(decision.get("jobs"), list) else []
+    public_jobs: list[dict[str, Any]] = []
+    for job in jobs[:12]:
+        if not isinstance(job, dict):
+            continue
+        public_jobs.append(
+            {
+                "index": int(job.get("index") or len(public_jobs) + 1),
+                "label": str(job.get("label") or "").strip()[:60],
+                "output_kind": str(job.get("output_kind") or ""),
+                "region_indexes": [int(item) for item in (job.get("region_indexes") or []) if isinstance(item, int)],
+                "prompt": str(job.get("prompt") or "").strip()[:380],
+                "preserve_outside": bool(job.get("preserve_outside")),
+            }
+        )
+    return {
+        "summary": str(source.get("summary") or decision.get("reason") or "已读懂你的图片需求")[:240],
+        "subject": str(source.get("subject") or "").strip()[:120],
+        "intent": str(source.get("intent") or decision.get("intent") or "").strip()[:60],
+        "style": str(source.get("style") or "").strip()[:120],
+        "constraints": [str(item).strip()[:120] for item in constraints[:6] if str(item).strip()] if isinstance(constraints, list) else [],
+        "observations": [str(item).strip()[:240] for item in observations[:6] if str(item).strip()] if isinstance(observations, list) else list(decision.get("observations") or [])[:6],
+        "reason": str(decision.get("reason") or "").strip()[:400],
+        "count_reason": str(source.get("count_reason") or "").strip()[:160],
+        "image_count": int(decision.get("image_count") or 1),
+        "confidence": float(decision.get("confidence") or 0),
+        "jobs": public_jobs,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # 主流程
 # --------------------------------------------------------------------------- #
@@ -254,6 +294,7 @@ async def stream_analysis(
 
     事件类型（均为 `data: {json}` 帧）：
     - ``{"event":"step","step":{...}}`` 步骤状态变化（含 running）
+    - ``{"event":"analysis","analysis":{...}}`` 公开的结构化分析摘要
     - ``{"event":"result","result":{...}}`` 最终结果（含 run_id / options / tasks）
     """
     skill = SKILLS[SKILL_IMAGE_INTENT]
@@ -302,7 +343,11 @@ async def stream_analysis(
             await db.commit()
             yield _sse({"event": "result", "result": {**attachment, "message_id": assistant.id, "user_message_id": user_message.id, "reply": message, "tasks": [], "demo": False}})
             return
-        step = trace.finish("decide", detail=f"判定 {decision['image_count']} 张 · {decision['reason']}", items=decision.get("observations") or [], thought=sink.get("thought"), meta=sink["analysis"].get("_meta"))
+        # 只把公开的分析事实带到前端，供应商原始响应仍留在服务端日志之外。
+        # 这份摘要会随任务计划和消息附件落库，刷新后左侧仍能解释「为什么是 N 张」。
+        analysis_summary = _public_analysis(sink.get("analysis"), decision)
+        yield _sse({"event": "analysis", "analysis": analysis_summary})
+        step = trace.finish("decide", detail=f"判定 {decision['image_count']} 张 · {decision['reason']}", items=decision.get("observations") or [], meta=sink["analysis"].get("_meta"))
         yield _sse({"event": "step", "step": dict(step)})
 
         # 3) 编排决策
@@ -343,6 +388,7 @@ async def stream_analysis(
             "selection_revision": int(normalized.get("revision") or 0),
             "selection_fingerprint": ops_module.selection_fingerprint(normalized["regions"]),
             "size": _guess_size(normalized),
+            "analysis": analysis_summary,
         }
         # 产出明细（分组）：前端按组展示「1 张修改图 + 2 张素材」，
         # 而不是只给一个总数——总数会让用户误以为 3 张都是同一种东西。
@@ -416,6 +462,8 @@ async def stream_analysis(
                                 "selection_fingerprint": plan.get("selection_fingerprint"),
                                 "target_id": plan.get("target_id"),
                                 "canvas_id": run.canvas_id,
+                                "routing_mode": plan.get("routing_mode") or "",
+                                "analysis": analysis_summary,
                             }
                         ],
                     )
@@ -446,16 +494,23 @@ async def stream_analysis(
                                 "selection_fingerprint": plan.get("selection_fingerprint"),
                                 "target_id": plan.get("target_id"),
                                 "canvas_id": run.canvas_id,
+                                "routing_mode": plan.get("routing_mode") or "",
+                                "analysis": analysis_summary,
                             },
                         }
                     )
                     return
                 run.status = "completed"
                 run.task_ids = [item["id"] for item in tasks]
+                routing_note = {
+                    "local": "本地号池严格租约：每项任务预留不同账号",
+                    "upstream": "上游号池并发轮询：每项任务独立提交，账号由上游选择",
+                }.get(str(plan.get("routing_mode") or ""), "账号路由：按当前可用容量调度")
                 step = trace.finish(
                     "dispatch",
                     detail=f"已提交 {len(tasks)} 个生成任务" if tasks else "没有可提交的任务",
                     status="done" if tasks else "skipped",
+                    items=[routing_note],
                 )
             else:
                 step = trace.finish("dispatch", detail="等待用户确认后提交", status="skipped")
@@ -493,6 +548,8 @@ async def stream_analysis(
                     "selection_fingerprint": plan.get("selection_fingerprint"),
                     "target_id": plan.get("target_id"),
                     "canvas_id": run.canvas_id,
+                    "routing_mode": plan.get("routing_mode") or "",
+                    "analysis": analysis_summary,
                 }
             ],
         )
@@ -529,6 +586,8 @@ async def stream_analysis(
                     "selection_fingerprint": plan.get("selection_fingerprint"),
                     "target_id": plan.get("target_id"),
                     "canvas_id": run.canvas_id,
+                    "routing_mode": plan.get("routing_mode") or "",
+                    "analysis": analysis_summary,
                 },
             }
         )
@@ -562,7 +621,7 @@ async def confirm_run(
             db, run, str((run.plan or {}).get("chosen_option_id") or "") or None
         )
         await db.commit()
-        return {"run_id": run.id, "status": run.status, "task_ids": run.task_ids, "tasks": []}
+        return {"run_id": run.id, "status": run.status, "task_ids": run.task_ids, "tasks": [], "routing_mode": (run.plan or {}).get("routing_mode") or "", "analysis": (run.plan or {}).get("analysis") or {}}
 
     if run.status not in {"confirm", "preview"}:
         raise AppError(ErrorCode.TASK_STATE_CONFLICT, "这份计划已失效或正在提交，请刷新查看")
@@ -622,6 +681,8 @@ async def confirm_run(
         "status": run.status,
         "task_ids": run.task_ids,
         "tasks": tasks,
+        "routing_mode": plan.get("routing_mode") or "",
+        "analysis": plan.get("analysis") or {},
     }
 
 
@@ -698,14 +759,16 @@ async def _dispatch(
         mask_asset = await asset_service.get_asset(db, user, selection["mask_asset_id"])
         mask_url = mask_asset.url
     prices = [await generate_service.resolve_cost(db, "generate" if job["output_kind"] == "generate" and not job.get("use_reference", bool(asset)) else "edit") for job in jobs]
-    await batch_service.preflight(db, user.id, len(jobs), sum(prices))
+    routing_mode = await batch_service.preflight(db, user.id, len(jobs), sum(prices))
+    plan["routing_mode"] = routing_mode
+    run.plan = plan
     # Persist the plan before quota operations (which can roll back).
     await db.commit()
     dispatch_id = new_id()
     created = []
     try:
         for job in jobs:
-            extra = {"skill_run_id": run.id, "batch_index": job["index"], "batch_total": len(jobs), "batch_label": job["label"], "pool_batch_id": dispatch_id, "pool_task_id": str(job["index"]), "pool_batch_total": len(jobs), "output_kind": job["output_kind"], "region_indexes": job["region_indexes"], "preserve_outside": job["preserve_outside"], "planned_output": True}
+            extra = {"skill_run_id": run.id, "batch_index": job["index"], "batch_total": len(jobs), "batch_label": job["label"], "pool_batch_id": dispatch_id, "pool_task_id": str(job["index"]), "pool_batch_total": len(jobs), "pool_routing_mode": routing_mode, "pool_strict": len(jobs) > 1 and routing_mode != "upstream", "output_kind": job["output_kind"], "region_indexes": job["region_indexes"], "preserve_outside": job["preserve_outside"], "planned_output": True}
             kwargs = dict(prompt=job["prompt"], model="gpt-image-2", size=str(plan.get("size") or "1024x1024"), session_id=run.session_id, canvas_id=run.canvas_id, idempotency_key=f"intent:{run.id}:{dispatch_id}:{job['index']}", extra=extra)
             if job["output_kind"] == "generate" and not job.get("use_reference", bool(asset)):
                 task, is_new = await generate_service.create_image_task(db, user.id, quality="standard", n=1, **kwargs)

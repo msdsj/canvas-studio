@@ -1,0 +1,116 @@
+# 服务器生产版（design.msdsj.site）——部署时改名为 docker-compose.yml。
+#
+# ⚠️ 不要用仓库根目录那份 docker-compose.yml 覆盖服务器：那份是本地开发版
+#    （端口 80/8000/8100、没有 name、没有 extra_hosts）。一旦覆盖，
+#    compose 项目名会退回目录名 `deploy`，而 sub2api 也属于 `deploy` 项目——
+#    等于把两个项目混进同一个 compose 项目里，且 canvas-studio 会用错端口。
+#
+# 独立项目名：避免与 /home/ubuntu/sub2api-main/deploy 的 deploy 项目同名，
+# 否则在本目录执行 down --remove-orphans 会误删 sub2api 的容器与数据卷。
+name: canvas-studio
+
+services:
+  frontend:
+    build:
+      context: ../frontend
+    volumes:
+      # 只读：让 nginx 直接发 /static/ 的图片（零拷贝 sendfile），
+      # 不用每个字节都穿过 Python。后端写、前端读，互不干扰。
+      - backend_data:/srv/cs-data:ro
+    ports:
+      - "127.0.0.1:8801:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ../backend
+    extra_hosts:
+      # 让容器能用 host.docker.internal 访问宿主机的 mihomo 代理(7890)
+      - "host.docker.internal:host-gateway"
+    environment:
+      CS_DATABASE_URL: sqlite+aiosqlite:///./data/canvas_studio.db
+      CS_STORAGE_DIR: ./data/storage
+      CS_STORAGE_PUBLIC_BASE: ${CS_PUBLIC_BASE:-https://design.msdsj.site}/static
+      CS_FRONTEND_BASE_URL: ${CS_PUBLIC_BASE:-https://design.msdsj.site}
+      CS_CORS_ORIGINS: ${CS_PUBLIC_BASE:-https://design.msdsj.site}
+      CS_GATEWAY_BASE_URL: http://gateway:8100
+      CS_GATEWAY_INTERNAL_TOKEN: ${CS_GATEWAY_INTERNAL_TOKEN:-dev-internal-token}
+      CS_SECRET_KEY: ${CS_SECRET_KEY:-dev-change-me}
+      CS_DEFAULT_ADMIN_EMAIL: ${CS_DEFAULT_ADMIN_EMAIL:-admin@canvas.studio}
+      CS_DEFAULT_ADMIN_PASSWORD: ${CS_DEFAULT_ADMIN_PASSWORD:-Admin@12345}
+      CS_DEMO_MODE: ${CS_DEMO_MODE:-off}
+      CS_IMAGE_CONCURRENCY: ${CS_IMAGE_CONCURRENCY:-4}
+      CS_IMAGE_QUEUE_MAX: ${CS_IMAGE_QUEUE_MAX:-200}
+      CS_MAX_ACTIVE_TASKS_PER_USER: ${CS_MAX_ACTIVE_TASKS_PER_USER:-12}
+      TEXT_API_BASE_URL: ${TEXT_API_BASE_URL:-}
+      TEXT_API_KEY: ${TEXT_API_KEY:-}
+      TEXT_MODEL: ${TEXT_MODEL:-gpt-4o-mini}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      IMAGE_API_BASE_URL: ${IMAGE_API_BASE_URL:-}
+      IMAGE_API_KEY: ${IMAGE_API_KEY:-}
+      IMAGE_MODEL: ${IMAGE_MODEL:-gpt-image-2}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,backend,gateway}
+    volumes:
+      - backend_data:/app/data
+    ports:
+      - "127.0.0.1:8802:8000"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: ../gateway
+    # The account pool and strict batch leases are process-local. Keep one
+    # worker and one replica; async requests still run concurrently inside it.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "1"]
+    deploy:
+      replicas: 1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      CS_GATEWAY_INTERNAL_TOKEN: ${CS_GATEWAY_INTERNAL_TOKEN:-dev-internal-token}
+      CS_DEMO_MODE: ${CS_DEMO_MODE:-off}
+      TEXT_API_BASE_URL: ${TEXT_API_BASE_URL:-}
+      TEXT_API_KEY: ${TEXT_API_KEY:-}
+      TEXT_MODEL: ${TEXT_MODEL:-gpt-4o-mini}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      IMAGE_API_BASE_URL: ${IMAGE_API_BASE_URL:-}
+      IMAGE_API_KEY: ${IMAGE_API_KEY:-}
+      IMAGE_MODEL: ${IMAGE_MODEL:-gpt-image-2}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,backend,gateway}
+    ports:
+      - "127.0.0.1:8803:8100"
+    volumes:
+      - gateway_data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,urllib.request as u; r=u.Request('http://127.0.0.1:8100/gw/health', headers={'X-Internal-Token':os.environ.get('CS_GATEWAY_INTERNAL_TOKEN','')}); u.urlopen(r, timeout=3)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  backend_data:
+    name: deploy_backend_data
+  gateway_data:
+    name: deploy_gateway_data

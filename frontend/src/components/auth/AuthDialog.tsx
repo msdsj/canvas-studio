@@ -128,15 +128,15 @@ export function AuthDialog() {
           </DialogPrimitive.Close>
 
           <div className="grid md:grid-cols-[0.86fr_1fr]">
-            {/* 左：品牌面。暗底 + 青柠，是整套视觉的"签名" */}
-            <aside className="relative hidden flex-col justify-between overflow-hidden bg-[#0d1626] p-9 text-[#f4f1e7] md:flex">
+            {/* Brand panel: deep navy, cobalt light and a restrained cyan signal. */}
+            <aside className="relative hidden flex-col justify-between overflow-hidden bg-[#102039] p-9 text-white md:flex">
               <div
                 aria-hidden
-                className="pointer-events-none absolute -left-24 -top-24 h-64 w-64 rounded-full bg-[#598BFD]/25 blur-[80px]"
+                className="pointer-events-none absolute -left-24 -top-24 h-64 w-64 rounded-full bg-[#4777DF]/22 blur-[80px]"
               />
               <div
                 aria-hidden
-                className="pointer-events-none absolute -bottom-28 right-[-60px] h-72 w-72 rounded-full bg-[#35B3C9]/14 blur-[90px]"
+                className="pointer-events-none absolute -bottom-28 right-[-60px] h-72 w-72 rounded-full bg-[#19A5B7]/12 blur-[90px]"
               />
               <div
                 aria-hidden
@@ -145,7 +145,7 @@ export function AuthDialog() {
               />
 
               <div className="relative flex items-center gap-2.5">
-                <span className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-[#9AD4CB] text-[#06222a]">
+                <span className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-[#83A9FF] text-[#102039]">
                   <Sparkles size={16} />
                 </span>
                 <span className="text-ui font-semibold tracking-[-0.01em]">MSDSJ AI画布</span>
@@ -157,11 +157,11 @@ export function AuthDialog() {
                   <br />
                   别让它等登录。
                 </p>
-                <ul className="mt-7 flex flex-col gap-2.5 text-caption text-[#f4f1e7]/70">
+                <ul className="mt-7 flex flex-col gap-2.5 text-caption text-white/75">
                   {['一句话生成整张画面', '结果落在同一张无限画布', '生成失败自动退回额度'].map(
                     (item) => (
                       <li key={item} className="flex items-center gap-2">
-                        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#35B3C9]/18 text-[#7FD9E6]">
+                        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#19A5B7]/20 text-[#8CE1EA]">
                           <Check size={10} />
                         </span>
                         {item}
@@ -171,7 +171,7 @@ export function AuthDialog() {
                 </ul>
               </div>
 
-              <p className="relative text-micro text-[#f4f1e7]/40">
+              <p className="relative text-micro text-white/45">
                 登录只用于保存作品与计量额度
               </p>
             </aside>

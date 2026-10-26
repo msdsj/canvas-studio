@@ -76,3 +76,11 @@ bash deploy/scripts/start-local-daemon.sh status
 ## 七、数据卷
 
 `backend_data` 挂载 `/app/data`（SQLite 库 + `storage/` 图片目录）；`gateway_data` 挂载网关自己的 provider 账号池文件。
+
+## 八、多账号并发与部署边界
+
+账号可以在单个 Gateway 进程内并发使用，图片请求通过异步任务队列执行，后端的 `CS_IMAGE_CONCURRENCY`（默认 4）控制同时调用上游的任务数，超出的任务排队。Gateway 在一个进程内用租约和批次预留避免本地账号重复分配；因此部署时保留 `gateway` 单 worker、单副本，不要使用 `--scale gateway` 或额外启动同一账号池的 Gateway 实例。
+
+本地号池模式可以为同一批的每张图严格预留不同凭据。chatgpt2api 上游模式会为每张图提交独立的并发请求，由上游轮询 ChatGPT 账号；上游报告的健康数量用于提交前容量检查，但上游没有任务级账号租约接口，所以不能保证同一批的每张图绝不落到同一个账号。chatgpt2api 也应保持单 worker。
+
+横向扩容需要先把账号租约、在途计数、批次预留、冷却状态和上游任务状态迁移到 Redis 或共享数据库，并为每个账号使用原子租约与过期回收；仅共享账号 JSON 文件不能安全扩容。当前 Docker Compose 和本地启动脚本都显式使用单 Gateway worker。

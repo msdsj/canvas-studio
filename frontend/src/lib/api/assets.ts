@@ -46,6 +46,14 @@ export const assetsApi = {
   /** 内置提示词配置（前缀模板 + 常用预设）。 */
   promptPresets: () => api.get<PromptPresets>('/assets/prompt-presets'),
   get: (id: string) => api.get<Asset>(`/assets/${id}`),
+  /**
+   * 按图片 URL 反查已登记资产（未命中返回 null）。
+   *
+   * 生成结果早就在服务端登记过资产了，落画布时用它可以省掉
+   * 「整张图下载到浏览器 → 再上传回服务端」这一整趟往返。
+   */
+  byUrl: (url: string) =>
+    api.get<Asset | null>(`/assets/by-url?url=${encodeURIComponent(url)}`),
   remove: (id: string) => api.del<unknown>(`/assets/${id}`),
   /** 批量删除（「全选」后用），后端一次软删 */
   removeMany: (ids: string[]) => api.post<{ deleted: number }>('/assets/batch-delete', { ids }),

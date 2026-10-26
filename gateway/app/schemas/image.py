@@ -18,3 +18,6 @@ class ImageGenerationRequest(BaseModel):
     pool_batch_id: str = Field(default="", max_length=200)
     pool_task_id: str = Field(default="", max_length=200)
     pool_batch_total: int = Field(default=1, ge=1, le=32)
+    # Multi-output compose requests must keep the strict account-routing
+    # contract all the way through the generation endpoint.
+    pool_strict: bool = False

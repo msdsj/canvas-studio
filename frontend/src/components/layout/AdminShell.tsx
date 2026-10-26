@@ -32,7 +32,7 @@ export function AdminShell({ title, description, actions, children }: AdminShell
     <div className="flex h-screen overflow-hidden bg-bg">
       <AdminSidebar />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="mx-2.5 mt-2.5 flex h-11 shrink-0 items-center justify-between gap-3 rounded-[14px] bg-surface/70 px-2 shadow-sheet ring-1 ring-inset ring-border-faint backdrop-blur-md">
+        <header className="mx-2.5 mt-2.5 flex h-11 shrink-0 items-center justify-between gap-3 rounded-[12px] border border-border-faint bg-surface px-2 shadow-xs">
           <div className="flex min-w-0 items-center gap-1.5">
             <Link
               to="/workspace"

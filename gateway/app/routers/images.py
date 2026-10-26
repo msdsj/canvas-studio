@@ -31,6 +31,7 @@ async def image_edits(
     pool_batch_id: str = Form(default="", max_length=200),
     pool_task_id: str = Form(default="", max_length=200),
     pool_batch_total: int = Form(default=1, ge=1, le=32),
+    pool_strict: bool = Form(default=False),
     generation_params: str = Form(default="{}"),
     image: list[UploadFile] = File(...),
     mask: UploadFile | None = File(default=None),
@@ -69,6 +70,7 @@ async def image_edits(
         "pool_batch_id": pool_batch_id,
         "pool_task_id": pool_task_id,
         "pool_batch_total": pool_batch_total,
+        "pool_strict": pool_strict,
     }
     try:
         extra_params = json.loads(generation_params)

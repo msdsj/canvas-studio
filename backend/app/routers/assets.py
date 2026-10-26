@@ -88,6 +88,24 @@ async def batch_delete(
     return envelope({"deleted": count})
 
 
+@router.get("/by-url")
+async def asset_by_url(
+    url: str = Query(..., min_length=1, max_length=1024),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """按图片 URL 反查已登记资产。
+
+    生成结果落画布时用它换 asset_id：命中就不用把整张图下载再上传一遍。
+    未命中返回 `data: null`（不是 404）——前端据此走「下载 + 上传」的兜底，
+    404 会让它误判成接口故障。
+
+    注意：必须声明在 `/{asset_id}` 之前，否则会被路径参数吞掉。
+    """
+    asset = await asset_service.find_by_url(db, user, url)
+    return envelope(AssetOut.model_validate(asset).model_dump() if asset else None)
+
+
 @router.get("/{asset_id}")
 async def get_asset(
     asset_id: str,

@@ -69,16 +69,177 @@ function toSameOriginUrl(url: string): string {
   }
 }
 
-/** 把图片 URL 读取为 dataURL。 */
-export async function urlToDataUrl(url: string): Promise<string> {
-  const res = await fetch(toSameOriginUrl(url))
-  const blob = await res.blob()
+/**
+ * 同一张图只下载一次。
+ *
+ * 落一张结果图要经过三个步骤：读像素尺寸、登记资产、塞进 Excalidraw。
+ * 三步原先各自 `fetch(url)` 一次，于是一张 2.2MB 的 PNG 被下载三遍，
+ * 再各自转一次 base64（每份约 3MB 字符串）——用户看到的就是
+ * 「放入画布转半天，然后提示网络有点慢」。这里按 URL 缓存 blob 与 dataURL，
+ * 同一次会话里同一张图只有第一次真的走网络。
+ */
+const blobCache = new Map<string, Promise<Blob>>()
+const dataUrlCache = new Map<string, Promise<string>>()
+
+/** 把 URL 转成相对路径，用于同源 fetch。 */
+export function sameOriginUrl(url: string): string {
+  return toSameOriginUrl(url)
+}
+
+/**
+ * 画布内嵌图片的最长边上限（像素）。
+ *
+ * 为什么必须限：服务器上行带宽只有 3Mbps（实测 ~300KB/s），而生成图是
+ * 2.2MB 的 RGB PNG。画布上这张图实际只显示 176px（见 RESULT_MAX_SIDE），
+ * 却要：
+ *   1. 下载 2.2MB 才能落图；
+ *   2. 转成约 3MB 的 base64 塞进 Excalidraw files；
+ *   3. 每 2 秒的自动保存把整份 scene（含这个 base64）PUT 到后端。
+ * 第 3 条最致命——放几张图之后画布每次保存都要上传十几 MB，
+ * 用户看到的就是「放入画布等半天」「网络有点慢，还在加载」。
+ *
+ * 1280 足够覆盖画布最大显示尺寸（缩放 4 倍 × 176px ≈ 704px），
+ * 再大也不会更清晰。原图始终留在资产库，需要高清时按 sourceUrl 回源。
+ */
+const CANVAS_EMBED_MAX_SIDE = 1280
+
+/** 画布内嵌图的有损压缩质量（WebP）。0.86 在 1024~1280 尺寸上肉眼无差。 */
+const CANVAS_EMBED_QUALITY = 0.86
+
+/** 缩放后的尺寸（保持宽高比，不放大）。 */
+function fitWithin(
+  width: number,
+  height: number,
+  maxSide: number
+): { width: number; height: number } {
+  const longest = Math.max(width, height)
+  if (!Number.isFinite(longest) || longest <= 0) return { width, height }
+  const scale = Math.min(1, maxSide / longest)
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  }
+}
+
+/**
+ * 把图片压缩成适合内嵌进画布的 dataURL。
+ *
+ * 优先 WebP（同画质约为 PNG 的 1/8），浏览器不支持时回落到 JPEG。
+ * **透明图保留 PNG**：抠图结果（OUTPUT_SPRITE）是透明背景，
+ * 压成有损或不透明格式会把透明区域涂成白/黑，画布上看到的就是一块色板。
+ */
+export async function compressForCanvas(blob: Blob): Promise<{ dataURL: string; mimeType: string }> {
+  const bitmap = await createImageBitmap(blob)
+  const src = { width: bitmap.width, height: bitmap.height }
+  const target = fitWithin(src.width, src.height, CANVAS_EMBED_MAX_SIDE)
+  const canvas = document.createElement('canvas')
+  canvas.width = target.width
+  canvas.height = target.height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    bitmap.close?.()
+    throw new Error('canvas unsupported')
+  }
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(bitmap, 0, 0, target.width, target.height)
+  bitmap.close?.()
+
+  // 透明检测：缩到 1/16 采样，判断是否存在 alpha < 255 的像素
+  const hasAlpha = await (async () => {
+    try {
+      const probe = document.createElement('canvas')
+      probe.width = Math.max(1, Math.round(target.width / 16))
+      probe.height = Math.max(1, Math.round(target.height / 16))
+      const pctx = probe.getContext('2d')
+      if (!pctx) return false
+      pctx.drawImage(canvas, 0, 0, probe.width, probe.height)
+      const { data } = pctx.getImageData(0, 0, probe.width, probe.height)
+      for (let i = 3; i < data.length; i += 4) {
+        if (data[i] < 250) return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  })()
+
+  const encode = (type: string, quality?: number) =>
+    new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality))
+
+  // 透明图走 PNG（无损，保透明）；不透明图走 WebP
+  let out: Blob | null = null
+  let mimeType = 'image/webp'
+  if (!hasAlpha) {
+    out = await encode('image/webp', CANVAS_EMBED_QUALITY)
+  }
+  if (!out) {
+    // 透明图，或浏览器不支持 WebP（Safari 14 以前）
+    out = await encode('image/png')
+    mimeType = 'image/png'
+  }
+  if (!out) throw new Error('图片压缩失败')
+
+  // 万一压缩后反而更大（极小图 / 已经是高压缩比），直接用原始 blob
+  if (out.size >= blob.size) {
+    return await blobToDataUrl(blob)
+  }
+
+  return new Promise<{ dataURL: string; mimeType: string }>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve({ dataURL: String(reader.result), mimeType })
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(out as Blob)
+  })
+}
+
+/** Blob → dataURL。 */
+function blobToDataUrl(blob: Blob): Promise<{ dataURL: string; mimeType: string }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result))
+    reader.onload = () =>
+      resolve({
+        dataURL: String(reader.result),
+        mimeType: blob.type || 'image/png',
+      })
     reader.onerror = () => reject(reader.error)
     reader.readAsDataURL(blob)
   })
+}
+
+/** 下载图片（带缓存）。调用方拿到的是同一份 blob 的 Promise。 */
+export function fetchImageBlob(url: string): Promise<Blob> {
+  const key = toSameOriginUrl(url)
+  const cached = blobCache.get(key)
+  if (cached) return cached
+  const task = (async () => {
+    const res = await fetch(key)
+    if (!res.ok) throw new Error(`图片加载失败（HTTP ${res.status}）`)
+    return res.blob()
+  })()
+  // 失败要把缓存清掉，否则一次网络抖动会让这张图在本会话里永久不可用
+  task.catch(() => blobCache.delete(key))
+  blobCache.set(key, task)
+  return task
+}
+
+/** 把图片 URL 读取为 dataURL（与 `fetchImageBlob` 共享同一次下载）。 */
+export async function urlToDataUrl(url: string): Promise<string> {
+  const key = toSameOriginUrl(url)
+  const cached = dataUrlCache.get(key)
+  if (cached) return cached
+  const task = (async () => {
+    const blob = await fetchImageBlob(key)
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(blob)
+    })
+  })()
+  task.catch(() => dataUrlCache.delete(key))
+  dataUrlCache.set(key, task)
+  return task
 }
 
 /**
@@ -185,6 +346,28 @@ export function viewportCenterScene(
   }
 }
 
+/**
+ * 画布内嵌 dataURL 的缓存（按 URL）。
+ *
+ * 落图、刷新恢复、协作端都会重复内嵌同一张图；压缩一次要解码 + 重编码，
+ * 在低端机上是几百毫秒。按 URL 记住结果，同一张图只压一次。
+ */
+const embedCache = new Map<string, Promise<{ dataURL: string; mimeType: string }>>()
+
+/** 取得「适合内嵌进画布」的图片（压缩后），带缓存。 */
+export function canvasEmbeddable(url: string): Promise<{ dataURL: string; mimeType: string }> {
+  const key = toSameOriginUrl(url)
+  const cached = embedCache.get(key)
+  if (cached) return cached
+  const task = (async () => {
+    const blob = await fetchImageBlob(key)
+    return await compressForCanvas(blob)
+  })()
+  task.catch(() => embedCache.delete(key))
+  embedCache.set(key, task)
+  return task
+}
+
 /** 往画布添加一张图片（可指定精确位置，用于"占位处渲染"），返回新建的元素以便滚动定位。 */
 export async function addImageToCanvas(
   api: ExcalidrawApiLike,
@@ -199,8 +382,14 @@ export async function addImageToCanvas(
     y?: number
   }
 ): Promise<CanvasElement> {
-  const dataURL = await urlToDataUrl(params.url)
-  const mimeType = dataURL.slice(5, dataURL.indexOf(';')) || 'image/png'
+  /**
+   * 内嵌的是**压缩副本**，不是原图。
+   *
+   * 原图（2.2MB PNG）留在资产库里，元素上记着 `sourceUrl`；
+   * 需要高清时（下载 / 进编辑）按 sourceUrl 回源，见 `resolveFullImageDataUrl`。
+   * 画布只负责显示，176px 的显示尺寸塞 2.2MB 纯属浪费带宽。
+   */
+  const { dataURL, mimeType } = await canvasEmbeddable(params.url)
   const fileId = nanoid()
   api.addFiles([{ id: fileId, dataURL, mimeType, created: Date.now() }])
 
@@ -655,6 +844,42 @@ export function elementImageDataUrl(api: ExcalidrawApiLike | null, element: Canv
   if (!api || !element?.fileId) return null
   const files = api.getFiles() as Record<string, { dataURL?: string } | undefined>
   return files[String(element.fileId)]?.dataURL ?? null
+}
+
+/**
+ * 元素的内嵌图是压缩副本时，它的原图 URL（来自 `customData.sourceUrl`）。
+ *
+ * 内嵌副本有损且尺寸受限（见 `CANVAS_EMBED_MAX_SIDE`），**不能**拿去做
+ * 编辑底图或导出成品——那会把 1024 的原图降成一张糊图，用户还会以为是
+ * 模型生成质量下降。所有需要真实像素的路径都必须先回源。
+ */
+export function elementSourceUrl(element: CanvasElement | null): string | null {
+  const source = (element?.customData as { sourceUrl?: unknown } | undefined)?.sourceUrl
+  return typeof source === 'string' && source ? source : null
+}
+
+/**
+ * 取元素的**原图** dataURL。
+ *
+ * 有 `sourceUrl` 就按它下载原图（带缓存，同一次会话只下一次）；
+ * 没有（老数据 / 内联上传）才回落到画布里的内嵌图。
+ * 下载失败也回落——宁可给出压缩版，也不要让编辑功能直接不可用。
+ */
+export async function resolveFullImageDataUrl(
+  api: ExcalidrawApiLike | null,
+  element: CanvasElement | null
+): Promise<string | null> {
+  const source = elementSourceUrl(element)
+  if (source) {
+    try {
+      const res = await fetchImageBlob(source)
+      const blob = await res
+      return (await blobToDataUrl(blob)).dataURL
+    } catch {
+      /* 回落到内嵌图 */
+    }
+  }
+  return elementImageDataUrl(api, element)
 }
 
 /** 计算元素在画布容器中的显示矩形（scene → viewport），用于编辑层精确贴合。 */
@@ -1363,7 +1588,9 @@ export async function downloadSelectedImages(
   const stamp = Date.now()
   let index = 0
   for (const element of elements) {
-    const dataUrl = elementImageDataUrl(api, element)
+    // 必须取**原图**：画布里存的是压缩副本，直接导出会把 2.2MB 的成品
+    // 降成一张 1280px 的 WebP，用户拿到的「下载」就不是他生成的那张图了。
+    const dataUrl = await resolveFullImageDataUrl(api, element)
     if (!dataUrl) continue
     const blob = await imageToBlob(dataUrl, format)
     index += 1

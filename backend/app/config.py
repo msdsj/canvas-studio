@@ -42,7 +42,8 @@ class Settings(BaseSettings):
     #      pool 20   : 16 并发仅 462 req/s，p50 35.7ms（比 pool=2 慢 3.7 倍）
     #      NullPool  : 同 pool=20 水平，且空载还慢 30%
     #    所以默认给「小池」：读多写少时 4 条常驻足够把请求压成紧凑批次。
-    #    真要压更高吞吐，优先加进程（uvicorn --workers），而不是加连接。
+    #    生图任务由进程内队列与 Gateway 账号租约协调；部署保持单 worker，
+    #    真要提高图片吞吐请调 image_concurrency 或使用共享租约层后再横向扩容。
     db_pool_size: int = 4
     db_max_overflow: int = 2
     storage_backend: str = "local"
@@ -60,7 +61,8 @@ class Settings(BaseSettings):
     # 管理员 / 初始额度
     default_admin_email: str = "admin@canvas.studio"
     default_admin_password: str = "Admin@12345"
-    initial_grant: int = 200
+    # 新用户初始赠送额度。用户明确要求：**不要白送额度**，默认 0。
+    initial_grant: int = 0
 
     # 令牌时效
     verify_token_ttl_hours: int = 24

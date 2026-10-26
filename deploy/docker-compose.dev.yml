@@ -10,6 +10,9 @@ services:
       CS_GATEWAY_BASE_URL: http://gateway:8100
       CS_GATEWAY_INTERNAL_TOKEN: dev-internal-token
       CS_DEMO_MODE: off
+      CS_IMAGE_CONCURRENCY: ${CS_IMAGE_CONCURRENCY:-4}
+      CS_IMAGE_QUEUE_MAX: ${CS_IMAGE_QUEUE_MAX:-200}
+      CS_MAX_ACTIVE_TASKS_PER_USER: ${CS_MAX_ACTIVE_TASKS_PER_USER:-12}
       TEXT_API_BASE_URL: ${TEXT_API_BASE_URL:-}
       TEXT_API_KEY: ${TEXT_API_KEY:-}
       TEXT_MODEL: ${TEXT_MODEL:-gpt-4o-mini}
@@ -52,6 +55,7 @@ services:
       - gateway_data_dev:/app/data
     ports:
       - "8100:8100"
+    # Keep one worker so the local account pool remains coherent.
     command: uvicorn app.main:app --host 0.0.0.0 --port 8100 --reload
 
 volumes:

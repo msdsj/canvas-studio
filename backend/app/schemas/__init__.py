@@ -20,6 +20,7 @@ from app.schemas.compose_plan import (
     ComposeAnalysis,
     ComposeAspect,
     ComposeOption,
+    ComposeOptionJob,
     ComposePlan,
     StrictBase,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "ComposeAnalysis",
     "ComposeAspect",
     "ComposeOption",
+    "ComposeOptionJob",
     "ComposePlan",
     "StrictBase",
 ]

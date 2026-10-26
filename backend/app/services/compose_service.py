@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import re
 import time
 from collections.abc import AsyncIterator
@@ -358,6 +359,71 @@ def _confidence(value: Any, default: float = 0.9) -> int:
     return int(round(max(0.0, min(1.0, number)) * 100))
 
 
+def _public_compose_analysis(
+    raw: Any,
+    jobs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Project the planner response into facts safe for the conversation UI.
+
+    The planner may attach provider metadata or private fields beside the
+    public summary.  Keep the persisted/SSE shape deliberately small: facts,
+    constraints, the count basis, and the independently scheduled outputs.
+    """
+    source = raw if isinstance(raw, dict) else {}
+    raw_jobs = jobs if isinstance(jobs, list) else []
+    if not raw_jobs:
+        images = source.get("images") if isinstance(source.get("images"), list) else []
+        raw_jobs = [item for item in images if isinstance(item, dict)]
+    public_jobs: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_jobs[:MAX_IMAGES], start=1):
+        if not isinstance(item, dict):
+            continue
+        raw_index = item.get("index")
+        safe_index = raw_index if type(raw_index) is int and raw_index >= 1 else index
+        public_jobs.append(
+            {
+                "index": safe_index,
+                "label": str(item.get("label") or f"第 {index} 张").strip()[:60],
+                "prompt": str(item.get("prompt") or "").strip()[:380],
+                "output_kind": str(item.get("output_kind") or "generate"),
+                "region_indexes": [
+                    int(value)
+                    for value in (item.get("region_indexes") or [])
+                    if isinstance(value, int)
+                ],
+                "preserve_outside": bool(item.get("preserve_outside")),
+            }
+        )
+    constraints = source.get("constraints")
+    observations = source.get("observations")
+    raw_confidence = source.get("confidence")
+    try:
+        confidence = float(raw_confidence or 0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    if not math.isfinite(confidence):
+        confidence = 0.0
+    return {
+        "summary": str(source.get("summary") or "已读懂你的图片需求").strip()[:240],
+        "subject": str(source.get("subject") or "").strip()[:120],
+        "intent": str(source.get("intent") or "").strip()[:60],
+        "style": str(source.get("style") or "").strip()[:120],
+        "constraints": [str(item).strip()[:120] for item in constraints[:6] if str(item).strip()]
+        if isinstance(constraints, list)
+        else [],
+        "observations": [str(item).strip()[:240] for item in observations[:6] if str(item).strip()]
+        if isinstance(observations, list)
+        else [],
+        "reason": str(source.get("count_reason") or source.get("ambiguity", {}).get("reason") or "").strip()[:400]
+        if isinstance(source.get("ambiguity"), dict)
+        else str(source.get("count_reason") or "").strip()[:400],
+        "count_reason": str(source.get("count_reason") or "").strip()[:160],
+        "image_count": len(public_jobs) if public_jobs else _clamp_count(source.get("image_count"), 1),
+        "confidence": confidence,
+        "jobs": public_jobs,
+    }
+
+
 def _normalize_options(raw: Any, default_count: int = 1) -> list[dict[str, Any]]:
     """把模型给的方案收敛成前端可渲染的结构；没有 prompt 的方案直接丢弃。
 
@@ -377,6 +443,7 @@ def _normalize_options(raw: Any, default_count: int = 1) -> list[dict[str, Any]]
         if len(prompt) < 8:
             continue
         size = _normalize_size(item.get("size"))
+        image_count = _clamp_count(item.get("image_count"), default_count)
         option = {
             "id": str(item.get("id") or chr(96 + position))[:8],
             "label": str(item.get("label") or f"方案 {position}").strip()[:20],
@@ -386,16 +453,62 @@ def _normalize_options(raw: Any, default_count: int = 1) -> list[dict[str, Any]]
             # 契约字段（R04）：由 size 派生，保证前端两条路径拿到的比例一致
             "aspect": plan_validator.aspect_from_size(size),
             # 每个方向可以自带张数；没写就沿用分析判定的张数
-            "image_count": _clamp_count(item.get("image_count"), default_count),
+            "image_count": image_count,
         }
+        # Some clarification directions contain genuinely different outputs
+        # (for example, one edited source image plus one extracted asset).  Keep
+        # those per-output prompts with the option; otherwise confirmation would
+        # silently turn them into N variants of the option-level prompt.
+        option_jobs = _normalize_option_jobs(item.get("jobs"), image_count)
+        if option_jobs is None:
+            option_jobs = _normalize_option_jobs(item.get("images"), image_count)
+        if option_jobs is not None:
+            option["jobs"] = option_jobs
         _log_option_drift(option)
         options.append(option)
     return options
 
 
+def _normalize_option_jobs(raw: Any, image_count: int) -> list[dict[str, Any]] | None:
+    """Validate and normalize independent jobs nested in a clarification option.
+
+    A clarification option's top-level prompt describes the direction and is
+    still required for the plan contract.  ``jobs`` is optional and is kept
+    only when it is a complete, distinct-output list.  Incomplete lists are
+    deliberately ignored so older/model responses retain the established
+    "same prompt, N variants" behavior.
+    """
+    if not isinstance(raw, list) or len(raw) != image_count or not raw:
+        return None
+    jobs: list[dict[str, Any]] = []
+    for position, item in enumerate(raw, start=1):
+        if not isinstance(item, dict):
+            return None
+        prompt = str(item.get("prompt") or "").strip()
+        if len(prompt) < 8:
+            return None
+        raw_index = item.get("index")
+        index = raw_index if type(raw_index) is int and 1 <= raw_index <= MAX_IMAGES else position
+        label = str(item.get("label") or f"第 {position} 张").strip()[:40]
+        jobs.append({"index": index, "label": label, "prompt": prompt[:_MAX_PROMPT]})
+    # Duplicate indexes would make pool task ids and idempotency keys collide.
+    if len({job["index"] for job in jobs}) != len(jobs):
+        return None
+    return jobs
+
+
 def _log_option_drift(option: dict[str, Any]) -> None:
     """用契约模型做漂移检测：只记日志，不丢弃选项（R04 的可观测性）。"""
     projected = {**option, "prompt": str(option.get("prompt") or "")[:MAX_PROMPT_CHARS]}
+    if isinstance(projected.get("jobs"), list):
+        projected["jobs"] = [
+            {
+                **job,
+                "prompt": str(job.get("prompt") or "")[:MAX_PROMPT_CHARS],
+            }
+            for job in projected["jobs"]
+            if isinstance(job, dict)
+        ]
     try:
         ComposeOption.model_validate(projected)
     except Exception as exc:  # noqa: BLE001 - 校验失败只记日志
@@ -651,20 +764,18 @@ async def _stream_analysis(
     text_stream: AsyncIterator[str] | None = None,
     model: str = "",
 ) -> AsyncIterator[str]:
-    """流式跑需求分析：模型实时输出公开需求摘要，结构化计划仅报告生成进度。
+    """流式跑需求分析：只报告结构化输出进度，不直传模型自由文本。
 
     事件：
-    - `{"event":"thought","text":...}`：分析摘要的增量（`<<<JSON>>>` 之前的自然语言）；
     - `{"event":"thought_progress","chars":N}`：进入 JSON 段后只报字数，不刷原文。
 
-    结束后 `sink` 里放 `analysis`（解析好的 dict）与 `thought`（公开摘要）。
+    结束后 `sink` 里放解析后的 `analysis`；界面展示白名单字段组成的公开摘要。
     读不出 JSON / 超时 / 上游报错都抛异常，由调用方回落到非流式的 `_call_json`。
     """
     started = time.perf_counter()
     stream = text_stream if text_stream is not None else relay_service.chat_stream(target, messages, temperature=0.4, max_tokens=5000)
     iterator = stream.__aiter__()
     raw: list[str] = []
-    thought_sent = 0  # 已经推给前端的思考字数
     in_json = False
     last_progress = 0
     first = True
@@ -682,20 +793,10 @@ async def _stream_analysis(
         text = "".join(raw)
         if not in_json:
             stripped = text.lstrip()
-            # 模型跳过了思考、直接写 JSON：不把 JSON 当思考刷给用户
+            # 自然语言前缀可能包含模型的私有推理，绝不直传给界面；这里只识别
+            # 结构化输出起点。分析完成后由白名单字段生成可核对的公开摘要。
             if JSON_MARKER in text or stripped.startswith(("{", "```")):
                 in_json = True
-                head = text.split(JSON_MARKER, 1)[0] if JSON_MARKER in text else ""
-                if len(head) > thought_sent:
-                    yield _sse({"event": "thought", "text": head[thought_sent:THOUGHT_MAX_CHARS]})
-                    thought_sent = len(head)
-            else:
-                # 末尾留出标记长度：防止 "<<<JS" 这种半截标记先被推出去
-                safe = max(0, len(text) - len(JSON_MARKER))
-                safe = min(safe, THOUGHT_MAX_CHARS)
-                if safe > thought_sent:
-                    yield _sse({"event": "thought", "text": text[thought_sent:safe]})
-                    thought_sent = safe
         if in_json:
             body_chars = len(text.split(JSON_MARKER, 1)[-1])
             if body_chars - last_progress >= 80:
@@ -703,17 +804,9 @@ async def _stream_analysis(
                 yield _sse({"event": "thought_progress", "chars": body_chars})
 
     text = "".join(raw)
-    if not in_json and len(text) > thought_sent:
-        # 没写标记、整段都当成了思考：补推剩余部分（JSON 还是会从全文里找）
-        tail = text[thought_sent:THOUGHT_MAX_CHARS]
-        if tail and not tail.lstrip().startswith("{"):
-            yield _sse({"event": "thought", "text": tail})
     parsed = _extract_json(text)
     if parsed is None:
         raise AppError(ErrorCode.UPSTREAM_FORMAT_ERROR, "分析结果读不出来")
-    thought = text.split(JSON_MARKER, 1)[0].strip() if JSON_MARKER in text else ""
-    if thought.startswith(("{", "```")):
-        thought = ""
     parsed["_meta"] = {
         "model": target.model if target else model,
         "provider": target.name if target else "意图分析模型",
@@ -723,7 +816,8 @@ async def _stream_analysis(
         "streamed": True,
     }
     sink["analysis"] = parsed
-    sink["thought"] = thought[:THOUGHT_MAX_CHARS]
+    # The UI gets the concise structured analysis event, never raw model prose.
+    sink["thought"] = ""
 
 
 def _clamp_count(value: Any, default: int = 1) -> int:
@@ -778,7 +872,7 @@ async def _free_slots(db: AsyncSession, user_id: str) -> int:
     return max(0, limit - await task_service.count_active(db, user_id))
 
 
-async def _pool_capacity() -> dict[str, int] | None:
+async def _pool_capacity() -> dict[str, Any] | None:
     """号池可用账号数（尽力而为：网关不可达 / 演示模式就不展示）。"""
     from app.services import pool_service
 
@@ -807,13 +901,20 @@ async def _schedule_jobs(
     for job in scheduled:
         source = "专属描述" if job["custom"] else "原话"
         label = f"「{job['label']}」" if job["label"] else ""
-        items.append(f"通道 {job['index']}{label} → 独立账号额度 · 提示词来源：{source}")
+        items.append(f"任务 {job['index']}{label} → 独立并发请求 · 提示词来源：{source}")
     if free < wanted:
         items.append(f"当前可用 {free} 个并发槽位，需要 {wanted} 个；提交前校验整批，避免遗漏产出")
     pool = await _pool_capacity()
     if pool:
-        source = "本地号池" if pool.get("mode") == "local" else "上游号池"
-        items.append(f"{source}可调度 {pool['normal']}/{pool['total']} 个账号；以执行时实际预留为准")
+        mode = str(pool.get("mode") or "none")
+        if mode == "local":
+            items.append(f"本地号池可独立调度 {pool['normal']}/{pool['total']} 个账号；以执行时实际预留为准")
+        elif mode == "upstream":
+            items.append(
+                f"上游号池报告 {pool['normal']}/{pool['total']} 个健康账号；每张图会并发提交，由上游轮询账号（不保证同批每张图使用不同账号）"
+            )
+        else:
+            items.append(f"当前可见账号容量 {pool['normal']}/{pool['total']}；提交前仍会再次校验")
     return scheduled, items
 
 
@@ -828,13 +929,29 @@ async def _load_assets(db: AsyncSession, user: User, ids: list[str]) -> list[Any
     return assets
 
 
-def _describe_context(assets: list[Any], selection: dict[str, Any] | None) -> str:
-    """参考图与选区的文字上下文，像素由vision_service同时附加。"""
+def _describe_context(
+    assets: list[Any],
+    selection: dict[str, Any] | None,
+    *,
+    selected: Any | None = None,
+) -> str:
+    """参考图与选区的文字上下文，像素由vision_service同时附加。
+
+    `selected` 是「画布上选中、但没框任何区域」的底图。要单独说明，
+    否则模型会把那张像素当成普通风格参考，产出「再画一张类似的」而不是
+    「在这张图上改」。
+    """
     lines: list[str] = []
     if assets:
         lines.append(f"用户提供了 {len(assets)} 张参考图（用于图生图或风格参考）。")
     else:
         lines.append("用户没有提供参考图。")
+    if selected is not None:
+        lines.append(
+            "用户已在画布上选中这张底图，本次要求是对**这张图**做修改；"
+            "原图内容必须保留，不要重新绘制成另一张同题材的新图。"
+            "若用户要求「抠出来 / 去背景 / 变成透明素材」，就基于这张图把主体分离出来。"
+        )
     regions = (selection or {}).get("regions") or []
     if regions:
         lines.append(f"用户框选了 {len(regions)} 个区域，只希望改这些区域，其余保持原样。")
@@ -907,6 +1024,22 @@ async def stream_compose(
             raise AppError(ErrorCode.NOT_FOUND, "会话不存在")
 
         assets = await _load_assets(db, user, refs)
+        # 画布上「选中了某张图」但没框任何区域时，这张图就是本次要改的底图。
+        #
+        # 旧逻辑只认 @ 引用（`refs`），于是「点中猫咪图 → 说『把猫咪抠出来』」
+        # 会退化成一纯粹的文生图：模型没看到原图，只能照语义再画一只猫，
+        # 用户看到的自然是「又生成了一张差不多的」，而不是从原图里抠。
+        # 这里把选中底图接进来（仅在没有 @ 引用时生效，避免抢用户明确的引用）。
+        selected_asset = None
+        selection_asset_id = str((selection or {}).get("asset_id") or "").strip()
+        if selection_asset_id and selection_asset_id not in refs:
+            try:
+                selected_asset = await asset_service.get_asset(db, user, selection_asset_id)
+            except AppError:
+                logger.warning("画布底图不存在或无权访问：%s", selection_asset_id)
+                selected_asset = None
+        # 送给视觉模型看的像素：@ 引用优先，其次才是画布选中底图
+        vision_assets = list(assets) or ([selected_asset] if selected_asset else [])
         attachments = [
             {
                 "type": "image",
@@ -916,7 +1049,7 @@ async def stream_compose(
                 "width": asset.width,
                 "height": asset.height,
             }
-            for asset in assets
+            for asset in (assets or ([selected_asset] if selected_asset else []))
         ]
         user_message = await _append_message(
             db, session.id, user.id, "user", raw_text, attachments=attachments
@@ -1004,17 +1137,16 @@ async def stream_compose(
         shortlisted: list[design_skills.DesignSkill] = []
         user_prompt = (
             f"用户原话：{gen_text}\n\n"
-            f"{_describe_context(assets, selection)}\n\n"
-            "请先输出面向用户的分析摘要，再按系统契约输出结构化计划。"
+            f"{_describe_context(vision_assets, selection, selected=selected_asset)}\n\n"
+            "按系统契约只输出 JSON；summary 和 observations 用简洁、可核对的公开事实说明需求。"
         )
 
         analyze_messages = [
             {"role": "system", "content": template},
-            {"role": "user", "content": vision_service.user_content(user_prompt, assets)},
+            {"role": "user", "content": vision_service.user_content(user_prompt, vision_assets)},
         ]
-        thought_text = ""
         try:
-            # 先走流式：公开分析摘要实时可见；流式读不出 JSON 再回落到非流式 + 纠错重试
+            # 先走流式：完成后展示结构化摘要；读不出 JSON 再回落到非流式 + 纠错重试
             sink: dict[str, Any] = {}
             streamed_ok = False
             try:
@@ -1027,7 +1159,6 @@ async def stream_compose(
                 logger.exception("流式分析异常，回落非流式")
             if streamed_ok:
                 analysis = sink["analysis"]
-                thought_text = str(sink.get("thought") or "")
             else:
                 yield _sse({"event": "thought_reset"})
                 analysis, _outcome, _repairs = await _call_json(
@@ -1084,7 +1215,9 @@ async def stream_compose(
                 }
             )
             return
-        # 契约漂移只记录、不阻塞：analyze 还带展示字段（thinking / ambiguity），
+        # 只公开结构化摘要与任务拆分，不把自由文本或供应商原始响应带到界面。
+        yield _sse({"event": "analysis", "analysis": _public_compose_analysis(analysis)})
+        # 契约漂移只记录、不阻塞：analyze 还带展示字段（observations / ambiguity），
         # 不在 ComposeAnalysis 契约范围内，投影校验只用于发现真漂移（R04 可观测性）
         drift = plan_validator.validate_analysis(analysis)
         if not drift.ok:
@@ -1092,7 +1225,6 @@ async def stream_compose(
                 "analyze 输出不符合契约（仅记录）：%s",
                 [issue.as_dict() for issue in drift.errors],
             )
-        thinking = [str(item) for item in (analysis.get("thinking") or []) if str(item).strip()][:5]
         # 结构化拆解：把模型读出的主体 / 风格 / 约束 / 张数也摆出来，过程才完整
         facts: list[str] = []
         if analysis.get("subject"):
@@ -1107,8 +1239,7 @@ async def stream_compose(
         step = trace.finish(
             "analyze",
             detail=str(analysis.get("summary") or "已读懂需求")[:160],
-            items=thinking + facts,
-            thought=thought_text,
+            items=facts,
             meta={
                 "model": str(meta_raw.get("model") or target.model),
                 "elapsed_ms": int(meta_raw.get("elapsed_ms") or 0),
@@ -1169,13 +1300,14 @@ async def stream_compose(
                 confidence=int(round(100 - len(missing) * 12)) if missing else 60,
                 input={
                     "content": text,
-                    "image_refs": [asset.id for asset in assets],
+                    "image_refs": [asset.id for asset in vision_assets],
                     "generation_params": requested,
                     "model": model,
                 },
                 plan={
-                    "image_refs": [asset.id for asset in assets],
+                    "image_refs": [asset.id for asset in vision_assets],
                     "size": "1024x1024",
+                    "analysis": _public_compose_analysis(analysis),
                     "generation_params": {
                         **provider_params,
                         "aspect": aspect_override,
@@ -1202,7 +1334,7 @@ async def stream_compose(
                     "missing": missing[:4],
                     "question": question,
                     "reason": reason,
-                    "has_reference_images": bool(assets),
+                    "has_reference_images": bool(vision_assets),
                     "options": [
                         {"label": item.get("label"), "description": item.get("description")}
                         for item in options
@@ -1327,8 +1459,8 @@ async def stream_compose(
                 status="failed",
                 image_count=1,
                 confidence=_confidence(analysis.get("confidence")),
-                input={"content": text, "image_refs": [asset.id for asset in assets]},
-                plan={"prompt_source": "none", "image_refs": [asset.id for asset in assets]},
+                input={"content": text, "image_refs": [asset.id for asset in vision_assets]},
+                plan={"prompt_source": "none", "image_refs": [asset.id for asset in vision_assets]},
                 steps=list(trace.steps),
                 options=[],
                 task_ids=[],
@@ -1386,7 +1518,7 @@ async def stream_compose(
             status="dispatching",
             image_count=len(jobs),
             confidence=_confidence(analysis.get("confidence")),
-            input={"content": text, "image_refs": [asset.id for asset in assets], "model": model},
+            input={"content": text, "image_refs": [asset.id for asset in vision_assets], "model": model},
             plan={
                 "final_prompt": final_prompt,
                 "image_count": len(jobs),
@@ -1403,12 +1535,12 @@ async def stream_compose(
                 "reasoning": list(plan_data.get("reasoning") or []),
                 "source": plan_data.get("source") or "relay",
                 "skill_id": skill_id,
-                "image_refs": [asset.id for asset in assets],
+                "image_refs": [asset.id for asset in vision_assets],
                 "generation_params": provider_params,
                 "quality": quality,
                 "quality_suffix": quality_suffix,
                 "prompt_source": prompt_source,
-                "analysis": {k: analysis.get(k) for k in ("summary", "intent", "subject", "style", "constraints", "missing")},
+                "analysis": _public_compose_analysis(analysis, jobs),
             },
             steps=list(trace.steps),
             options=[],
@@ -1425,6 +1557,18 @@ async def stream_compose(
 
         try:
             plan_validator.assert_dispatchable(plan_data, assembled_prompt)
+            # 底图是谁：@ 引用优先；没有引用但画布选了图，就把选中的图当底图。
+            # 这一句决定了最终是 `create_edit_task`（带底图）还是 `create_image_task`
+            # （纯文生图）——「抠图变成了重画一张」就是这里断的。
+            #
+            # 唯一例外：模型看完图后明确判定这是 text2img（用户要一张无关的新图），
+            # 才不带底图。其余情况一律以选中的那张图为底图，否则用户选了图却
+            # 得到一张"同题材新图"就会一脸问号。
+            analysis_intent = str(analysis.get("intent") or "").strip().lower()
+            use_selected_base = selected_asset is not None and analysis_intent != "text2img"
+            dispatch_refs = [asset.id for asset in assets] or (
+                [selected_asset.id] if use_selected_base else []
+            )
             tasks = await _dispatch(
                 db,
                 user,
@@ -1432,11 +1576,11 @@ async def stream_compose(
                 final_prompt=final_prompt,
                 negative=negative,
                 size=size,
-                refs=[asset.id for asset in assets],
+                refs=dispatch_refs,
                 # 双击 / 重发同一句需求时，60 秒内复用同一个幂等键；
                 # 用 run.id 会让「每次都是新 run」，幂等形同虚设。
                 idempotency_key=_dedupe_key(
-                    session.id, gen_text, [asset.id for asset in assets], provider_params
+                    session.id, gen_text, dispatch_refs, provider_params
                 ),
                 model=model,
                 quality=quality,
@@ -1487,6 +1631,12 @@ async def stream_compose(
             + (" · 复用刚提交的任务" if item.get("deduped") else " · 已进入生成队列")
             for i, item in enumerate(tasks)
         ]
+        routing_mode = str((run.plan or {}).get("routing_mode") or "")
+        routing_note = {
+            "local": "本地号池严格租约：每项任务预留不同账号",
+            "upstream": "上游号池并发轮询：每项任务独立提交，账号由上游选择",
+        }.get(str(routing_mode or ""), "账号路由：按当前可用容量调度")
+        dispatch_items.insert(0, routing_note)
         step = trace.finish(
             "dispatch",
             detail=f"已并发提交 {len(tasks)} 个生图任务" if len(tasks) > 1 else "已提交 1 个生图任务",
@@ -1518,7 +1668,7 @@ async def stream_compose(
                 "size": size,
                 "decisions": [str(item) for item in (plan_data.get("reasoning") or [])][:4],
                 "image_count": len(tasks),
-                "has_reference_images": bool(assets),
+                "has_reference_images": bool(vision_assets),
             },
             fallback=fallback_reply,
             sink=reply_sink,
@@ -1585,6 +1735,8 @@ def _compose_attachment(
         "options": list(run.options or []),
         "tasks": tasks or [],
         "task_ids": list(run.task_ids or []),
+        "routing_mode": plan.get("routing_mode") or "",
+        "analysis": plan.get("analysis") or {},
     }
 
 
@@ -1623,6 +1775,8 @@ def _compose_result(
         "prompt_source": plan.get("prompt_source") or "relay",
         "degraded": plan.get("prompt_source") in {"template", "template_fallback"},
         "image_refs": plan.get("image_refs") or [],
+        "routing_mode": plan.get("routing_mode") or "",
+        "analysis": plan.get("analysis") or {},
     }
 
 
@@ -1692,6 +1846,8 @@ async def _dispatch(
     - 有参考图 → 图生图（以第一张为底图）；没有 → 文生图；
     - 每张一个任务（n=1）：每个任务各自走一次网关，网关按「最少占用」为每次调用
       原子预留独立账号，容量不足明确失败，不复用同一账号；
+    - 本地号池模式的多图批次使用 strict 路由，由 Gateway 预留不同账号；上游号池模式仍
+      是每张图一个独立请求并发提交，由上游自己轮询账号，不承诺同批账号唯一；
     - `negative` 折进提示词尾部（上游 gpt-image 系列没有独立负向参数）；
     - 任一创建失败则回退整批预扣，所有任务建好以后才开始执行。
 
@@ -1705,7 +1861,11 @@ async def _dispatch(
     unit_cost = await generate_service.resolve_cost(
         db, "edit" if refs else "generate", quality=quality
     )
-    await batch_service.preflight(db, user.id, len(jobs), unit_cost * len(jobs))
+    routing_mode = await batch_service.preflight(db, user.id, len(jobs), unit_cost * len(jobs))
+    # Persist the actual preflight result so the task/history view can explain
+    # whether strict local leases or upstream account scheduling was used.
+    if hasattr(run, "plan"):
+        run.plan = {**(run.plan or {}), "routing_mode": routing_mode}
     base_asset = await asset_service.get_asset(db, user, refs[0]) if refs else None
     base_url = base_asset.url if base_asset else None
     # 先把 run 落盘：pre_deduct 余额不足会 rollback 整个会话，不能把 run 一起卷走
@@ -1725,6 +1885,11 @@ async def _dispatch(
             "pool_batch_id": run.id,
             "pool_task_id": str(job["index"]),
             "pool_batch_total": len(jobs),
+            "pool_routing_mode": routing_mode,
+            # Local credentials are reserved atomically by this gateway.  In
+            # upstream mode each independent request is still concurrent, but
+            # the upstream service owns the per-account round-robin.
+            "pool_strict": batch and routing_mode != "upstream",
         }
         if batch:
             extra.update({"batch_index": job["index"], "batch_total": len(jobs), "batch_label": job["label"]})
@@ -1886,11 +2051,35 @@ async def confirm_compose(
     )
     plan_validator.assert_dispatchable(plan, assembled_prompt)
 
-    # 张数：选中的方向自带的 image_count（澄清时已按分析结果写入），同一提示词出 N 版
-    jobs = resolve_jobs(
-        {"image_count": chosen.get("image_count") or 1}, str(plan.get("final_prompt") or "")
+    # 张数：选中的方向自带的 image_count（澄清时已按分析结果写入）。如果该方向
+    # 明确拆出了不同画面的 jobs，就保留每张专属提示词；否则沿用同一提示词出 N 版。
+    option_count = chosen.get("image_count") or 1
+    option_jobs = (
+        _normalize_option_jobs(chosen.get("jobs"), option_count)
+        if type(option_count) is int
+        else None
     )
+    if option_jobs:
+        jobs = resolve_jobs(
+            {"image_count": len(option_jobs), "images": option_jobs},
+            str(plan.get("final_prompt") or ""),
+        )
+    else:
+        jobs = resolve_jobs(
+            {"image_count": option_count}, str(plan.get("final_prompt") or "")
+        )
     jobs, _ = await _schedule_jobs(db, user.id, jobs, "")
+    # 确认后把用户最终选中的独立产出写回公开分析快照，刷新历史时也能看到
+    # 每张实际会执行什么，而不是只看到尚未确认的原始方向。
+    plan["analysis"] = _public_compose_analysis(plan.get("analysis"), jobs)
+    plan["jobs"] = [
+        {
+            "index": job["index"],
+            "label": job["label"],
+            "custom": bool(job.get("custom")),
+        }
+        for job in jobs
+    ]
     plan["image_count"] = len(jobs)
     claim = await db.execute(
         update(SkillRun)
@@ -1955,6 +2144,7 @@ async def _sync_attachment(db: AsyncSession, run: SkillRun, option_id: str) -> N
             "chosen_option_id": option_id,
             "task_ids": list(run.task_ids or []),
             "final_prompt": (run.plan or {}).get("final_prompt") or item.get("final_prompt"),
+            "analysis": (run.plan or {}).get("analysis") or item.get("analysis") or {},
         }
         touched = True
     if touched:

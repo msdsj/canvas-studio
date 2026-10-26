@@ -24,8 +24,50 @@ export interface TraceStep {
   meta?: { model?: string; elapsed_ms?: number; output_chars?: number; streamed?: boolean }
 }
 
+/**
+ * 面向用户的结构化执行计划。
+ *
+ * 这里刻意只接收「公开计划」：产出数量、选区编号、任务标签和执行约束。
+ * 模型的内部推理不会被当作计划渲染；若有完整执行指令，放在可选的
+ * details 里由用户主动展开，避免左侧对话一上来被长文本撑满。
+ */
+export interface TracePlan {
+  imageCount?: number
+  confidence?: number
+  summary?: string
+  subject?: string
+  intent?: string
+  style?: string
+  constraints?: string[]
+  observations?: string[]
+  count_reason?: string
+  reason?: string
+  countReason?: string
+  ruleHit?: string
+  jobs?: Array<{
+    index?: number
+    label?: string
+    prompt?: string
+    handler?: string
+    region_indexes?: number[]
+    output_kind?: string
+    preserve_outside?: boolean
+  }>
+  outputs?: Array<{
+    label?: string
+    count?: number
+    handler?: string
+    description?: string
+    kind?: string
+    region_indexes?: number[]
+    preserve_outside?: boolean
+  }>
+}
+
 interface AgentTraceProps {
   steps: TraceStep[]
+  /** 已完成分析后返回的结构化产出计划（可选）。 */
+  plan?: TracePlan | null
   /** 实时模式：始终展开 + 计时；历史模式：折叠成一行摘要，可展开 */
   live?: boolean
   skillId?: string | null
@@ -61,6 +103,7 @@ const ANALYSIS_TIMING = { expectedSeconds: 12, softSeconds: 25, hardSeconds: 90 
  */
 export function AgentTrace({
   steps,
+  plan,
   live = false,
   skillId,
   skillName,
@@ -95,6 +138,7 @@ export function AgentTrace({
   const completed = steps.filter((step) => step.status === 'done').length
   const currentStep = steps.find((step) => step.status === 'running')
   const model = [...steps].reverse().find((step) => step.meta?.model)?.meta?.model
+  const planOutputs = plan?.imageCount || plan?.jobs?.length || plan?.outputs?.reduce((sum, item) => sum + (Number(item.count) || 0), 0)
 
   // 实时模式：新步骤 / 新要点逐条升起（按 key 记账，已出现过的不重播）
   useLayoutEffect(() => {
@@ -175,6 +219,11 @@ export function AgentTrace({
           {!live && totalMs > 0 && <> · {t('trace.elapsed', { seconds: seconds || (totalMs / 1000).toFixed(1) })}</>}
         </span>
       )}
+      {planOutputs ? (
+        <span className="rounded-full bg-accent-soft px-1.5 py-0.5 text-[11px] font-medium text-accent-ink">
+          {t('trace.plan_outputs', { count: planOutputs })}
+        </span>
+      ) : null}
     </span>
   )
 
@@ -228,6 +277,8 @@ export function AgentTrace({
         </div>
       )}
 
+      {plan && <PlanSummary plan={plan} />}
+
       <div ref={bodyRef} className={cn(!live && 'overflow-hidden')}>
         {(thought || thoughtChars > 0) && (live || !steps.some((step) => step.thought === thought)) && (
           <ThoughtStream text={thought} chars={thoughtChars} active={live} model={model} />
@@ -250,6 +301,91 @@ export function AgentTrace({
           </ol>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * 把「为什么是这些产出」放在分析轨迹里，而不是只在结果卡出现。
+ * 这样用户能在生成前就核对张数、区域和每项职责，发现理解偏差时可以立刻停止。
+ */
+function PlanSummary({ plan }: { plan: TracePlan }) {
+  const { t } = useTranslation('agent')
+  const jobs = Array.isArray(plan.jobs) ? plan.jobs.filter(Boolean) : []
+  const outputs = Array.isArray(plan.outputs) ? plan.outputs.filter(Boolean) : []
+  const count = Number(plan.imageCount) || jobs.length || outputs.reduce((sum, item) => sum + (Number(item.count) || 0), 0)
+  const confidence = typeof plan.confidence === 'number'
+    ? Math.round(plan.confidence <= 1 ? plan.confidence * 100 : plan.confidence)
+    : null
+  const groups: Array<{
+    index?: number
+    label?: string
+    prompt?: string
+    description?: string
+    output_kind?: string
+    kind?: string
+    region_indexes?: number[]
+    preserve_outside?: boolean
+  }> = jobs.length > 0 ? jobs : outputs
+  const facts = [
+    plan.subject ? t('trace.plan_subject', { value: plan.subject }) : '',
+    plan.intent ? t('trace.plan_intent', { value: plan.intent }) : '',
+    plan.style ? t('trace.plan_style', { value: plan.style }) : '',
+  ].filter(Boolean)
+  const notes = [...(plan.observations ?? []), ...(plan.constraints ?? [])].filter(Boolean)
+  if (!count && groups.length === 0 && !plan.reason && !plan.summary && facts.length === 0 && notes.length === 0) return null
+
+  return (
+    <div className="mt-2 overflow-hidden rounded-sm bg-accent-soft/40 ring-1 ring-inset ring-accent/20">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-accent/15 px-2.5 py-2">
+        <span className="flex items-center gap-1.5 text-micro font-semibold text-accent-ink">
+          <Brain size={12} /> {t('trace.plan_title')}
+        </span>
+        {count > 0 && <span className="rounded-full bg-surface/70 px-1.5 py-0.5 text-[11px] font-medium text-text-secondary">{t('trace.plan_outputs', { count })}</span>}
+        {groups.length > 0 && groups.length !== count && <span className="rounded-full bg-surface/70 px-1.5 py-0.5 text-[11px] text-text-tertiary">{t('trace.plan_tasks', { count: groups.length })}</span>}
+        {confidence !== null && <span className="ml-auto text-[11px] tabular-nums text-text-tertiary">{t('trace.plan_confidence', { value: confidence })}</span>}
+      </div>
+      {plan.summary && <p className="px-2.5 pt-2 text-micro leading-relaxed text-text-secondary [overflow-wrap:anywhere]">{plan.summary}</p>}
+      {facts.length > 0 && <div className="flex flex-wrap gap-1 px-2.5 pt-2">{facts.map((fact) => <span key={fact} className="rounded-full bg-surface/70 px-2 py-0.5 text-[11px] text-text-tertiary">{fact}</span>)}</div>}
+      {notes.length > 0 && (
+        <ul className="flex flex-col gap-1 px-2.5 pt-2 text-[11px] leading-relaxed text-text-tertiary">
+          {notes.slice(0, 6).map((note, index) => <li key={`${index}:${note}`} className="flex gap-1.5"><span className="mt-[5px] h-1 w-1 shrink-0 rounded-full bg-accent-strong" /><span className="min-w-0 [overflow-wrap:anywhere]">{note}</span></li>)}
+        </ul>
+      )}
+      {plan.reason && <p className="px-2.5 pt-2 text-micro leading-relaxed text-text-secondary [overflow-wrap:anywhere]">{plan.reason}</p>}
+      {(plan.countReason || plan.count_reason) && <p className="px-2.5 pt-1 text-[11px] text-text-tertiary">{t('trace.plan_count_basis', { value: plan.countReason || plan.count_reason })}</p>}
+      {plan.ruleHit && <p className="px-2.5 pt-1 text-[11px] text-text-tertiary">{t('trace.plan_basis', { value: plan.ruleHit })}</p>}
+      {groups.length > 0 && (
+        <ol className="flex flex-col gap-1.5 px-2.5 py-2">
+          {groups.slice(0, 12).map((job, index) => {
+            const item = job
+            const itemIndex = Number(item.index) || index + 1
+            const regions = Array.isArray(item.region_indexes) ? item.region_indexes.filter(Number.isInteger) : []
+            const kind = item.output_kind || item.kind
+            const detail = item.description || item.prompt
+            return (
+              <li key={`${itemIndex}:${item.label || index}`} className="flex min-w-0 items-start gap-2 rounded-xs bg-surface/60 px-2 py-1.5">
+                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[11px] font-semibold text-accent-ink">{itemIndex}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                    <span className="min-w-0 flex-1 text-micro font-medium text-text [overflow-wrap:anywhere]">{item.label || t('trace.plan_item', { index: itemIndex })}</span>
+                    {kind && <span className="shrink-0 text-[11px] text-text-tertiary">{t(`decision.output_kind.${kind}`, { defaultValue: kind })}</span>}
+                  </div>
+                  {regions.length > 0 && <p className="mt-0.5 text-[11px] text-text-tertiary">{t('trace.plan_regions', { indexes: regions.join(', ') })}</p>}
+                  {item.preserve_outside && <p className="mt-0.5 text-[11px] text-text-tertiary">{t('trace.plan_preserve')}</p>}
+                  {detail && (
+                    <details className="mt-0.5 text-[11px] text-text-tertiary">
+                      <summary className="cursor-pointer hover:text-text">{t('trace.plan_details')}</summary>
+                      <p className="mt-1 max-h-28 overflow-y-auto whitespace-pre-wrap leading-relaxed text-text-secondary [overflow-wrap:anywhere]">{detail}</p>
+                    </details>
+                  )}
+                </div>
+              </li>
+            )
+          })}
+        </ol>
+      )}
+      {groups.length > 12 && <p className="px-2.5 pb-2 text-[11px] text-text-tertiary">{t('trace.plan_more', { count: groups.length - 12 })}</p>}
     </div>
   )
 }
@@ -318,7 +454,7 @@ function TraceRow({
           >
             {step.title}
           </p>
-          <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[10px]', running ? 'bg-accent-soft text-accent-ink' : step.status === 'failed' ? 'bg-danger-subtle text-danger' : 'bg-bg-subtle text-text-tertiary')}>{statusLabel}</span>
+          <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[11px]', running ? 'bg-accent-soft text-accent-ink' : step.status === 'failed' ? 'bg-danger-subtle text-danger' : 'bg-bg-subtle text-text-tertiary')}>{statusLabel}</span>
           {seconds && step.status !== 'running' && (
             <span className="shrink-0 text-micro tabular-nums text-text-faint">{seconds}s</span>
           )}

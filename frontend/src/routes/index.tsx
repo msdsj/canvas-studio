@@ -187,19 +187,16 @@ function HomePage() {
 
   return (
     <div ref={rootRef} className="relative flex min-h-screen flex-col overflow-x-clip bg-transparent">
-      {/* 环境层：纸纹 + 三团光 + 极淡网格，撑起纵深；全部 pointer-events:none */}
+      {/* 页面环境层：克制的品牌蓝/青光与细网格，保持安静的企业级层次。 */}
       <div ref={auroraRef} aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="cs-grain absolute inset-0 opacity-70" />
-        {/* 三团光严格取配色1的三个色：#598BFD 蓝 / #9AD4CB 薄荷 / #35B3C9 青。
-            只改透明度不改色相，三团叠在一起才是「弥散渐变」而不是三块纯色。 */}
         <div data-depth="1.4" className="absolute -left-24 -top-40">
-          <div className="h-[440px] w-[440px] rounded-full bg-[#598BFD]/25 blur-[120px]" />
+          <div className="h-[440px] w-[440px] rounded-full bg-brand-blue/10 blur-[120px]" />
         </div>
         <div data-depth="0.8" className="absolute -right-24 top-[-8%]">
-          <div className="h-[380px] w-[380px] rounded-full bg-[#9AD4CB]/30 blur-[120px]" />
+          <div className="h-[380px] w-[380px] rounded-full bg-accent/8 blur-[120px]" />
         </div>
         <div data-depth="1.9" className="absolute left-1/3 top-[70vh]">
-          <div className="h-[380px] w-[520px] rounded-full bg-[#35B3C9]/22 blur-[130px]" />
+          <div className="h-[380px] w-[520px] rounded-full bg-brand/7 blur-[130px]" />
         </div>
         <div
           className="absolute inset-x-0 top-0 h-[110vh] opacity-60"

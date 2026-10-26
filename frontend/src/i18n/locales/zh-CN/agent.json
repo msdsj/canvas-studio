@@ -34,7 +34,21 @@
     "stopped": "用户已停止本次分析",
     "completed_steps": "已完成 {{completed}} / {{total}} 步",
     "waiting": "等待下一阶段返回",
-    "connecting": "正在连接分析模型，等待实际处理状态…"
+    "connecting": "正在连接分析模型，等待实际处理状态…",
+    "plan_title": "本轮执行计划",
+    "plan_outputs": "预计产出 {{count}} 张",
+    "plan_tasks": "拆分 {{count}} 项任务",
+    "plan_confidence": "置信度 {{value}}%",
+    "plan_basis": "判定依据：{{value}}",
+    "plan_count_basis": "张数依据：{{value}}",
+    "plan_subject": "主体：{{value}}",
+    "plan_intent": "意图：{{value}}",
+    "plan_style": "风格：{{value}}",
+    "plan_item": "产出 {{index}}",
+    "plan_regions": "对应选区：{{indexes}}",
+    "plan_preserve": "保留其他区域原图",
+    "plan_details": "查看本项执行说明",
+    "plan_more": "还有 {{count}} 项，已折叠"
   },
   "skill": {
     "using": "使用技能",

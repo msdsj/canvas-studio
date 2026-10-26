@@ -62,7 +62,10 @@ export interface ImageActionBarProps {
 }
 
 /** 操作条与图片的间距：拉开一些，别压在图片边缘、挡住视线 */
-const GAP = 28
+// Keep the floating controls visually detached from the artwork.  A larger
+// gap also prevents the bar from sitting on top of a selected image when the
+// canvas is zoomed or the image is close to an edge.
+const GAP = 36
 const EDGE = 8
 
 /**
@@ -108,7 +111,11 @@ export function ImageActionBar({
     const hostW = host.clientWidth
     const hostH = host.clientHeight
     // 只有主操作保留短标签，其余操作用带提示的图标，避免长操作条遮住画布。
-    setCompact(hostW < 420)
+    // The bar has quite a few actions (edit, enhance, cutout, variation and
+    // download).  Prefer icon-only controls on normal laptop widths so the
+    // artwork remains the visual focus.  Labels are still available through
+    // the native tooltip and aria-label.
+    setCompact(hostW < 640)
     const barW = bar.offsetWidth
     const barH = bar.offsetHeight
     const clampX = (x: number) => Math.min(Math.max(EDGE, x), Math.max(EDGE, hostW - barW - EDGE))
@@ -164,11 +171,11 @@ export function ImageActionBar({
       // 编辑层的「点图片」判定会跳过这里，避免点按钮被当成点图
       data-edit-layer-ui
       onPointerDown={(event) => event.stopPropagation()}
-      className="pointer-events-auto invisible absolute left-0 top-0 z-30 flex max-w-[calc(100%-16px)] items-center gap-px rounded-[10px] bg-surface-raised/70 p-[3px] opacity-0 shadow-sheet ring-1 ring-border/70 backdrop-blur-xl"
+      className="pointer-events-auto invisible absolute left-0 top-0 z-30 flex max-w-[calc(100%_-_32px)] items-center gap-px rounded-[9px] bg-surface-raised/55 p-0.5 opacity-0 shadow-sm ring-1 ring-border/55 backdrop-blur-lg"
     >
       <span
         data-bar-item
-        className="mr-0.5 flex h-[26px] shrink-0 items-center gap-1 rounded-[7px] bg-bg-subtle/70 px-1.5 text-[10px] font-semibold tabular-nums text-text-secondary"
+        className="mr-0.5 flex h-6 shrink-0 items-center gap-1 rounded-[6px] bg-bg-subtle/55 px-1.5 text-[10px] font-semibold tabular-nums text-text-secondary"
         title={naturalSize ? `${naturalSize.width} × ${naturalSize.height}` : undefined}
       >
         <span className={cn(version > 1 && 'text-accent-ink')}>V{version}</span>
@@ -309,8 +316,8 @@ function BarButton({
           aria-label={label}
           aria-busy={loading}
           className={cn(
-            'flex h-[26px] shrink-0 items-center gap-1 rounded-[7px] text-[11px] font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-50',
-            compact ? 'w-[26px] justify-center' : 'px-1.5',
+            'flex h-6 shrink-0 items-center gap-1 rounded-[6px] text-[11px] font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-50',
+            compact ? 'w-6 justify-center' : 'px-1.5',
             primary
               ? 'bg-accent-soft text-accent-ink hover:bg-accent/40'
               : 'text-text-secondary hover:bg-surface-hover hover:text-text'

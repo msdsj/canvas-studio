@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Check, Copy, Quote, ThumbsDown, ThumbsUp, Undo2 } from 'lucide-react'
 import { Markdown } from './Markdown'
 import { AgentGlyph } from './agent/AgentGlyph'
-import { AgentTrace, type TraceStep } from './agent/AgentTrace'
+import { AgentTrace, type TracePlan, type TraceStep } from './agent/AgentTrace'
 import { SkillChip } from './agent/SkillChip'
 import { cn, parseServerTime } from '@/lib/utils'
 import type { MessageImageAttachment } from '@/lib/api/chat'
@@ -16,6 +16,8 @@ interface ChatMessageProps {
   images?: MessageImageAttachment[]
   /** AI 回复背后的分析轨迹（compose_run / skill_run 的 steps），默认折叠 */
   traceSteps?: TraceStep[]
+  /** 公开的产出计划：数量、拆分任务与选区，供用户核对 AI 是否理解正确。 */
+  analysisPlan?: TracePlan | null
   /** 轨迹默认展开（最新一轮回复：分析过程与回答同屏） */
   traceOpen?: boolean
   /** 本次套用的设计技能 */
@@ -80,7 +82,7 @@ function ActionButton({
  *
  * 中间处理信息（最终提示词）不在这里出现。
  */
-function ChatMessageInner({ message, streaming, images, traceSteps, traceOpen, skillId, skillName, onQuote, onRecall }: ChatMessageProps) {
+function ChatMessageInner({ message, streaming, images, traceSteps, traceOpen, analysisPlan, skillId, skillName, onQuote, onRecall }: ChatMessageProps) {
   const { t } = useTranslation('chat')
   const { t: ta } = useTranslation('agent')
   const isUser = message.role === 'user'
@@ -157,7 +159,7 @@ function ChatMessageInner({ message, streaming, images, traceSteps, traceOpen, s
     )
   }
 
-  const hasTrace = (traceSteps?.length ?? 0) > 0
+  const hasTrace = (traceSteps?.length ?? 0) > 0 || Boolean(analysisPlan)
 
   return (
     <div className="cs-bubble-in-left group flex flex-col gap-1.5">
@@ -172,6 +174,7 @@ function ChatMessageInner({ message, streaming, images, traceSteps, traceOpen, s
           <AgentTrace
             steps={traceSteps ?? []}
             defaultOpen={traceOpen}
+            plan={analysisPlan}
             skillId={skillId}
             skillName={skillName}
             className="mb-2"
@@ -251,6 +254,7 @@ export const ChatMessage = memo(
     prev.message.content === next.message.content &&
     prev.streaming === next.streaming &&
     prev.traceOpen === next.traceOpen &&
+    JSON.stringify(prev.analysisPlan ?? null) === JSON.stringify(next.analysisPlan ?? null) &&
     (prev.images?.length ?? 0) === (next.images?.length ?? 0) &&
     (prev.images?.[0]?.asset_id ?? '') === (next.images?.[0]?.asset_id ?? '') &&
     JSON.stringify(prev.traceSteps ?? []) === JSON.stringify(next.traceSteps ?? []) &&

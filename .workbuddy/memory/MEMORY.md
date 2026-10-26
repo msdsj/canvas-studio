@@ -52,17 +52,30 @@
   `fast.msdsj.site/v1` + `deepseek-v4.1-flash`）；网关内置 LLM 无需配置也能兜底。
 
 ## 出图与号池（两种容量，别混）
-- **文本**走个人中转站；**图片**走网关 → 上游 `127.0.0.1:3000`（chatgpt2api，Docker，4 个 ChatGPT 账号）。
+- **文本**走个人中转站；**图片**走网关 → 上游 `127.0.0.1:3000`（chatgpt2api，Docker）。
+- **上游项目在 `~/Desktop/2API/chatgpt2api-main`**（曾被移动过，容器挂载要跟着改）。
+  镜像数据目录是 `/app/data`（**不是** `/app/backend/data`）；compose 里的
+  `./backend/data:/app/data`、`./backend/config.json:/app/config.json`。
+  挂载写错 → 上游写日志崩 → 对外只有 500，真实错误被吞。
 - 号池有两层：网关本地池（`POOL_FILE`，只放 `sk-` Key）与上游号池（`eyJ` ChatGPT 凭据）。
   `/gw/pool/capacity` 现返回 `routing_mode=local|upstream|none` 与 `effective_*`；
   `batch_service.preflight` 按模式判断，**upstream 模式放行多图**（否则「导了号却出不了 2 张」）。
 - 单张实测：`/api/generate/image` → 真实 PNG（1254×1254，demo=false）。
 - 号池管理页导入的 ChatGPT 凭据不会进本地池，这是设计如此，不是导入失败。
+- **账号只存在上游 `accounts.json`**：上游目录移动/重建 → 账号全丢，
+  平台「号池正常」只是代理读上游列表。上游报 429 no available image quota = 没账号了，要重新导入。
 - 容量口径：`routing_mode=local`（sk- Key，可保证每任务不同账号）/
   `upstream`（ChatGPT 凭据在上游，由它排队）/ `none`（没账号）。
   **upstream 模式必须放行多图**——早期只认 local，导致「导了号却出不了 2 张」。
 - 澄清策略：只有**主体级**缺口（主体/主题/对象/用途）才追问；文案、标识、活动信息等
   交给 AI 补齐（`_core_gaps`）。否则用户写清楚了还要回答「标识用什么」。
+
+## 沙箱里怎么起服务
+- `deploy/scripts/start-local-daemon.sh` 起的进程**会被沙箱回收**（连 vite 一起）。
+- 正确做法：分别用**受管后台任务**（run_in_background）跑
+  `backend/.venv/bin/python -m uvicorn app.main:app --port 27181`、
+  `gateway/.venv/bin/python -m uvicorn app.main:app --port 27182`、
+  `frontend: npm run dev -- --port 27180`。
 
 ## 测试与验证纪律（踩过的坑）
 - `tests/conftest.py` 会话开始前删旧测试库（含 -wal/-shm）；**跑测试期间不要改源码**，

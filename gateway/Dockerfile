@@ -12,4 +12,6 @@ COPY . .
 
 EXPOSE 8100
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100"]
+# Account leases and batch reservations are coordinated in-process. Keep one
+# worker; scale image concurrency through the async request pool instead.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "1"]

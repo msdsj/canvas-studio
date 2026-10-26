@@ -22,6 +22,28 @@ export interface SkillStepState {
   meta?: { model?: string; elapsed_ms?: number; output_chars?: number; streamed?: boolean }
 }
 
+/** 后端只返回给前端的公开分析摘要（不包含供应商原始响应）。 */
+export interface PublicAnalysis {
+  summary?: string
+  subject?: string
+  intent?: string
+  style?: string
+  constraints?: string[]
+  observations?: string[]
+  reason?: string
+  count_reason?: string
+  image_count?: number
+  confidence?: number
+  jobs?: Array<{
+    index?: number
+    label?: string
+    prompt?: string
+    output_kind?: string
+    region_indexes?: number[]
+    preserve_outside?: boolean
+  }>
+}
+
 /** Skill 声明（步骤 + 编排规则），用于向用户展示 AI 按什么规则执行。 */
 export interface SkillDefinition {
   id: string
@@ -94,6 +116,8 @@ export interface AnalyzeResult {
   canvas_id?: string | null
   task_ids?: string[]
   jobs?: ImagePlanJob[]
+  /** 面向用户的公开需求分析事实与任务拆分。 */
+  analysis?: PublicAnalysis
   error_code?: string
 }
 
@@ -127,6 +151,7 @@ export interface SkillRunAttachment {
   target_id?: string | null
   canvas_id?: string | null
   jobs?: ImagePlanJob[]
+  analysis?: PublicAnalysis
 }
 
 /** 从消息附件里挑出 skill_run（非该类型返回 null）。 */
@@ -154,6 +179,14 @@ export interface ChatSelectionPayload {
   width?: number
   height?: number
   has_doodle?: boolean
+  /**
+   * 该带上的参考图资产 id。
+   *
+   * 选中底图但没有框选区域时，前端会把这张底图升级成引用：
+   * 纯生图链路只认 `image_refs`，不这么传的话服务端等于「一张图都没收到」，
+   * 于是「把这张图的猫咪抠出来」会变成「照着文字再画一张猫」。
+   */
+  refs?: string[]
   regions: Array<{
     index: number
     region: { x: number; y: number; w: number; h: number }
@@ -188,6 +221,12 @@ export interface ComposeStep {
 export const VERBATIM_OPTION_ID = 'verbatim'
 
 /** 澄清时给出的一个方向（带完整提示词，选中即用）。 */
+export interface ComposeOptionJob {
+  index?: number
+  label?: string
+  prompt: string
+}
+
 export interface ComposeOption {
   id: string
   label: string
@@ -195,6 +234,8 @@ export interface ComposeOption {
   prompt: string
   size: string
   image_count: number
+  /** Optional distinct prompts for each independently generated output. */
+  jobs?: ComposeOptionJob[]
 }
 
 /** 全链路结果：SSE result 与消息附件共用同一套字段。 */
@@ -229,6 +270,9 @@ export interface ComposeResult {
   error_code?: string
   action?: { type: string }
   relay?: { configured: boolean; source?: string; provider?: string; model?: string }
+  /** 公开分析摘要与拆分后的任务，可能由较新后端返回。 */
+  analysis?: PublicAnalysis
+  jobs?: ImagePlanJob[]
 }
 
 /** assistant 消息附件里的 compose_run 快照（刷新后可还原处理过程）。 */
@@ -250,6 +294,11 @@ export interface ComposeRunAttachment {
   tasks?: Array<{ id: string; type: string; status: string; prompt: string; cost: number }>
   task_ids?: string[]
   chosen_option_id?: string
+  image_count?: number
+  reason?: string
+  confidence?: number
+  jobs?: ImagePlanJob[]
+  analysis?: PublicAnalysis
 }
 
 /**
@@ -364,6 +413,7 @@ export const chatApi = {
     },
     handlers: {
       onStep: (step: SkillStepState) => void
+      onAnalysis?: (analysis: PublicAnalysis) => void
       onDelta?: (text: string, reset?: boolean) => void
       onThought?: (text: string, reset?: boolean) => void
       onThoughtProgress?: (chars: number) => void
@@ -412,13 +462,15 @@ export const chatApi = {
             if (dataStr) {
               try {
                 const obj = JSON.parse(dataStr) as {
-                  event?: 'step' | 'result' | 'delta' | 'delta_reset' | 'thought' | 'thought_reset' | 'thought_progress'
+                  event?: 'step' | 'analysis' | 'result' | 'delta' | 'delta_reset' | 'thought' | 'thought_reset' | 'thought_progress'
                   step?: SkillStepState
+                  analysis?: PublicAnalysis
                   result?: AnalyzeResult
                   text?: string
                   chars?: number
                 }
                 if (obj.event === 'step' && obj.step) handlers.onStep(obj.step)
+                if (obj.event === 'analysis' && obj.analysis) handlers.onAnalysis?.(obj.analysis)
                 if (obj.event === 'delta' && obj.text) handlers.onDelta?.(obj.text)
                 if (obj.event === 'delta_reset') handlers.onDelta?.('', true)
                 if (obj.event === 'thought' && obj.text) handlers.onThought?.(obj.text)
@@ -474,6 +526,8 @@ export const chatApi = {
     },
     handlers: {
       onStep: (step: ComposeStep) => void
+      /** 面向用户的结构化需求摘要（先于最终结果到达）。 */
+      onAnalysis?: (analysis: PublicAnalysis) => void
       /** 回复正文的流式增量（结论已定，正在「说成人话」）；`reset` = 清空已收到的半截重来 */
       onDelta?: (text: string, reset?: boolean) => void
       /** 面向用户的分析摘要增量；`reset` = 流式失败已回落，清空重来 */
@@ -520,13 +574,15 @@ export const chatApi = {
             if (dataStr) {
               try {
                 const obj = JSON.parse(dataStr) as {
-                  event?: 'step' | 'result' | 'delta' | 'delta_reset' | 'thought' | 'thought_reset' | 'thought_progress'
+                  event?: 'step' | 'analysis' | 'result' | 'delta' | 'delta_reset' | 'thought' | 'thought_reset' | 'thought_progress'
                   step?: ComposeStep
+                  analysis?: PublicAnalysis
                   result?: ComposeResult
                   text?: string
                   chars?: number
                 }
                 if (obj.event === 'step' && obj.step) handlers.onStep(obj.step)
+                if (obj.event === 'analysis' && obj.analysis) handlers.onAnalysis?.(obj.analysis)
                 if (obj.event === 'delta' && obj.text) handlers.onDelta?.(obj.text)
                 if (obj.event === 'delta_reset') handlers.onDelta?.('', true)
                 if (obj.event === 'thought' && obj.text) handlers.onThought?.(obj.text)

@@ -9,8 +9,12 @@ import {
 } from './canvas-helpers'
 
 /** 缩略图尺寸（CSS 像素）。画布内容按需缩放到这个框里。 */
-export const MINIMAP_WIDTH = 120
-export const MINIMAP_HEIGHT = 76
+// Keep the navigator quiet in the corner so it supports orientation without
+// competing with the artwork.  The larger canvas remains available for direct
+// manipulation while this miniature map still has enough room to show the
+// viewport rectangle.
+export const MINIMAP_WIDTH = 96
+export const MINIMAP_HEIGHT = 60
 const MAP_W = MINIMAP_WIDTH
 const MAP_H = MINIMAP_HEIGHT
 

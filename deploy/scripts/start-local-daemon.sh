@@ -63,7 +63,10 @@ start_one() {  # $1=name  $2=workdir  $3..=cmd
     return 0
   fi
 
-  ( cd "$workdir" && "$@" >"$LOG_DIR/$name.log" 2>&1 & echo $! >"$pid_file" )
+  # Detach from the terminal/agent process group. Without nohup, a background
+  # child can receive SIGHUP as soon as this launcher exits and leave a stale
+  # pidfile even though the startup log says it was ready.
+  ( cd "$workdir" && nohup "$@" </dev/null >"$LOG_DIR/$name.log" 2>&1 & echo $! >"$pid_file" )
   sleep 0.6
   if is_alive "$pid_file"; then
     echo "  ✓ 已启动 $name (pid $(cat "$pid_file"))"
@@ -112,7 +115,7 @@ do_start() {
   }
 
   start_if_needed gw "$GW_PORT" "$ROOT/gateway" \
-    "$ROOT/gateway/.venv/bin/uvicorn" app.main:app --host 127.0.0.1 --port "$GW_PORT" || return 1
+    "$ROOT/gateway/.venv/bin/uvicorn" app.main:app --host 127.0.0.1 --port "$GW_PORT" --workers 1 || return 1
 
   start_if_needed be "$BE_PORT" "$ROOT/backend" \
     "$ROOT/backend/.venv/bin/uvicorn" app.main:app --host 127.0.0.1 --port "$BE_PORT" || return 1
@@ -123,7 +126,7 @@ do_start() {
   # 上游最后启动：前端/后端/网关就绪即可浏览界面，上游只影响实际生图生文。
   if [ -d "$UPSTREAM_DIR" ] && [ -x "$UPSTREAM_DIR/.venv/bin/python" ]; then
     start_if_needed up "$UPSTREAM_PORT" "$UPSTREAM_DIR" \
-      "$UPSTREAM_DIR/.venv/bin/python" -m uvicorn main:app --host 127.0.0.1 --port "$UPSTREAM_PORT" --log-level info
+      "$UPSTREAM_DIR/.venv/bin/python" -m uvicorn main:app --host 127.0.0.1 --port "$UPSTREAM_PORT" --workers 1 --log-level info
   else
     echo "  · 上游未配置（UPSTREAM_DIR=${UPSTREAM_DIR}），跳过；生图/生文将不可用"
   fi

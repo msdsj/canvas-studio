@@ -99,6 +99,14 @@ class ComposeAnalysis(StrictBase):
     confidence: float = Field(ge=0, le=1)
 
 
+class ComposeOptionJob(StrictBase):
+    """One independently generated image inside a clarification option."""
+
+    index: int = Field(ge=1, le=12)
+    label: str = Field(default="", max_length=40)
+    prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+
+
 class ComposeOption(StrictBase):
     """澄清卡的一个方案选项。
 
@@ -112,6 +120,7 @@ class ComposeOption(StrictBase):
     prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
     aspect: ComposeAspect
     image_count: int = Field(default=1, ge=1, le=12)
+    jobs: list[ComposeOptionJob] | None = Field(default=None, max_length=12)
 
 
 class ComposePlan(StrictBase):

@@ -11,7 +11,7 @@ export function PoolStatsCards({ stats }: { stats: PoolStats }) {
     mode === 'local'
       ? '调度方式：本地独立路由（每个任务分配不同 Key）'
       : mode === 'upstream'
-        ? `调度方式：上游号池（${stats.upstream_healthy ?? 0}/${stats.upstream_total ?? 0} 个健康账号，由上游排队出图）`
+        ? `调度方式：上游号池（${stats.upstream_healthy ?? 0}/${stats.upstream_total ?? 0} 个健康账号，独立并发请求；由上游轮询，非严格一图一号）`
         : mode === 'none'
           ? '当前没有可用账号：请导入账号或检查图片上游'
           : ''

@@ -23,11 +23,11 @@ fi
 .venv/bin/pip install -q -r requirements.txt
 
 echo "==> 启动网关 (:27182)"
-( cd "$ROOT_DIR/gateway" && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 27182 & )
+( cd "$ROOT_DIR/gateway" && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 27182 --workers 1 & )
 sleep 2
 
 echo "==> 启动后端 (:27181)"
-( cd "$ROOT_DIR/backend" && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 27181 & )
+( cd "$ROOT_DIR/backend" && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 27181 --workers 1 & )
 
 echo "==> 启动前端 (:27180)"
 cd "$ROOT_DIR/frontend"

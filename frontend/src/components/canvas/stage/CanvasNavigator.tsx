@@ -179,7 +179,7 @@ export function CanvasNavigator({ api, elements, selectionCard }: CanvasNavigato
       {selectionCard && (
         <div
           ref={cardRef}
-          className="pointer-events-auto w-[200px] max-w-[calc(100vw-48px)] rounded-[10px] bg-surface-raised/85 p-2 shadow-sheet ring-1 ring-inset ring-border-faint backdrop-blur-md"
+          className="pointer-events-auto w-[176px] max-w-[calc(100vw_-_40px)] rounded-[9px] bg-surface-raised/78 p-1.5 shadow-sm ring-1 ring-inset ring-border-faint backdrop-blur-md"
         >
           {selectionCard}
         </div>
@@ -187,7 +187,7 @@ export function CanvasNavigator({ api, elements, selectionCard }: CanvasNavigato
 
       <div
         ref={panelRef}
-        className="pointer-events-auto overflow-hidden rounded-[10px] bg-surface-raised/85 shadow-sheet ring-1 ring-inset ring-border-faint backdrop-blur-md"
+        className="pointer-events-auto overflow-hidden rounded-[9px] bg-surface-raised/78 shadow-sm ring-1 ring-inset ring-border-faint backdrop-blur-md"
       >
         <div className="p-1">
           {view === 'film' ? (

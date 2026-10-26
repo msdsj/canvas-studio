@@ -1,30 +1,12 @@
-/* MSDSJ 设计 token（双主题）
- *
- * 2026-10-18 第三次改版：整体切到「Lovart 式设计工作室」语言。
- *
- * 三段色彩结构：
- *   1. 纸：暖砂纸底（#F4F1E9）+ 纯白卡面 —— 像设计工作室的桌面与画纸
- *   2. 墨：近黑中性色（#14130D）—— 所有正文与主按钮，克制、印刷感
- *   3. 青蓝：唯一的信号色（#35B3C9）—— 只用于「AI 正在动作 / 当前选中 / 关键强调」
- *
- * 2026-10-24 换色：采用「蓝绿冷调」配色（#598BFD / #9AD4CB / #35B3C9），
- * 纸面与墨色不变，只换掉所有有彩色的部分（品牌 / 信号 / 选区 / 图表 / 渐变 / 环境光）。
- *
- * 约定：
- * - 历史 token 名全部保留，只改值，避免大面积改组件
- * - 新增 token 标注 [NEW]
- * - 亮色放 :root（默认），暗色放 [data-theme='dark']
- */
+/* Shared design tokens: cool neutral surfaces, cobalt actions and a restrained
+ * cyan signal color. Semantic names keep every product surface on one system. */
 
 :root {
   /* ---------- 字体 ---------- */
-  /* 2026-10-24 换字：去掉衬线大标题与几何无衬线（那是「AI 生成落地页」的典型长相）。
-   * 现在标题与正文统一走系统字体：中文落到苹方/思源黑，英文落到系统 UI 字体，
-   * 更像一个能长期使用的工具，而不是一张宣传海报。 */
-  --font-display: "PingFang SC", "Noto Sans SC", "Source Han Sans SC", "Hiragino Sans GB",
-    "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; /* 仅 H1/display */
-  --font-sans: system-ui, -apple-system, "PingFang SC", "Noto Sans SC", "Hiragino Sans GB",
-    "Microsoft YaHei", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Assistant", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC",
+    system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Assistant", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC",
+    system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
   --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
 
   /* ---------- 字号 / 行高 ---------- */
@@ -96,99 +78,96 @@
   --radius-full: 9999px;
 
   /* ---------- 表面（纸） ---------- */
-  --color-bg: #f4f1e9;
-  --color-bg-subtle: #eae5d8;
+  --color-bg: #f5f7fa;
+  --color-bg-subtle: #eef2f7;
   --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
-  --color-surface-hover: #f3efe4;
-  --color-canvas: #ece6d9;
-  --color-gutter: #e2dbca; /* 工作台分栏缝隙：比画布再深一档，卡片才浮得起来 */
-  --color-canvas-dot: #d4cab5;
+  --color-surface-hover: #f3f6fa;
+  --color-canvas: #e9eef5;
+  --color-gutter: #dbe3ed;
+  --color-canvas-dot: #c8d3e1;
   --color-mat: #ffffff;
-  /* 画布台面的纵深阴影（只用于内阴影收边，不画线） */
-  --color-canvas-shade: rgba(58, 47, 20, 0.13);
+  --color-canvas-shade: rgba(35, 55, 82, 0.1);
 
   /* ---------- 墨 ---------- */
-  --color-text: #14130d;
-  --color-text-secondary: #4b4739;
-  --color-text-tertiary: #7b7566;
-  --color-text-faint: #a9a292; /* 仅非文字（图标/分隔） */
-  --color-text-inverse: #fbfaf4;
+  --color-text: #172033;
+  --color-text-secondary: #475569;
+  --color-text-tertiary: #64748b;
+  --color-text-faint: #94a3b8;
+  --color-text-inverse: #f8fafc;
 
   /* ---------- 线 ---------- */
-  --color-border: #e1dac9;
-  --color-border-faint: #efe9db;
-  --color-border-strong: #cbc2ac;
+  --color-border: #d9e1eb;
+  --color-border-faint: #e8edf3;
+  --color-border-strong: #c3cedc;
 
   /* ---------- 品牌：深蓝（主按钮 / 正文强调） ----------
    * 2026-10-24 换色：采用「蓝绿冷调」配色（#598BFD / #9AD4CB / #35B3C9）。
    * 主按钮用 #2452C0 而不是 #598BFD：白字压 #598BFD 只有 3.2:1，
    * 小字号读不清；#2452C0 对白字 6.9:1，够 WCAG AA。
    * 原「墨黑主按钮」的结构保留在纸面上——暖砂纸 + 冷调蓝，是当下最稳的搭配。 */
-  --color-brand: #2452c0;
-  --color-brand-hover: #1b47a8;
-  --color-brand-active: #143a8c;
-  --color-brand-subtle: #e8effc;
-  --color-brand-text: #23448f;
+  --color-brand: #285bc5;
+  --color-brand-hover: #214da9;
+  --color-brand-active: #193f91;
+  --color-brand-subtle: #eaf1ff;
+  --color-brand-text: #244a9a;
 
   /* 品牌三色（蓝绿冷调）：渐变、光晕、图表主序列直接取这里 */
-  --color-brand-blue: #598bfd;
-  --color-brand-mint: #9ad4cb;
-  --color-brand-cyan: #35b3c9;
+  --color-brand-blue: #4777df;
+  --color-brand-mint: #8dcfca;
+  --color-brand-cyan: #169fb1;
 
   /* ---------- 信号色：青蓝（AI 动作中 / 当前选中 / 关键强调） ----------
    * 只出现在「AI 动作中 / 当前选中 / 关键强调」，不要拿它做正文或大面积底色。
    * 实底上压深墨字：白字在 #35B3C9 上只有 2.5:1，不可读。 */
-  --color-accent: #35b3c9;
-  --color-accent-strong: #1e93a8;
-  --color-accent-soft: #e2f5f8;
-  --color-accent-ink: #0e6b7c;
+  --color-accent: #19a5b7;
+  --color-accent-strong: #0f8495;
+  --color-accent-soft: #e4f5f7;
+  --color-accent-ink: #0d6876;
   /* 青蓝「实底」上的文字/图标恒为深墨（暗色主题里 accent 是亮青蓝，同样压深墨） */
-  --color-on-accent: #06222a;
+  --color-on-accent: #06262c;
 
   /* 主按钮渐变（深蓝三段，弥散方向 135°） */
-  --gradient-brand: linear-gradient(135deg, #3f74e6 0%, #2452c0 52%, #17419f 100%);
-  --gradient-brand-soft: linear-gradient(135deg, #f2f6fe 0%, #e4f6f7 100%);
-  /* 青蓝渐变：AI 生成中的光带 / 发送键激活态 */
-  --gradient-accent: linear-gradient(135deg, #9ad4cb 0%, #35b3c9 48%, #1e93a8 100%);
-  /* 弥散渐变：卡片 / 大图背景用的柔和三色光晕（低饱和，不抢内容） */
-  --gradient-diffuse: radial-gradient(120% 90% at 12% 0%, rgba(89, 139, 253, 0.22), transparent 58%),
-    radial-gradient(100% 80% at 92% 8%, rgba(53, 179, 201, 0.2), transparent 56%),
-    radial-gradient(90% 70% at 50% 100%, rgba(154, 212, 203, 0.18), transparent 60%);
+  --gradient-brand: linear-gradient(135deg, #4777df 0%, #285bc5 56%, #214da9 100%);
+  --gradient-brand-soft: linear-gradient(135deg, #f5f8ff 0%, #edf4ff 100%);
+  --gradient-accent: linear-gradient(135deg, #7dc9d2 0%, #19a5b7 52%, #0f8495 100%);
+  --gradient-diffuse: radial-gradient(120% 90% at 12% 0%, rgba(71, 119, 223, 0.14), transparent 58%),
+    radial-gradient(100% 80% at 92% 8%, rgba(25, 165, 183, 0.1), transparent 56%),
+    radial-gradient(90% 70% at 50% 100%, rgba(141, 207, 202, 0.09), transparent 60%);
 
   /* 页面级弥散：页头 / 侧栏顶部的极淡三色光。
    * 只在顶部起亮、向下化开——内容区仍然保持纯纸底，不会变成"糊了一层雾"。 */
-  --gradient-diffuse-wash: radial-gradient(58% 130% at 6% 0%, rgba(89, 139, 253, 0.16), transparent 70%),
-    radial-gradient(48% 120% at 94% 0%, rgba(53, 179, 201, 0.14), transparent 68%),
-    radial-gradient(70% 120% at 50% 96%, rgba(154, 212, 203, 0.1), transparent 72%);
+  --gradient-diffuse-wash: radial-gradient(58% 130% at 6% 0%, rgba(71, 119, 223, 0.1), transparent 70%),
+    radial-gradient(48% 120% at 94% 0%, rgba(25, 165, 183, 0.075), transparent 68%),
+    radial-gradient(70% 120% at 50% 96%, rgba(141, 207, 202, 0.055), transparent 72%);
 
   /* ---------- 选区几何（蓝，与信号色同族但更沉） ---------- */
-  --color-select: #2452c0;
-  --color-select-soft: #e9f0fe;
-  --color-select-line: #7fa8f5;
+  --color-select: #285bc5;
+  --color-select-soft: #eaf1ff;
+  --color-select-line: #7da1e8;
 
   /* ---------- 语义 ---------- */
-  --color-success: #2c7a4b;
-  --color-success-subtle: #e6f4ea;
-  --color-warning: #a96b00;
-  --color-warning-subtle: #fbf0d8;
-  --color-danger: #c0392b;
-  --color-danger-subtle: #fbe9e6;
-  --color-info: #3b7be8;
-  --color-focus-ring: #598bfd;
+  --color-success: #218653;
+  --color-success-subtle: #e8f6ee;
+  --color-warning: #a96908;
+  --color-warning-subtle: #fff4df;
+  --color-danger: #c43c4b;
+  --color-danger-subtle: #fcebed;
+  --color-info: #285bc5;
+  --color-focus-ring: #4777df;
 
   /* ---------- 阴影（暖灰，禁纯黑） ---------- */
-  --shadow-xs: 0 1px 2px rgba(45, 38, 20, 0.05);
-  --shadow-sheet: 0 1px 2px rgba(45, 38, 20, 0.05), 0 4px 12px -4px rgba(45, 38, 20, 0.08);
+  --shadow-xs: 0 1px 2px rgba(23, 32, 51, 0.04);
+  --shadow-sheet: 0 1px 2px rgba(23, 32, 51, 0.04), 0 4px 12px -4px rgba(23, 32, 51, 0.07);
   --shadow-sm: var(--shadow-sheet);
-  --shadow-lift: 0 2px 6px -2px rgba(45, 38, 20, 0.07), 0 16px 32px -12px rgba(45, 38, 20, 0.14);
+  --shadow-lift: 0 2px 6px -2px rgba(23, 32, 51, 0.06), 0 16px 32px -12px rgba(23, 32, 51, 0.12);
   --shadow-md: var(--shadow-lift);
-  --shadow-float: 0 8px 20px -8px rgba(45, 38, 20, 0.12), 0 32px 64px -24px rgba(45, 38, 20, 0.2);
+  --shadow-float: 0 8px 20px -8px rgba(23, 32, 51, 0.1), 0 32px 64px -24px rgba(23, 32, 51, 0.18);
   --shadow-lg: var(--shadow-float);
-  --shadow-drag: 0 12px 28px -10px rgba(45, 38, 20, 0.18), 0 44px 88px -32px rgba(45, 38, 20, 0.26);
+  --shadow-drag: 0 12px 28px -10px rgba(23, 32, 51, 0.16), 0 44px 88px -32px rgba(23, 32, 51, 0.22);
   --shadow-paper-edge: inset 0 1px 0 rgba(255, 255, 255, 0.9);
   /* 蓝绿外发光：激活态 / 生成中 */
-  --shadow-glow: 0 0 0 1px rgba(89, 139, 253, 0.45), 0 8px 30px -6px rgba(53, 179, 201, 0.38);
+  --shadow-glow: 0 0 0 1px rgba(71, 119, 223, 0.35), 0 8px 28px -8px rgba(25, 165, 183, 0.24);
 
   --ring-focus: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-focus-ring);
 
@@ -203,20 +182,20 @@
 
   /* 遮罩：浅色主题下画布本身已经比纸底深，遮罩再重会把工作区压成一团灰。
    * 用低透明度的暖褐，只为"把注意力收拢到弹窗上"，不为"把背景变黑"。 */
-  --overlay: rgba(46, 40, 24, 0.26);
+  --overlay: rgba(23, 32, 51, 0.28);
 
   /* [NEW] 图片放大/灯箱用的重遮罩（比 --overlay 重得多：此时要把背景压暗）。
    * 与 --color-scrim-text 配对使用，保证图上文字在任意主题下都读得清。 */
-  --color-scrim: rgba(14, 12, 7, 0.82);
-  --color-scrim-text: #fbfaf4;
+  --color-scrim: rgba(10, 17, 31, 0.82);
+  --color-scrim-text: #f8fafc;
 
   /* ---------- 噪点（3%）：纸的质感，不引入色偏 ---------- */
-  --texture-paper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  --texture-paper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.012'/%3E%3C/svg%3E");
 
   /* 首页环境光：蓝 / 青 / 薄荷 三团极淡的弥散光，撑起纵深 */
-  --ambient-1: radial-gradient(760px 520px at 18% 8%, rgba(89, 139, 253, 0.26), transparent 66%);
-  --ambient-2: radial-gradient(680px 460px at 88% 4%, rgba(53, 179, 201, 0.24), transparent 62%);
-  --ambient-3: radial-gradient(520px 420px at 62% 92%, rgba(154, 212, 203, 0.22), transparent 64%);
+  --ambient-1: radial-gradient(760px 520px at 18% 8%, rgba(71, 119, 223, 0.16), transparent 66%);
+  --ambient-2: radial-gradient(680px 460px at 88% 4%, rgba(25, 165, 183, 0.11), transparent 62%);
+  --ambient-3: radial-gradient(520px 420px at 62% 92%, rgba(141, 207, 202, 0.09), transparent 64%);
 
   /* ==========================================================================
    * [V3] 页面壳刻度
@@ -287,19 +266,19 @@
   /* 粘性页头 / 表格吸底分页：只用一道 1px 收边 + 极浅下投影，
    * 目的是"让内容从下面滑过去"这件事被看见，不是画一根分割线。 */
   --shadow-sticky: 0 1px 0 color-mix(in srgb, var(--color-border) 70%, transparent),
-    0 8px 16px -16px rgba(45, 38, 20, 0.5);
+    0 8px 16px -16px rgba(23, 32, 51, 0.35);
   --shadow-table-foot: 0 -1px 0 color-mix(in srgb, var(--color-border) 70%, transparent),
-    0 -8px 16px -16px rgba(45, 38, 20, 0.4);
+    0 -8px 16px -16px rgba(23, 32, 51, 0.3);
 
   /* ---------- [V3] 图表 ----------
    * 本项目没有图表依赖（package.json 里无 recharts/d3），趋势图手写 <svg>。
    * 配色只取「纸 / 墨 / 蓝绿」同族，禁紫禁粉。
    * 四个序列按使用频率排序：1 是主指标（用量/消耗），2 是人数类，3 是异常类，
    * 4 是同环比/历史对照（灰，主动退到后面）。 */
-  --chart-1: #598bfd; /* 品牌蓝（主序列） */
-  --chart-2: #35b3c9; /* 青蓝 */
-  --chart-3: #a9761b; /* 赭石（冷调里唯一的暖点，用来拉开序列） */
-  --chart-4: #8a8674; /* 暖灰（对照） */
+  --chart-1: #4777df;
+  --chart-2: #19a5b7;
+  --chart-3: #bf7b24;
+  --chart-4: #7f8da3;
   /* 网格 / 轴线随主题翻转：color-mix 的基色是 --color-text，亮色取深、暗色取浅 */
   --chart-grid: color-mix(in srgb, var(--color-text) 9%, transparent);
   --chart-axis: color-mix(in srgb, var(--color-text) 16%, transparent);
@@ -320,88 +299,84 @@
   --chart-plot-left: 44px; /* 让出 y 轴标签 */
 }
 
-/* 暗色：暖黑工作室（暗房），蓝绿更亮，卡面靠明度上浮 */
+/* Dark theme: deep navy surfaces, clear slate dividers and bright cobalt actions. */
 [data-theme='dark'] {
-  --color-bg: #0b0a07;
-  --color-bg-subtle: #11100b;
-  --color-surface: #16150f;
-  --color-surface-raised: #1d1b14;
-  --color-surface-hover: #262318;
-  /* 暗色下画布比页面底再亮一档：黑底上的"纯黑卡片"看不出边界，
-   * 反而像页面破了一个洞；抬一档 + 受光边，才有"一张纸浮着"的层次。 */
-  --color-canvas: #100e09;
-  --color-gutter: #050403;
-  --color-canvas-dot: #2a2618;
-  --color-mat: #1a1811;
-  --color-canvas-shade: rgba(0, 0, 0, 0.62);
+  --color-bg: #0c1320;
+  --color-bg-subtle: #131d2c;
+  --color-surface: #151f2f;
+  --color-surface-raised: #1b293b;
+  --color-surface-hover: #223249;
+  --color-canvas: #111c2b;
+  --color-gutter: #080f1a;
+  --color-canvas-dot: #28384d;
+  --color-mat: #192638;
+  --color-canvas-shade: rgba(0, 0, 0, 0.42);
 
-  --color-text: #f4f1e7;
-  --color-text-secondary: #b9b3a2;
-  --color-text-tertiary: #8d8778;
-  --color-text-faint: #66604f;
-  --color-text-inverse: #0b0a07;
+  --color-text: #edf3fb;
+  --color-text-secondary: #bdc9d9;
+  --color-text-tertiary: #91a1b6;
+  --color-text-faint: #708198;
+  --color-text-inverse: #0c1320;
 
-  --color-border: #2c2819;
-  --color-border-faint: #201d13;
-  --color-border-strong: #423c27;
+  --color-border: #2a394d;
+  --color-border-faint: #202e41;
+  --color-border-strong: #3a4c63;
 
-  /* 暗色下「主按钮」用亮蓝：深色底上黑按钮会消失，亮蓝 + 深墨字对比 5.7:1 */
-  --color-brand: #7ba4ff;
-  --color-brand-hover: #96b7ff;
-  --color-brand-active: #a9c4ff;
-  --color-brand-subtle: #16233d;
-  --color-brand-text: #b7cdff;
+  --color-brand: #83a9ff;
+  --color-brand-hover: #9bbaff;
+  --color-brand-active: #b2caff;
+  --color-brand-subtle: #1a2a46;
+  --color-brand-text: #b6ccff;
 
-  --color-brand-blue: #598bfd;
-  --color-brand-mint: #9ad4cb;
-  --color-brand-cyan: #35b3c9;
+  --color-brand-blue: #83a9ff;
+  --color-brand-mint: #8dcfca;
+  --color-brand-cyan: #48c3d1;
 
-  --color-accent: #4cc6da;
-  --color-accent-strong: #6ad6e6;
-  --color-accent-soft: #0f2a30;
-  --color-accent-ink: #a9e7f0;
-  --color-on-accent: #052028;
+  --color-accent: #48c3d1;
+  --color-accent-strong: #67d1dd;
+  --color-accent-soft: #15313b;
+  --color-accent-ink: #a0e4eb;
+  --color-on-accent: #06262c;
 
-  --gradient-brand: linear-gradient(135deg, #8fb2ff 0%, #5b8cf5 50%, #3f6fd8 100%);
-  --gradient-brand-soft: linear-gradient(135deg, #111a2c 0%, #0f2730 100%);
-  --gradient-accent: linear-gradient(135deg, #b9ece2 0%, #4cc6da 48%, #2ba3b8 100%);
-  --gradient-diffuse: radial-gradient(120% 90% at 12% 0%, rgba(89, 139, 253, 0.2), transparent 58%),
-    radial-gradient(100% 80% at 92% 8%, rgba(53, 179, 201, 0.16), transparent 56%),
-    radial-gradient(90% 70% at 50% 100%, rgba(154, 212, 203, 0.12), transparent 60%);
+  --gradient-brand: linear-gradient(135deg, #a5c1ff 0%, #739aff 56%, #4d7be5 100%);
+  --gradient-brand-soft: linear-gradient(135deg, #17243a 0%, #1a2b46 100%);
+  --gradient-accent: linear-gradient(135deg, #a0e4eb 0%, #48c3d1 52%, #16899b 100%);
+  --gradient-diffuse: radial-gradient(120% 90% at 12% 0%, rgba(83, 132, 230, 0.14), transparent 58%),
+    radial-gradient(100% 80% at 92% 8%, rgba(34, 163, 181, 0.1), transparent 56%),
+    radial-gradient(90% 70% at 50% 100%, rgba(95, 174, 169, 0.07), transparent 60%);
 
-  /* 暗底上弥散光要提亮一点才看得见，但透明度仍然压得很低，避免整页发蓝 */
-  --gradient-diffuse-wash: radial-gradient(58% 130% at 6% 0%, rgba(89, 139, 253, 0.22), transparent 70%),
-    radial-gradient(48% 120% at 94% 0%, rgba(53, 179, 201, 0.18), transparent 68%),
-    radial-gradient(70% 120% at 50% 96%, rgba(154, 212, 203, 0.08), transparent 72%);
+  --gradient-diffuse-wash: radial-gradient(58% 130% at 6% 0%, rgba(83, 132, 230, 0.14), transparent 70%),
+    radial-gradient(48% 120% at 94% 0%, rgba(34, 163, 181, 0.1), transparent 68%),
+    radial-gradient(70% 120% at 50% 96%, rgba(95, 174, 169, 0.045), transparent 72%);
 
-  --color-select: #7ba4ff;
-  --color-select-soft: #16233d;
-  --color-select-line: #5b8cf5;
+  --color-select: #83a9ff;
+  --color-select-soft: #1a2a46;
+  --color-select-line: #739aff;
 
-  --color-success: #4ade9b;
-  --color-success-subtle: #0f2a20;
-  --color-warning: #f2b544;
-  --color-warning-subtle: #2a2110;
-  --color-danger: #ff8a80;
-  --color-danger-subtle: #2a1416;
-  --color-info: #6ea8ff;
-  --color-focus-ring: #7ba4ff;
+  --color-success: #6ed8a0;
+  --color-success-subtle: #143226;
+  --color-warning: #f3c36c;
+  --color-warning-subtle: #342916;
+  --color-danger: #ff8e9a;
+  --color-danger-subtle: #381d29;
+  --color-info: #8cb2ff;
+  --color-focus-ring: #83a9ff;
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-sheet: 0 1px 2px rgba(0, 0, 0, 0.45), 0 4px 14px -4px rgba(0, 0, 0, 0.4);
-  --shadow-lift: 0 2px 6px -2px rgba(0, 0, 0, 0.5), 0 16px 38px -12px rgba(0, 0, 0, 0.55);
-  --shadow-float: 0 8px 20px -8px rgba(0, 0, 0, 0.55), 0 32px 72px -24px rgba(0, 0, 0, 0.65);
-  --shadow-drag: 0 12px 28px -8px rgba(0, 0, 0, 0.65), 0 48px 96px -28px rgba(0, 0, 0, 0.75);
+  --shadow-sheet: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px -4px rgba(0, 0, 0, 0.28);
+  --shadow-lift: 0 2px 6px -2px rgba(0, 0, 0, 0.35), 0 16px 38px -12px rgba(0, 0, 0, 0.4);
+  --shadow-float: 0 8px 20px -8px rgba(0, 0, 0, 0.4), 0 32px 72px -24px rgba(0, 0, 0, 0.5);
+  --shadow-drag: 0 12px 28px -8px rgba(0, 0, 0, 0.48), 0 48px 96px -28px rgba(0, 0, 0, 0.58);
   --shadow-paper-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --shadow-glow: 0 0 0 1px rgba(123, 164, 255, 0.4), 0 8px 34px -8px rgba(76, 198, 218, 0.35);
+  --shadow-glow: 0 0 0 1px rgba(131, 169, 255, 0.35), 0 8px 34px -8px rgba(72, 195, 209, 0.24);
 
-  --overlay: rgba(0, 0, 0, 0.68);
-  --color-scrim: rgba(0, 0, 0, 0.88);
-  --color-scrim-text: #f4f1e7;
+  --overlay: rgba(3, 8, 16, 0.68);
+  --color-scrim: rgba(3, 8, 16, 0.88);
+  --color-scrim-text: #f8fafc;
 
-  --ambient-1: radial-gradient(760px 520px at 18% 8%, rgba(89, 139, 253, 0.18), transparent 66%);
-  --ambient-2: radial-gradient(680px 460px at 88% 4%, rgba(53, 179, 201, 0.16), transparent 62%);
-  --ambient-3: radial-gradient(520px 420px at 62% 92%, rgba(154, 212, 203, 0.1), transparent 64%);
+  --ambient-1: radial-gradient(760px 520px at 18% 8%, rgba(83, 132, 230, 0.14), transparent 66%);
+  --ambient-2: radial-gradient(680px 460px at 88% 4%, rgba(34, 163, 181, 0.1), transparent 62%);
+  --ambient-3: radial-gradient(520px 420px at 62% 92%, rgba(95, 174, 169, 0.055), transparent 64%);
 
   /* ---------- [V3] 页面壳 / 表格 / 图表：暗色对应值 ----------
    * 布局刻度（gutter / max-width / 行高 / 圆角）是纯尺寸，暗色不覆盖，
@@ -410,10 +385,10 @@
   --shadow-table-foot: 0 -1px 0 var(--color-border), 0 -8px 16px -16px rgba(0, 0, 0, 0.85);
 
   /* 暗底上橄榄绿会糊成一团，四条全部提亮、降饱和，靠明度区分序列 */
-  --chart-1: #7ba4ff; /* 亮品牌蓝 */
-  --chart-2: #4cc6da; /* 亮青蓝 */
-  --chart-3: #e0b463; /* 暖琥珀 */
-  --chart-4: #8d8778; /* 暖灰（对照） */
+  --chart-1: #83a9ff;
+  --chart-2: #48c3d1;
+  --chart-3: #e3b96c;
+  --chart-4: #91a1b6;
   --chart-fill-1: color-mix(in srgb, var(--chart-1) 14%, transparent);
   --chart-fill-2: color-mix(in srgb, var(--chart-2) 14%, transparent);
   --chart-dot-ring: var(--color-surface);

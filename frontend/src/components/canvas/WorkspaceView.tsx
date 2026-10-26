@@ -46,14 +46,15 @@ import {
   downloadImageAs,
   imageToBlob,
   elementImageDataUrl,
+  resolveFullImageDataUrl,
   elementScreenRect,
+  fetchImageBlob,
   findEmptySpot,
   focusSceneBox,
   imageSize,
   normalizeScene,
   sceneSourceUrls,
   unplacedResultUrls,
-  urlToDataUrl,
   type ExcalidrawApiLike,
   type NormRegion,
 } from './canvas-helpers'
@@ -127,7 +128,7 @@ const QUICK_OP_PROMPT: Record<'enhance' | 'cutout', string> = {
 }
 
 /** 结果默认以较小的画布尺寸呈现，保留足够的空白用于并排比较与继续创作。 */
-const RESULT_MAX_SIDE = 200
+const RESULT_MAX_SIDE = 176
 const RESULT_GAP = 28
 
 /** 所有落图入口共享同一尺寸策略，保持原始宽高比，避免窄图被最小边长拉伸。 */
@@ -232,12 +233,32 @@ const resultAssetCache: Record<string, string> = {}
  * 失败返回 undefined：落图本身照常完成（画布上仍然看得到、也能编辑），
  * 只是这条捷径没走上，后续引用时再补登记。
  */
+/**
+ * 把生成结果登记为资产，拿到资产 id。
+ *
+ * 为什么要这一步：结果图一旦落进画布，它就该是**一等公民**——能被 @ 引用、
+ * 能进编辑/抠图、能作为下一次图生图的底图。带着 assetId 落图，后续链路都免去回传。
+ *
+ * 顺序很重要：**先问服务端有没有登记过**。生成任务在落盘那一刻就已经建好资产行了
+ * （`assets.generation_task_id`），所以绝大多数情况一次轻量查询就够。
+ * 旧实现不管有没有都「下载整张图 → 再上传一遍」，一张 2.2MB 的 PNG
+ * 等于 2.2MB 下行 + 2.2MB 上行，这才是「放入画布等半天」的主因。
+ * 只有查不到（历史数据 / DEMO 图）才走下载 + 上传的兜底。
+ */
 async function materializeResultAsset(url: string): Promise<string | undefined> {
   const cached = resultAssetCache[url]
   if (cached) return cached
   try {
-    const dataUrl = await urlToDataUrl(url)
-    const blob = await (await fetch(dataUrl)).blob()
+    const existing = await assetsApi.byUrl(url)
+    if (existing?.id) {
+      resultAssetCache[url] = existing.id
+      return existing.id
+    }
+  } catch {
+    // 反查失败不影响落图，继续走兜底
+  }
+  try {
+    const blob = await fetchImageBlob(url)
     const file = new File([blob], 'ai-result.png', { type: blob.type || 'image/png' })
     const asset = await assetsApi.upload(file)
     resultAssetCache[url] = asset.id
@@ -1058,7 +1079,15 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   const enterEdit = useCallback(
     async (element: CanvasElement) => {
       const instance = apiRef.current
-      const dataUrl = elementImageDataUrl(instance, element)
+      /**
+       * 编辑底图必须是**原图**。
+       *
+       * 画布里存的是压缩副本（≤1280px 的 WebP，见 canvas-helpers 的
+       * CANVAS_EMBED_MAX_SIDE）。拿它当底图去做框选编辑 / 抠图，等于先把
+       * 1024~1536 的原图降质一遍再送去模型——抠出来的边缘会糊，
+       * 用户会以为「这个抠图功能不行」，而真正原因是喂进去的底图已经被压过。
+       */
+      const dataUrl = await resolveFullImageDataUrl(instance, element)
       if (!dataUrl) {
         toast.error('该图片尚未加载完成，请稍后重试')
         return
@@ -1090,11 +1119,15 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   /**
    * 选区变化 → 组装上抛给侧栏的上下文。
    *
-   * ⚠️ 这里的关键是 `regions.length > 0` 的判断：
-   * 只要编辑层开着、哪怕一个区域都没框，也绝不能上抛上下文。
-   * 否则侧栏会认为「这是一次区域编辑」，把用户那句本该走 compose 的话
-   * 拐进 `/chat/analyze`——这正是「框选功能跑到对话里去了」的直接原因。
-   * 空数组 = 没有选区 = 对话里那句话就是普通的生图需求。
+   * 两种情况都要上抛，但含义不同：
+   * - **有区域**：这是一次区域编辑，侧栏走 `/chat/analyze`（带编号选区）；
+   * - **没区域但选中了底图**：侧栏仍走 compose（普通对话），但必须把这张图的
+   *   asset_id 带过去。否则「点中猫咪图 → 说『把猫咪抠出来』」在服务端等于
+   *   「没给任何图」，模型只能照着文字再画一只猫——用户看到的就是
+   *   「我要抠图，你怎么又画了一张差不多的」。
+   *
+   * 路由判断只看 `regions.length`（在 ChatPanel 里），所以这里上抛空 regions
+   * 的上下文不会把普通生图拐进区域编辑链路。
    */
   const handleSelectionChange = useCallback(
     (info: {
@@ -1105,8 +1138,8 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     }) => {
       const target = editTargetRef.current
       const regions = Array.isArray(info.regions) ? info.regions : []
-      // 编辑层关闭、或没有任何区域 → 清空上下文，让侧栏走纯文本链路
-      if (!target || regions.length === 0) {
+      // 编辑层没开（也没选中图）→ 没有任何上下文
+      if (!target) {
         setSelectionCtx(null)
         return
       }
@@ -1125,8 +1158,11 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
           prompt: item.prompt,
           handler: item.handler,
         })),
-        // 侧栏发消息前调用，把并集掩码上传后回填 mask_asset_id
-        buildMask: () => editLayerRef.current?.getMaskFile() ?? Promise.resolve(null),
+        // 只有真框了区域才需要并集掩码；没框就是「整图编辑」，不该上传掩码
+        buildMask:
+          regions.length > 0
+            ? () => editLayerRef.current?.getMaskFile() ?? Promise.resolve(null)
+            : undefined,
       })
     },
     []
@@ -1395,10 +1431,12 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
 
   /** 画布上的图片 → File（一键操作与变体都要把像素交出去） */
   const elementFile = async (element: CanvasElement): Promise<File | null> => {
-    const dataUrl = elementImageDataUrl(apiRef.current, element)
+    // 取原图：画布内嵌的是压缩副本，拿它去抠图/增强等于把底图先降质一遍
+    const dataUrl = await resolveFullImageDataUrl(apiRef.current, element)
     if (!dataUrl) return null
     const blob = await (await fetch(dataUrl)).blob()
-    return new File([blob], 'canvas-image.png', { type: blob.type || 'image/png' })
+    const ext = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'png'
+    return new File([blob], `canvas-image.${ext}`, { type: blob.type || 'image/png' })
   }
 
   /** 一键整图操作（高清放大 / 去背景）：结果落在原图右侧，并记下版本谱系。 */
@@ -1465,10 +1503,11 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     }
   }
 
-  const openCompare = () => {
+  const openCompare = async () => {
     if (!barTarget || !barParent) return
-    const after = elementImageDataUrl(apiRef.current, barTarget)
-    const before = elementImageDataUrl(apiRef.current, barParent)
+    // 前后对比要比的是细节（抠图边缘、纹理），压缩副本会掩盖差异
+    const after = await resolveFullImageDataUrl(apiRef.current, barTarget)
+    const before = await resolveFullImageDataUrl(apiRef.current, barParent)
     if (!after || !before) return
     setCompare({
       before: { url: before, version: Math.max(1, barVersion - 1) },
@@ -1493,8 +1532,14 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
     return () => window.removeEventListener('keydown', onKey, true)
   }, [barTarget, enterEdit])
 
+  /** 下载 / 复制 / 送去编辑时统一取**原图**：画布内嵌的是压缩副本。 */
+  const fullResDataUrl = async (element: CanvasElement | null): Promise<string | null> => {
+    if (!element) return null
+    return await resolveFullImageDataUrl(apiRef.current, element)
+  }
+
   const handleDownloadSelected = async (format: 'png' | 'jpg') => {
-    const dataUrl = selectedImageInfo?.dataUrl
+    const dataUrl = await fullResDataUrl(selectedImage)
     if (!dataUrl) {
       toast.error('未找到可下载的图片')
       return
@@ -1508,7 +1553,8 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
 
   /** 复制当前选中图片到剪贴板（PNG：剪贴板只稳定支持 PNG）。 */
   const handleCopySelected = async () => {
-    const dataUrl = selectedImageInfo?.dataUrl
+    // 剪贴板必须给原图：复制出去的是要粘贴到别的软件里的成品
+    const dataUrl = await fullResDataUrl(selectedImage)
     if (!dataUrl) return
     try {
       if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) throw new Error('unsupported')
@@ -1617,7 +1663,8 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
   /** 把画布上的图收进素材库：之后在「从素材库选择」里能直接复用。 */
   const addElementToLibrary = async (el: CanvasElement) => {
     if (!api || addingToLibrary) return
-    const dataUrl = elementImageDataUrl(api, el)
+    // 入库的是原图：素材库里的图之后还要被下载、被再次编辑
+    const dataUrl = await resolveFullImageDataUrl(api, el)
     if (!dataUrl) {
       toast.error('这张图暂时读不出来，稍后再试')
       return
@@ -2035,7 +2082,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
           <div
             data-panel
             data-agent-composer
-            className="relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[16px] bg-surface shadow-sheet md:mr-2 md:w-[320px] lg:w-[336px] xl:w-[372px]"
+            className="relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[16px] border border-border-faint bg-surface shadow-sheet md:mr-2 md:w-[320px] lg:w-[336px] xl:w-[372px]"
           >
             {/* 面板顶部的弥散薄雾：蓝 → 青 → 薄荷，把对话区和画布在视觉上分开 */}
             <div aria-hidden className="cs-diffuse-wash pointer-events-none absolute inset-x-0 top-0 h-52" />
@@ -2128,11 +2175,9 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
             ref={canvasCardRef}
             onPointerMove={handlePresenceMove}
             className={cn(
-              // 画布做成浮起的纸卡：留出外边距 + 软角 + 暖灰阴影，
-              // 底色用 --color-canvas（比纸底深一档），让图片浮起来；
-              // 不靠 1px 描边定义边界——层级靠明度差 + 阴影表达
+              // 画布以冷中性台面、轻描边和柔和阴影建立层次，让图片成为视觉焦点。
               // @container：画布内浮层（dock 文字标签、右下导航器位置）按画布宽度而不是视口宽度响应
-              'cs-canvas-card @container relative min-h-0 flex-1 overflow-hidden rounded-[18px] bg-canvas shadow-sheet',
+              'cs-canvas-card @container relative min-h-0 flex-1 overflow-hidden rounded-[16px] border border-border-faint bg-canvas shadow-sheet',
               // 选中图片时隐藏 Excalidraw 原生「双击裁剪」提示：
               // 本平台的图片编辑统一由单击进入编辑层，避免两个冲突的图片编辑入口
               selectedImage && 'cs-has-image-selected'
@@ -2310,7 +2355,7 @@ export function WorkspaceView({ initialCanvasId, sessionId = '', taskId }: Works
                 onCutout={() => void runQuickOp('cutout')}
                 onVariation={() => void runVariation()}
                 onResize={(factor) => resizeImage(barTarget, factor)}
-                onCompare={openCompare}
+                onCompare={() => void openCompare()}
                 onDownload={(format) => void handleDownloadSelected(format)}
                 onReference={() => {
                   void referenceCanvasImage(barTarget)

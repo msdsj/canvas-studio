@@ -539,7 +539,11 @@ def _require_transparent_output(provider_bytes: bytes) -> None:
 
 
 def _pool_metadata(task):
-    return {key: task.params[key] for key in ("pool_batch_id", "pool_task_id", "pool_batch_total") if key in task.params}
+    return {
+        key: task.params[key]
+        for key in ("pool_batch_id", "pool_task_id", "pool_batch_total", "pool_strict")
+        if key in task.params
+    }
 
 
 def _compose_prompt(global_prompt: str, instruction: str, *, sprite: bool) -> str:

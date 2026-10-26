@@ -45,6 +45,53 @@ async def test_batch_reserves_all_accounts_before_first_request_finishes():
     assert await account_pool.select(kind="image") is not None
 
 
+async def test_strict_batch_rotation_can_use_unstarted_or_external_slot():
+    """失败换号不能被同批次尚未启动的预留账号挡住。"""
+    await _seed(3)
+    first = await account_pool.acquire_image(
+        batch_id="rotate-batch", task_id="one", batch_total=2, strict=True
+    )
+    assert first is not None
+    replacement = await account_pool.rotate_image(
+        first["id"], batch_id="rotate-batch", task_id="one", batch_total=2
+    )
+    assert replacement is not None
+    assert replacement["id"] != first["id"]
+    second = await account_pool.acquire_image(
+        batch_id="rotate-batch", task_id="two", batch_total=2, strict=True
+    )
+    assert second is not None
+    assert second["id"] not in {first["id"], replacement["id"]}
+    await account_pool.release_image(replacement["id"], batch_id="rotate-batch", task_id="one")
+    await account_pool.release_image(second["id"], batch_id="rotate-batch", task_id="two")
+    assert all(item["in_flight"] == 0 for item in await account_pool.list())
+
+
+async def test_strict_rotation_transfers_sibling_slot_without_reusing_its_account():
+    """池子刚好 2 个号时，重试可接管兄弟号，但兄弟任务不能重复占它。"""
+    await _seed(2)
+    first = await account_pool.acquire_image(
+        batch_id="rotate-tight", task_id="one", batch_total=2, strict=True
+    )
+    assert first is not None
+    await account_pool.mark_failure(first["id"], "quota exhausted")
+    replacement = await account_pool.rotate_image(
+        first["id"], batch_id="rotate-tight", task_id="one", batch_total=2
+    )
+    assert replacement is not None
+    assert replacement["id"] != first["id"]
+    with pytest.raises(GatewayError) as info:
+        await account_pool.acquire_image(
+            batch_id="rotate-tight", task_id="two", batch_total=2, strict=True
+        )
+    assert info.value.code == ErrorCode.POOL_UNAVAILABLE
+    assert account_pool._batches["rotate-tight"]["tasks"]["one"] == replacement["id"]
+    await account_pool.release_image(
+        replacement["id"], batch_id="rotate-tight", task_id="one"
+    )
+    assert all(item["in_flight"] == 0 for item in await account_pool.list())
+
+
 async def test_batch_degrades_to_upstream_dispatch_when_accounts_are_insufficient():
     """账号不够时不再整批拒绝：一个账号独立路由，剩余任务交给上游调度。"""
     await _seed(1)
@@ -56,6 +103,27 @@ async def test_batch_degrades_to_upstream_dispatch_when_accounts_are_insufficien
     await account_pool.release_image("", batch_id="batch", task_id="two")
     assert (await account_pool.list())[0]["in_flight"] == 0
     assert account_pool._batches["batch"]["done"] == {"one", "two"}
+
+
+async def test_strict_batch_rejects_insufficient_local_accounts_without_fallback():
+    """编排批次不能把缺少的独立账号静默降级到共享 provider。"""
+    await _seed(1)
+    with pytest.raises(GatewayError) as info:
+        await account_pool.acquire_image(
+            batch_id="strict-batch", task_id="one", batch_total=2, strict=True
+        )
+    assert info.value.code == ErrorCode.POOL_UNAVAILABLE
+    assert "strict-batch" not in account_pool._batches
+
+
+async def test_strict_batch_rejects_empty_local_pool_without_fallback():
+    """严格批次不能在本地池为空时静默交给共享 provider。"""
+    with pytest.raises(GatewayError) as info:
+        await account_pool.acquire_image(
+            batch_id="strict-empty", task_id="one", batch_total=2, strict=True
+        )
+    assert info.value.code == ErrorCode.POOL_UNAVAILABLE
+    assert "strict-empty" not in account_pool._batches
 
 
 async def test_expired_abandoned_batch_releases_unstarted_siblings():
@@ -172,6 +240,29 @@ async def test_empty_remote_pool_is_scheduled_by_upstream(client, headers, mock_
     response = await client.post("/gw/images/generations", headers=headers, json=_payload(1))
     assert response.status_code == 200
     assert len(calls) == 1
+
+
+async def test_upstream_managed_batch_fans_out_nonstrict_requests_concurrently(
+    client, headers, mock_upstream,
+):
+    """没有本地凭据时，批次仍拆成独立 n=1 请求交给上游号池并发调度。"""
+    arrived = asyncio.Event()
+    calls: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content)["prompt"])
+        if len(calls) == 2:
+            arrived.set()
+        await asyncio.wait_for(arrived.wait(), timeout=2)
+        return httpx.Response(200, json={"data": [{"b64_json": "QUJD"}]})
+
+    mock_upstream(handler)
+    first, second = await asyncio.gather(
+        client.post("/gw/images/generations", headers=headers, json=_payload(1)),
+        client.post("/gw/images/generations", headers=headers, json=_payload(2)),
+    )
+    assert first.status_code == second.status_code == 200
+    assert calls == ["output 1", "output 2"]
 
 
 async def test_sync_quota_error_falls_back_to_upstream_task_queue(client, headers, mock_upstream, monkeypatch):

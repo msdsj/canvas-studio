@@ -481,3 +481,34 @@ def test_compose_option_drift_detection_keeps_option():
     assert options[0]["aspect"] == "3:4"
     assert options[1]["aspect"] == "4:3"
     assert options[0]["size"] == "1024x1536", "一期字段必须保留（前端还在读）"
+
+
+def test_normalize_options_preserves_distinct_jobs():
+    """方向内的不同画面要在确认阶段保留各自的提示词。"""
+    options = compose_service._normalize_options(
+        [
+            {
+                "id": "series",
+                "label": "春夏两张",
+                "prompt": "春夏系列插画，统一水彩视觉，完整构图与清晰主体",
+                "size": "1024x1536",
+                "image_count": 2,
+                "jobs": [
+                    {"index": 1, "label": "春", "prompt": "春天樱花小路，柔和水彩风格，完整构图"},
+                    {"index": 2, "label": "夏", "prompt": "夏日海边落日，明亮水彩风格，完整构图"},
+                ],
+            }
+        ]
+    )
+    assert options[0]["jobs"] == [
+        {"index": 1, "label": "春", "prompt": "春天樱花小路，柔和水彩风格，完整构图"},
+        {"index": 2, "label": "夏", "prompt": "夏日海边落日，明亮水彩风格，完整构图"},
+    ]
+    jobs = compose_service.resolve_jobs(
+        {"image_count": options[0]["image_count"], "images": options[0]["jobs"]},
+        options[0]["prompt"],
+    )
+    assert [job["prompt"] for job in jobs] == [
+        "春天樱花小路，柔和水彩风格，完整构图",
+        "夏日海边落日，明亮水彩风格，完整构图",
+    ]

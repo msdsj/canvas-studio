@@ -41,6 +41,7 @@ import {
   type ComposeOption,
   type ComposeResult,
   type ComposeStep,
+  type PublicAnalysis,
   type SkillOption,
   type SkillStepState,
 } from '@/lib/api/chat'
@@ -67,7 +68,7 @@ import type { CanvasSelectionContext } from '@/types/selection'
 import { ChatMessage } from './ChatMessage'
 import { Markdown } from './Markdown'
 import { AgentGlyph } from './agent/AgentGlyph'
-import { AgentTrace, type TraceStep } from './agent/AgentTrace'
+import { AgentTrace, type TracePlan, type TraceStep } from './agent/AgentTrace'
 import { AgentWelcome } from './agent/AgentWelcome'
 import { PromptGuide } from './agent/PromptGuide'
 import { ChatTextarea, type ComposerAttachment } from './ChatTextarea'
@@ -159,6 +160,28 @@ interface PendingConfirm {
 interface AnalysisState {
   steps: SkillStepState[]
   active: boolean
+  /** 模型公开返回的结构化需求摘要与任务拆分。 */
+  plan?: TracePlan | null
+}
+
+/** 把后端 snake_case 摘要映射成 AgentTrace 的展示模型。 */
+function toTracePlan(analysis?: PublicAnalysis | null, fallback?: { ruleHit?: string; outputs?: unknown[] }): TracePlan | null {
+  if (!analysis && !fallback?.outputs?.length) return null
+  return {
+    imageCount: analysis?.image_count,
+    confidence: analysis?.confidence,
+    summary: analysis?.summary,
+    subject: analysis?.subject,
+    intent: analysis?.intent,
+    style: analysis?.style,
+    constraints: analysis?.constraints,
+    observations: analysis?.observations,
+    countReason: analysis?.count_reason,
+    reason: analysis?.reason,
+    ruleHit: fallback?.ruleHit,
+    jobs: analysis?.jobs,
+    outputs: Array.isArray(fallback?.outputs) ? (fallback?.outputs as TracePlan['outputs']) : undefined,
+  }
 }
 
 /** 澄清卡的本地状态（选了哪个 / 是否已提交）。 */
@@ -197,6 +220,7 @@ function interruptSteps<T extends TraceStep>(steps: T[], detail: string, stopped
 function ThinkingBubble({
   active,
   steps,
+  plan,
   reply,
   thought,
   thoughtChars,
@@ -206,6 +230,7 @@ function ThinkingBubble({
 }: {
   active: boolean
   steps: TraceStep[]
+  plan?: TracePlan | null
   /** 正在流式输出的回复正文（分析结论已定，Agent 正在「说成人话」） */
   reply: string
   /** 模型公开返回的实时分析摘要 */
@@ -226,6 +251,7 @@ function ThinkingBubble({
       <div className="min-w-0 pl-[30px]">
         <AgentTrace
           steps={steps}
+            plan={plan}
           live={active}
           defaultOpen
           thought={thought}
@@ -308,6 +334,8 @@ export function ChatPanel({
   const [newCount, setNewCount] = useState(0)
   /** 画布框选编辑的实时分析块（随 SSE onStep 更新） */
   const [analysis, setAnalysis] = useState<AnalysisState | null>(null)
+  /** 当前这轮由模型返回的公开分析摘要；只展示事实、结论与任务拆分。 */
+  const [analysisPlan, setAnalysisPlan] = useState<TracePlan | null>(null)
   /** 待确认方案卡（时间线尾部） */
   const [pending, setPending] = useState<PendingConfirm | null>(null)
   /** 「缺少底图」内联提示 */
@@ -559,6 +587,7 @@ export function ChatPanel({
     setMessages([])
     setNewCount(0)
     setAnalysis(null)
+    setAnalysisPlan(null)
     setPending(null)
     setNeedsImage(false)
     setComposeSteps([])
@@ -921,11 +950,13 @@ export function ChatPanel({
       result.tasks.forEach((task) => watchersRef.current.add(task.id))
       const epoch = streamEpochRef.current
       // 正式消息接替实时过程之前保留完成态，避免请求结束到刷新完成之间闪空。
-      setAnalysis({ steps: result.steps, active: false })
+      setAnalysis({ steps: result.steps, active: false, plan: toTracePlan(result.analysis, { ruleHit: result.rule_hit, outputs: result.outputs }) })
+      setAnalysisPlan(toTracePlan(result.analysis, { ruleHit: result.rule_hit, outputs: result.outputs }))
       setReplyDraft(result.reply)
       void loadMessages(sessionId as string).then((loaded) => {
         if (!loaded || epoch !== streamEpochRef.current) return
         setAnalysis(null)
+        setAnalysisPlan(null)
         setReplyDraft('')
         setThoughtDraft('')
         setThoughtChars(0)
@@ -989,7 +1020,8 @@ export function ChatPanel({
       return { ...prev, state: 'voided' }
     })
     setNeedsImage(false)
-    setAnalysis({ steps: [], active: true })
+    setAnalysis({ steps: [], active: true, plan: null })
+    setAnalysisPlan(null)
 
     let payload: ChatSelectionPayload | null = null
     try {
@@ -997,6 +1029,7 @@ export function ChatPanel({
     } catch (error) {
       if (epoch !== streamEpochRef.current) return
       setAnalysis(null)
+      setAnalysisPlan(null)
       setSubmitting(false)
       toast.error(errorMessage(error, te))
       return
@@ -1007,7 +1040,7 @@ export function ChatPanel({
     let inputLoaded = false
     const failAnalysis = (message = ta('say.interrupted_hint'), errorCode?: string) => {
       if (epoch !== streamEpochRef.current) return
-      setAnalysis((prev) => prev && ({ steps: interruptSteps(prev.steps, message), active: false }))
+      setAnalysis((prev) => prev && ({ ...prev, steps: interruptSteps(prev.steps, message), active: false }))
       setSubmitting(false)
       setInput((prev) => prev || prompt)
       setPending((prev) => (prev && prev.state === 'voided' ? { ...prev, state: 'pending' } : prev))
@@ -1033,7 +1066,14 @@ export function ChatPanel({
           setAnalysis((prev) => ({
             steps: upsertStep(prev?.steps ?? [], step),
             active: true,
+            plan: prev?.plan ?? null,
           }))
+        },
+        onAnalysis: (summary) => {
+          if (epoch !== streamEpochRef.current) return
+          const plan = toTracePlan(summary)
+          setAnalysisPlan(plan)
+          setAnalysis((prev) => prev ? { ...prev, plan } : { steps: [], active: true, plan })
         },
         onDelta: (text, reset) => {
           if (epoch !== streamEpochRef.current) return
@@ -1074,6 +1114,7 @@ export function ChatPanel({
       setComposing(false)
       result.tasks.forEach((task) => watchersRef.current.add(task.id))
       setComposeSteps(result.steps)
+      setAnalysisPlan(toTracePlan(result.analysis))
       setReplyDraft(result.reply)
       void loadMessages(sessionId as string).then((loaded) => {
         if (!loaded || epoch !== streamEpochRef.current) return
@@ -1119,13 +1160,23 @@ export function ChatPanel({
    */
   const selectionPayload = useMemo(() => {
     if (!selection) return null
+    const assetId = selection.asset_id ?? null
+    // 选中底图但没框区域时，把这张图升级成一条「@ 引用」。
+    //
+    // 为什么不能只靠 selection.asset_id：纯生图链路（compose）只认 image_refs，
+    // 底图必须以引用身份进去，才会带上原图像素和 attachments，
+    // 最终也才会走「带底图的编辑」而不是「照着文字再画一张」。
+    // 用户明明在画布上点中了那张猫咪图，结果又生成一张相似的——就是缺了这一步。
+    const regionsEmpty = (selection.regions?.length ?? 0) === 0
+    const refs = regionsEmpty && assetId ? [assetId] : undefined
     return {
-      asset_id: selection.asset_id ?? null,
+      asset_id: assetId,
       mask_asset_id: selection.mask_asset_id ?? null,
       width: selection.width,
       height: selection.height,
       has_doodle: selection.has_doodle,
       regions: selection.regions,
+      refs,
     }
   }, [selection])
 
@@ -1149,6 +1200,7 @@ export function ChatPanel({
     setPromptHistory(readPromptHistory(historyUserId))
     setComposing(true)
     setAnalysis(null)
+    setAnalysisPlan(null)
     setComposeSteps([])
     setReplyDraft('')
     setThoughtDraft('')
@@ -1171,9 +1223,12 @@ export function ChatPanel({
         content,
         canvas_id: canvasId,
         image_refs: [
+          // 画布选中底图（没框区域时由 selectionPayload 升级而来）优先，
+          // 否则「选中一张图再说话」在服务端等于没给图。
+          ...(selectionPayload?.refs ?? []),
           ...(refsOverride ?? refs).map((item) => item.id),
           ...(mentionIds ?? []),
-        ],
+        ].filter((id, index, list) => list.indexOf(id) === index),
         selection: selectionPayload,
         size: params?.size,
         aspect: params?.aspect,
@@ -1189,6 +1244,10 @@ export function ChatPanel({
             void loadMessages(sessionId)
           }
           setComposeSteps((prev) => upsertStep(prev, step))
+        },
+        onAnalysis: (summary) => {
+          if (epoch !== streamEpochRef.current) return
+          setAnalysisPlan(toTracePlan(summary))
         },
         onDelta: (text, reset) => {
           if (epoch !== streamEpochRef.current) return
@@ -1582,7 +1641,7 @@ export function ChatPanel({
     analyzeCancelRef.current?.()
     setComposing(false)
     setSubmitting(false)
-    setAnalysis((prev) => prev && ({ steps: interruptSteps(prev.steps, ta('trace.stopped'), true), active: false }))
+    setAnalysis((prev) => prev && ({ ...prev, steps: interruptSteps(prev.steps, ta('trace.stopped'), true), active: false }))
     setComposeSteps((prev) => interruptSteps(prev, ta('trace.stopped'), true))
   }
 
@@ -1784,12 +1843,20 @@ export function ChatPanel({
                         ? run.steps
                         : undefined
                     : undefined
+                const messagePlan = entry.message.role === 'assistant'
+                  ? run
+                    ? toTracePlan(run.analysis, { ruleHit: run.rule_hit, outputs: run.outputs })
+                    : compose
+                      ? toTracePlan(compose.analysis)
+                      : null
+                  : null
                 return (
                   <div key={entry.message.id} className="flex flex-col gap-2">
                     <ChatMessage
                       message={entry.message}
                       images={images}
                       traceSteps={traceSteps}
+                      analysisPlan={messagePlan}
                       traceOpen={isLatestReply}
                       skillId={compose?.skill_id || null}
                       skillName={run?.skill?.name || null}
@@ -1945,6 +2012,7 @@ export function ChatPanel({
               <ThinkingBubble
                 active={composing || analysisActive}
                 steps={composeSteps.length > 0 ? composeSteps : (analysis?.steps ?? [])}
+                plan={analysis?.plan ?? analysisPlan}
                 reply={replyDraft}
                 thought={thoughtDraft}
                 thoughtChars={thoughtChars}

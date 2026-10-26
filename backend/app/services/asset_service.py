@@ -165,6 +165,30 @@ async def delete_asset(db: AsyncSession, user: User, asset_id: str) -> None:
     await db.flush()
 
 
+async def find_by_url(db: AsyncSession, user: User, url: str) -> Asset | None:
+    """按对外 URL 找已登记资产（只返回当前用户可读的）。
+
+    用途：生成结果落画布时，前端原本要把整张图下载下来再上传一次才能拿到
+    asset_id——一张 2MB 的 PNG 就是 2MB 下行 + 2MB 上行，用户看到的就是
+    「放入画布等半天」。其实生成任务早就把资产登记好了（`generation_task_id`），
+    这里按 URL 直接换回 id，省掉整个往返。
+    """
+    target = str(url or "").strip()
+    if not target:
+        return None
+    ctx = await access.current_context(db, user)
+    row = (
+        await db.execute(
+            select(Asset).where(
+                Asset.url == target,
+                Asset.deleted_at.is_(None),
+                access.asset_scope_clause(user, ctx),
+            )
+        )
+    ).scalars().first()
+    return row
+
+
 def local_path_from_url(url: str) -> str | None:
     """把对外 URL 反解为本地相对路径（用于下载）。"""
     base = settings.storage_public_base.rstrip("/")

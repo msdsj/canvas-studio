@@ -72,12 +72,11 @@ async def test_remote_only_pool_rejects_multiple_outputs_before_any_charge(clien
     assert balance == before and tasks == charges == spawned == []
 
 
-async def test_upstream_pool_allows_multiple_outputs(client, monkeypatch):
-    """账号在 chatgpt2api（上游）时，多输出必须放行。
+async def test_upstream_pool_allows_multiple_outputs_with_capacity(client, monkeypatch):
+    """上游号池能报告足够健康账号时，多项任务应并发放行。
 
-    这是本轮修复的核心：用户导入 4 个 ChatGPT 凭据后，本地独立池仍是 0，
-    旧逻辑据此拒绝「拆成 2 张」。网关现在会返回 routing_mode=upstream，
-    预检应按上游健康账号数判断，而不是本地池。
+    chatgpt2api 在自己的单 worker 内轮询账号；Canvas 不把这个结果伪装成
+    本地严格租约，因此任务元数据必须关闭 ``pool_strict``。
     """
     headers, session, uid, aid, _before = await prepare(client)
     spawned = _install_plan(monkeypatch, plan())
@@ -99,6 +98,40 @@ async def test_upstream_pool_allows_multiple_outputs(client, monkeypatch):
     result = _result(await client.post("/api/chat/analyze", json=payload(session, aid), headers=headers))
     assert result["status"] == "completed", result
     assert len(result["tasks"]) == len(spawned) == 2
+    async with AsyncSessionLocal() as db:
+        tasks = list(
+            (await db.execute(select(GenerationTask).where(GenerationTask.user_id == uid)))
+            .scalars()
+        )
+    assert len(tasks) == 2
+    assert all(task.params["pool_strict"] is False for task in tasks)
+
+
+async def test_upstream_pool_rejects_when_healthy_capacity_is_insufficient(client, monkeypatch):
+    """上游健康账号不足时，在扣费前拒绝整批，避免只提交部分产出。"""
+    headers, session, uid, aid, before = await prepare(client)
+    spawned = _install_plan(monkeypatch, plan())
+
+    async def upstream_capacity():
+        return {
+            "total": 0,
+            "healthy": 0,
+            "available": 0,
+            "independent_routing": False,
+            "routing_mode": "upstream",
+            "upstream_total": 4,
+            "upstream_healthy": 1,
+            "effective_total": 4,
+            "effective_available": 1,
+        }
+
+    monkeypatch.setattr(gateway_client, "pool_capacity", upstream_capacity)
+    result = _result(await client.post("/api/chat/analyze", json=payload(session, aid), headers=headers))
+    assert result["status"] == "failed", result
+    assert result["tasks"] == spawned == []
+    assert "健康账号" in result["reply"]
+    balance, tasks, charges = await _snapshot(uid)
+    assert balance == before and tasks == charges == []
 
 
 @pytest.mark.parametrize("capability", ["unreachable", "unverified"])

@@ -3,6 +3,40 @@
 @import './styles/motion.css';
 @import './styles/toast.css';
 
+/* Assistant provides a compact Latin UI face; Chinese glyphs fall back to the
+ * platform's native CJK fonts so we don't ship a partial Chinese font. */
+@font-face {
+  font-family: 'Assistant';
+  src: url('/fonts/Assistant-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Assistant';
+  src: url('/fonts/Assistant-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Assistant';
+  src: url('/fonts/Assistant-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Assistant';
+  src: url('/fonts/Assistant-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* `dark:` 变体跟随应用主题（<html data-theme>），而不是操作系统偏好：
  * 用户可以在亮色系统里选择暗色主题，两者必须以应用设置为准。 */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
@@ -35,6 +69,9 @@
   --color-brand-active: var(--color-brand-active);
   --color-brand-subtle: var(--color-brand-subtle);
   --color-brand-text: var(--color-brand-text);
+  --color-brand-blue: var(--color-brand-blue);
+  --color-brand-mint: var(--color-brand-mint);
+  --color-brand-cyan: var(--color-brand-cyan);
   /* [NEW] 青蓝信号色 */
   --color-accent: var(--color-accent);
   --color-accent-strong: var(--color-accent-strong);
@@ -111,19 +148,10 @@
   body {
     margin: 0;
     background-color: var(--color-bg);
-    /* [V3] 环境光从 body 上摘除。
-     *
-     * 它本来只服务首页，但 body 是全站共享的，于是 /assets /projects
-     * /settings /usage /admin/* 的左上角常年糊着一层黄绿雾，看起来像
-     * "没擦干净的背景"。首页的纵深其实由 routes/index.tsx 自己的
-     * aurora 层（3 团 blur 光斑 + 噪点）承担，并不依赖这里。
-     *
-     * 现在：全站 = 纯净纸底 + 3.5% 纸张噪点；只有需要氛围的页面在自己的
-     * 根节点上放 `.cs-ambient`（见 tokens.css 的 --ambient-1/2）。 */
-    background-image: var(--texture-paper);
+    background-image: none;
     color: var(--color-text);
     font-family: var(--font-sans);
-    /* 正文下限 15px / 中文行高 1.72（汉字满格，比英文多 0.1） */
+    /* Native UI fonts keep CJK glyphs crisp without downloading a partial font. */
     font-size: var(--text-body);
     line-height: 1.72;
     -webkit-font-smoothing: antialiased;
@@ -335,13 +363,12 @@
   background-image: var(--gradient-diffuse);
 }
 
-/* 页面级弥散光：页头 / 侧栏顶部的一层三色光，向下化开、不压内容
- * （蓝 #598BFD → 青 #35B3C9 → 薄荷 #9AD4CB，都取 tokens 里的低透明版本） */
+/* Subtle brand tint for page headers and studio panels. */
 .cs-diffuse-wash {
   background-image: var(--gradient-diffuse-wash);
 }
 
-/* 弥散描边：给卡片一圈极淡的蓝绿渐变描边（代替纯色描边） */
+/* Soft brand edge for the few feature cards that need extra emphasis. */
 .cs-ring-diffuse {
   border: 1px solid transparent;
   background:
@@ -349,7 +376,7 @@
     var(--gradient-accent) border-box;
 }
 
-/* [NEW] 纸纹：首页与空态铺一层，让大面积留白有质感 */
+/* Low-contrast surface texture for the home page and empty states. */
 .cs-grain {
   background-image: var(--texture-paper);
 }

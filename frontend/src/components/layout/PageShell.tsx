@@ -95,8 +95,7 @@ export function PageShell({
           sticky && 'sticky top-0 z-20',
         )}
       >
-        {/* 页头弥散光：蓝 → 青 → 薄荷的一层薄雾，只在顶部亮，向下化开。
-            页头吸顶后这层光仍在纸底上，不会出现一条硬边。 */}
+        {/* A low-contrast brand wash gives the page header a quiet point of focus. */}
         <div aria-hidden className="cs-diffuse-wash pointer-events-none absolute inset-0" />
         <div className={cn('relative mx-auto w-full', WIDTH[width], GUTTER)}>
           <header className="cs-enter flex flex-col gap-4 pt-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6">

@@ -58,7 +58,7 @@ export function TopBar() {
   const isActive = (to: string) => pathname === to || pathname.startsWith(`${to}/`)
 
   return (
-    <header className="mx-2.5 mt-2.5 flex h-11 shrink-0 items-center justify-between gap-3 rounded-[14px] bg-surface/70 px-2 shadow-sheet ring-1 ring-inset ring-border-faint backdrop-blur-md">
+    <header className="mx-2.5 mt-2.5 flex h-11 shrink-0 items-center justify-between gap-3 rounded-[12px] border border-border-faint bg-surface px-2 shadow-xs">
       <div className="flex min-w-0 items-center gap-1.5">
         {/* 窄屏才出现的下拉入口 */}
         <DropdownMenu>
@@ -134,7 +134,7 @@ export function TopBar() {
   )
 }
 
-/** 顶栏导航项：选中时用墨黑下划线（青柠每屏只留给 ≤2 处信号）。 */
+/** Active navigation uses the shared brand blue for a clear, consistent location cue. */
 function NavLink({
   to,
   active,

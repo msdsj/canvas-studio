@@ -30,6 +30,7 @@ async def _image_lease(payload: dict):
     """Hold one credential for one attempt; `rotate()` swaps it after a failure."""
     batch_id = str(payload.get("pool_batch_id") or "")
     task_id = str(payload.get("pool_task_id") or "")
+    strict = bool(payload.get("pool_strict"))
     try:
         batch_total = int(payload.get("pool_batch_total") or 1)
         count = int(payload.get("n") or 1)
@@ -41,7 +42,7 @@ async def _image_lease(payload: dict):
         raise GatewayError(ErrorCode.VALIDATION_ERROR, "缺少图片批次标识")
     state: dict = {"account": None, "released": False}
     state["account"] = await account_pool.acquire_image(
-        batch_id=batch_id, task_id=task_id, batch_total=batch_total
+        batch_id=batch_id, task_id=task_id, batch_total=batch_total, strict=strict
     )
 
     async def rotate() -> dict | None:

@@ -68,7 +68,8 @@ async def test_multimodal_two_independent_outputs_and_original_pixels(client, mo
     result = next(e["result"] for e in trace if e["event"] == "result")
     assert result["status"] == "completed", result
     assert result["image_count"] == len(spawned) == 2
-    assert any(e["event"] == "thought" for e in trace)
+    assert any(e["event"] == "analysis" for e in trace)
+    assert not any(e["event"] == "thought" for e in trace)
     parts = observed[0]["messages"][1]["content"]
     assert sum(part["type"] == "image_url" for part in parts) == 2
     calls = []

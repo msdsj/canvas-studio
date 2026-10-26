@@ -47,21 +47,20 @@ def _target():
 # --------------------------------------------------------------------------- #
 # 1) 流式分析
 # --------------------------------------------------------------------------- #
-async def test_stream_analysis_pushes_thought_then_parses_json():
+async def test_stream_analysis_does_not_expose_raw_model_prose():
     body = json.dumps(ANALYSIS, ensure_ascii=False)
     sink: dict = {}
     chunks = [c async for c in compose_service._stream_analysis(
         _target(), [{"role": "user", "content": "x"}], sink,
-        text_stream=_pieces("用户要两张不同季节的画面，", "主体明确，可以直接开画。\n<<<", "JSON>>>\n", body[:30], body[30:]),
+        text_stream=_pieces("private chain must stay hidden {note}\n<<<", "JSON>>>\n", body[:30], body[30:]),
     )]
 
     events = _events(chunks)
-    thought = "".join(e["text"] for e in events if e["event"] == "thought")
-    assert thought.startswith("用户要两张不同季节的画面")
-    assert "<<<" not in thought and "{" not in thought, "标记与 JSON 不该被当成思考推出去"
+    assert not [event for event in events if event["event"] == "thought"]
+    assert all("private chain" not in chunk for chunk in chunks)
     assert sink["analysis"]["image_count"] == 2
     assert sink["analysis"]["_meta"]["streamed"] is True
-    assert sink["thought"].endswith("可以直接开画。")
+    assert sink["thought"] == ""
 
 
 async def test_stream_analysis_tolerates_plain_json_without_marker():
@@ -152,6 +151,7 @@ def fake_create(monkeypatch):
     spawned: list[str] = []
     refunds: list[str] = []
     fail_from: dict = {"index": None}
+    capacity_mode: dict[str, str | None] = {"value": None}
 
     async def create_image_task(db, user_id, **kwargs):
         if fail_from["index"] is not None and len(calls) + 1 >= fail_from["index"]:
@@ -169,7 +169,7 @@ def fake_create(monkeypatch):
         refunds.append(task_id)
 
     async def preflight(*args, **kwargs):
-        return None
+        return capacity_mode["value"]
 
     async def resolve_cost(*args, **kwargs):
         return 10
@@ -177,7 +177,10 @@ def fake_create(monkeypatch):
     monkeypatch.setattr(task_service, "fail_and_refund", fail_and_refund)
     monkeypatch.setattr(batch_service, "preflight", preflight)
     monkeypatch.setattr(compose_service.generate_service, "resolve_cost", resolve_cost)
-    return SimpleNamespace(calls=calls, spawned=spawned, fail_from=fail_from, refunds=refunds)
+    return SimpleNamespace(
+        calls=calls, spawned=spawned, fail_from=fail_from, refunds=refunds,
+        capacity_mode=capacity_mode,
+    )
 
 
 async def test_dispatch_creates_one_independent_task_per_image(fake_create):
@@ -197,6 +200,19 @@ async def test_dispatch_creates_one_independent_task_per_image(fake_create):
     assert all(call["extra"]["pool_batch_total"] == 2 for call in fake_create.calls)
     assert fake_create.spawned == ["t1", "t2"], "全部建好后一起起跑"
     assert [t["label"] for t in tasks] == ["春", "夏"]
+
+
+async def test_upstream_dispatch_uses_parallel_non_strict_account_routing(fake_create):
+    fake_create.capacity_mode["value"] = "upstream"
+    tasks = await compose_service._dispatch(
+        _FakeDb(), SimpleNamespace(id="u1"), _run(),
+        final_prompt="用户原话", negative="", size="1024x1024", refs=[],
+        idempotency_key="compose:k", jobs=compose_service.resolve_jobs(ANALYSIS, "用户原话"),
+    )
+    assert len(tasks) == 2
+    assert all(call["n"] == 1 for call in fake_create.calls)
+    assert all(call["extra"]["pool_strict"] is False for call in fake_create.calls)
+    assert fake_create.spawned == ["t1", "t2"]
 
 
 async def test_dispatch_single_image_keeps_original_key(fake_create):
@@ -257,7 +273,7 @@ async def test_schedule_jobs_preserves_all_outputs_when_slots_are_insufficient(m
 # --------------------------------------------------------------------------- #
 # 4) 端到端：真实接口 + 假中转站，验证「流式分析 → 张数判定 → N 个任务」
 # --------------------------------------------------------------------------- #
-async def test_compose_endpoint_streams_thought_and_dispatches_n_tasks(client, monkeypatch):
+async def test_compose_endpoint_streams_public_analysis_and_dispatches_n_tasks(client, monkeypatch):
     from sqlalchemy import select
 
     from app.database import AsyncSessionLocal
@@ -311,10 +327,11 @@ async def test_compose_endpoint_streams_thought_and_dispatches_n_tasks(client, m
     assert resp.status_code == 200, resp.text
     events = [json.loads(line[6:]) for line in resp.text.splitlines() if line.startswith("data: ")]
     kinds = [e["event"] for e in events]
-    assert "thought" in kinds, "分析过程要实时推给前端"
-    assert kinds.index("thought") < kinds.index("result")
+    assert "analysis" in kinds, "结构化需求分析应在最终结果前展示"
+    assert kinds.index("analysis") < kinds.index("result")
+    assert "thought" not in kinds, "自由文本推理不应透传"
     steps = {e["step"]["id"]: e["step"] for e in events if e["event"] == "step"}
-    assert steps["analyze"]["thought"].startswith("用户要春夏两张")
+    assert "thought" not in steps["analyze"]
     assert steps["analyze"]["meta"]["streamed"] is True
     assert steps["schedule"]["status"] == "done"
     result = next(e["result"] for e in events if e["event"] == "result")

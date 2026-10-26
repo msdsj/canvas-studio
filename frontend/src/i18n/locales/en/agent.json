@@ -34,7 +34,21 @@
     "stopped": "You stopped this analysis",
     "completed_steps": "{{completed}} / {{total}} steps done",
     "waiting": "Waiting for the next stage",
-    "connecting": "Connecting to the analysis model, awaiting processing status…"
+    "connecting": "Connecting to the analysis model, awaiting processing status…",
+    "plan_title": "Execution plan",
+    "plan_outputs": "{{count}} output(s)",
+    "plan_tasks": "{{count}} task(s)",
+    "plan_confidence": "Confidence {{value}}%",
+    "plan_basis": "Basis: {{value}}",
+    "plan_count_basis": "Output count: {{value}}",
+    "plan_subject": "Subject: {{value}}",
+    "plan_intent": "Intent: {{value}}",
+    "plan_style": "Style: {{value}}",
+    "plan_item": "Output {{index}}",
+    "plan_regions": "Regions: {{indexes}}",
+    "plan_preserve": "Preserve the rest of the original",
+    "plan_details": "View execution details",
+    "plan_more": "{{count}} more items collapsed"
   },
   "skill": {
     "using": "Using skill",
