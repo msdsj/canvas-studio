@@ -10,7 +10,8 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 
 const APP = process.env.APP_URL || 'http://127.0.0.1:27180'
 const CDP = process.env.CDP_URL || 'http://127.0.0.1:9222'
-const OUT = process.argv[2] || '/Users/meishiduoshuijiao/Desktop/canvas-studio/deliverables/run-check'
+const ROOT = new URL('..', import.meta.url).pathname
+const OUT = process.argv[2] || `${ROOT}/deliverables/run-check`
 mkdirSync(OUT, { recursive: true })
 
 class Session {

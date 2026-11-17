@@ -26,7 +26,6 @@ const require = createRequire(import.meta.url)
 const pwDir = [
   path.join(ROOT, 'frontend/node_modules/playwright'),
   path.join(ROOT, 'node_modules/playwright'),
-  '/Users/meishiduoshuijiao/.workbuddy/binaries/node/workspace/node_modules/playwright',
 ].find((p) => existsSync(p))
 if (!pwDir) {
   console.error('找不到 playwright')

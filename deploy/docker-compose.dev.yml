@@ -8,7 +8,7 @@ services:
       CS_FRONTEND_BASE_URL: http://localhost:5173
       CS_CORS_ORIGINS: http://localhost:5173
       CS_GATEWAY_BASE_URL: http://gateway:8100
-      CS_GATEWAY_INTERNAL_TOKEN: dev-internal-token
+      CS_GATEWAY_INTERNAL_TOKEN: ${CS_GATEWAY_INTERNAL_TOKEN:?Set CS_GATEWAY_INTERNAL_TOKEN in deploy/.env}
       CS_DEMO_MODE: off
       CS_IMAGE_CONCURRENCY: ${CS_IMAGE_CONCURRENCY:-4}
       CS_IMAGE_QUEUE_MAX: ${CS_IMAGE_QUEUE_MAX:-200}
@@ -37,7 +37,7 @@ services:
     build:
       context: ../gateway
     environment:
-      CS_GATEWAY_INTERNAL_TOKEN: dev-internal-token
+      CS_GATEWAY_INTERNAL_TOKEN: ${CS_GATEWAY_INTERNAL_TOKEN:?Set CS_GATEWAY_INTERNAL_TOKEN in deploy/.env}
       CS_DEMO_MODE: off
       TEXT_API_BASE_URL: ${TEXT_API_BASE_URL:-}
       TEXT_API_KEY: ${TEXT_API_KEY:-}

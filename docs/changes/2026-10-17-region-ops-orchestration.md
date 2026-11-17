@@ -545,10 +545,10 @@ mask     标准 inpainting 掩码：仅该区域透明 ← 「只改这里」的
 
 | 配置项 | 原值 | 修正为 | 原因 |
 |--------|------|--------|------|
-| `TEXT_API_BASE_URL` | `https://fast.msdsj.site` | `https://fast.msdsj.site/v1` | 裸域名返回网页 HTML；OpenAI 兼容端点需带 `/v1` |
-| `INTENT_PLANNER_MODEL` | `gpt-4o-mini` | `gpt-5.4-mini` | 该中转站不支持 `gpt-4o-mini`（返回 `model_not_found`） |
+| `TEXT_API_BASE_URL` | `https://provider.example` | `https://provider.example/v1` | OpenAI 兼容端点需带 `/v1` |
+| `INTENT_PLANNER_MODEL` | `gpt-4o-mini` | `gpt-5.4-mini` | 该上游不支持 `gpt-4o-mini`（返回 `model_not_found`） |
 
-修正后直连测试已确认模型可用（不再 404），但**该中转站当时持续返回 429 限流**，
+修正后直连测试已确认模型可用（不再 404），但**上游当时持续返回 429 限流**，
 意图分析的实际效果待限流恢复后确认。
 
 ### 设计结论

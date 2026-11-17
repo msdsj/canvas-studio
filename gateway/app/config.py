@@ -17,7 +17,7 @@ class GatewaySettings(BaseSettings):
     app_name: str = "msdsj-gateway"
     app_version: str = "1.0.0"
 
-    internal_token: str = Field(default="dev-internal-token", validation_alias="CS_GATEWAY_INTERNAL_TOKEN")
+    internal_token: str = Field(validation_alias="CS_GATEWAY_INTERNAL_TOKEN")
     demo_mode: str = Field(default="off", validation_alias="CS_DEMO_MODE")
     connect_timeout: float = Field(default=10.0, validation_alias="CS_GW_CONNECT_TIMEOUT")
     read_timeout: float = Field(default=300.0, validation_alias="CS_GW_READ_TIMEOUT")

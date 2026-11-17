@@ -30,7 +30,6 @@ function resolvePlaywright() {
   const candidates = [
     path.join(ROOT, 'frontend/node_modules/playwright'),
     path.join(ROOT, 'node_modules/playwright'),
-    '/Users/meishiduoshuijiao/.workbuddy/binaries/node/workspace/node_modules/playwright',
   ]
   for (const dir of candidates) {
     if (existsSync(dir)) return dir

@@ -9,7 +9,6 @@
 #   ./start-local-daemon.sh logs     跟踪日志（Ctrl+C 退出跟踪，服务不受影响）
 #
 # 访问：前端 http://localhost:27180
-# 账号：admin@canvas.studio / Admin@12345
 
 set -uo pipefail
 
@@ -137,7 +136,6 @@ do_start() {
   echo "    后端    http://localhost:$BE_PORT/api/health"
   echo "    网关    http://localhost:$GW_PORT/gw/health"
   echo ""
-  echo "  账号：admin@canvas.studio / Admin@12345"
 }
 
 do_stop() {

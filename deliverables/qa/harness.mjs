@@ -5,6 +5,8 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import { writeFile } from 'node:fs/promises'
 import { appendFileSync as appendSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 /** 同步落盘的进度日志：进程被强杀时也不会丢（stdout 管道/文件缓冲会丢）。 */
 export const TRACE = '/tmp/qa-trace.log'
@@ -21,7 +23,8 @@ export function trace(...parts) {
 export const APP = 'http://127.0.0.1:27180'
 export const API = 'http://127.0.0.1:27181'
 export const CDP = 'http://127.0.0.1:9222'
-export const SHOTS = '/Users/meishiduoshuijiao/Desktop/canvas-studio/deliverables/qa/shots'
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+export const SHOTS = process.env.CS_SHOT_DIR || path.join(ROOT, 'deliverables/qa/shots')
 
 export class Reporter {
   constructor() {

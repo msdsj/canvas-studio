@@ -15,9 +15,23 @@ gateway/data/
 .run/
 logs/
 
-# 环境变量
+# 环境变量与凭据
 .env
-.env.local
+.env.*
+!.env.example
+**/auth-state.json
+**/*credentials*.json
+*.pem
+*.key
+
+# 本地运行与调试资料
+.workbuddy/
+.workbuddy-ai/
+
+# 工具缓存与 TypeScript 增量构建
+.tanstack/
+**/.tanstack/
+*.tsbuildinfo
 
 # 编辑器 / 系统
 .DS_Store
@@ -25,4 +39,8 @@ logs/
 .vscode/
 tests/.tmp/
 gateway/tests/.tmp/
-.workbuddy/
+
+# 本机运行报告与截图
+/deliverables/run-check/
+/deliverables/qa/shots/
+/deliverables/gstack/shots/

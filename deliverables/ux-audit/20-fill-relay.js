@@ -1,8 +1,16 @@
 const { chromium } = require('playwright');
 const path = require('path');
-const BASE = 'http://127.0.0.1:27180';
+const BASE = process.env.CS_BASE_URL || 'http://127.0.0.1:27180';
 const SHOTS = path.join(__dirname, 'shots');
-const SESSION = '9f4bb9c8-50fa-4fb9-af1c-e01f7cb1426f';
+const SESSION = process.env.CS_SESSION_ID;
+const RELAY_NAME = process.env.CS_RELAY_NAME;
+const RELAY_BASE_URL = process.env.CS_RELAY_BASE_URL;
+const RELAY_MODEL = process.env.CS_RELAY_MODEL;
+const RELAY_API_KEY = process.env.CS_RELAY_API_KEY;
+
+for (const [name, value] of Object.entries({ CS_SESSION_ID: SESSION, CS_RELAY_NAME: RELAY_NAME, CS_RELAY_BASE_URL: RELAY_BASE_URL, CS_RELAY_MODEL: RELAY_MODEL, CS_RELAY_API_KEY: RELAY_API_KEY })) {
+  if (!value) throw new Error(`Set ${name} before running this script.`);
+}
 (async () => {
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN', storageState: path.join(__dirname, 'auth-state.json') });
@@ -16,10 +24,10 @@ const SESSION = '9f4bb9c8-50fa-4fb9-af1c-e01f7cb1426f';
   await page.waitForTimeout(600);
 
   const inputs = page.locator('[role="dialog"] input');
-  await inputs.nth(0).fill('我的中转站');
-  await inputs.nth(1).fill('https://fast.msdsj.site/v1');
-  await inputs.nth(2).fill('sk-7218a6b713972dc1839482857d25c307b47c64788dafc905f6beb9fac05c0122');
-  await inputs.nth(3).fill('gpt-6');
+  await inputs.nth(0).fill(RELAY_NAME);
+  await inputs.nth(1).fill(RELAY_BASE_URL);
+  await inputs.nth(2).fill(RELAY_API_KEY);
+  await inputs.nth(3).fill(RELAY_MODEL);
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${SHOTS}/41-relay-filled.png` });
 

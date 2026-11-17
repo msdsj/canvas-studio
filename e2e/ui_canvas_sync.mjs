@@ -9,10 +9,13 @@
  */
 import { setTimeout as sleep } from 'node:timers/promises'
 import { writeFileSync, mkdirSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const APP = 'http://127.0.0.1:27180'
 const CDP = 'http://127.0.0.1:9222'
-const OUT = '/Users/meishiduoshuijiao/Desktop/canvas-studio/deliverables/gstack/shots'
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const OUT = process.env.CS_SHOT_DIR || path.join(ROOT, 'deliverables/gstack/shots')
 mkdirSync(OUT, { recursive: true })
 
 class Session {

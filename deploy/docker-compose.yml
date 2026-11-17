@@ -18,10 +18,10 @@ services:
       CS_FRONTEND_BASE_URL: http://localhost
       CS_CORS_ORIGINS: http://localhost
       CS_GATEWAY_BASE_URL: http://gateway:8100
-      CS_GATEWAY_INTERNAL_TOKEN: ${CS_GATEWAY_INTERNAL_TOKEN:-dev-internal-token}
-      CS_SECRET_KEY: ${CS_SECRET_KEY:-dev-change-me}
+      CS_GATEWAY_INTERNAL_TOKEN: ${CS_GATEWAY_INTERNAL_TOKEN:?Set CS_GATEWAY_INTERNAL_TOKEN in the environment or .env file}
+      CS_SECRET_KEY: ${CS_SECRET_KEY:?Set CS_SECRET_KEY in the environment or .env file}
       CS_DEFAULT_ADMIN_EMAIL: ${CS_DEFAULT_ADMIN_EMAIL:-admin@canvas.studio}
-      CS_DEFAULT_ADMIN_PASSWORD: ${CS_DEFAULT_ADMIN_PASSWORD:-Admin@12345}
+      CS_DEFAULT_ADMIN_PASSWORD: ${CS_DEFAULT_ADMIN_PASSWORD:?Set CS_DEFAULT_ADMIN_PASSWORD in the environment or .env file}
       CS_DEMO_MODE: ${CS_DEMO_MODE:-off}
       TEXT_API_BASE_URL: ${TEXT_API_BASE_URL:-}
       TEXT_API_KEY: ${TEXT_API_KEY:-}
@@ -47,7 +47,7 @@ services:
     build:
       context: ../gateway
     environment:
-      CS_GATEWAY_INTERNAL_TOKEN: ${CS_GATEWAY_INTERNAL_TOKEN:-dev-internal-token}
+      CS_GATEWAY_INTERNAL_TOKEN: ${CS_GATEWAY_INTERNAL_TOKEN:?Set CS_GATEWAY_INTERNAL_TOKEN in the environment or .env file}
       CS_DEMO_MODE: ${CS_DEMO_MODE:-off}
       TEXT_API_BASE_URL: ${TEXT_API_BASE_URL:-}
       TEXT_API_KEY: ${TEXT_API_KEY:-}

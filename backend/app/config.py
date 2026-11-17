@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     app_version: str = "1.0.0"
 
     # 安全 / JWT
-    secret_key: str = "dev-change-me"
+    secret_key: str
     jwt_algorithm: str = "HS256"
     access_token_ttl: int = 604800  # 7d
 
@@ -56,11 +56,11 @@ class Settings(BaseSettings):
 
     # 网关
     gateway_base_url: str = "http://127.0.0.1:27182"
-    gateway_internal_token: str = "dev-internal-token"
+    gateway_internal_token: str
 
     # 管理员 / 初始额度
     default_admin_email: str = "admin@canvas.studio"
-    default_admin_password: str = "Admin@12345"
+    default_admin_password: str
     # 新用户初始赠送额度。用户明确要求：**不要白送额度**，默认 0。
     initial_grant: int = 0
 

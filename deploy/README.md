@@ -8,10 +8,10 @@
 cd deploy
 cp .env.example .env      # 按需修改密钥与上游地址
 docker compose up -d --build
-# 第三方 provider 由网关直接访问，不需要额外启动上游容器。
+# 首次启动前，请配置 CS_SECRET_KEY、CS_GATEWAY_INTERNAL_TOKEN 和 CS_DEFAULT_ADMIN_PASSWORD；不得使用占位值。
 ```
 
-访问：`http://localhost`（前端）。默认管理员：`admin@canvas.studio / Admin@12345`。
+访问：`http://localhost`（前端）。管理员凭据由首次初始化配置创建，请使用你设置的账号和密码。
 
 ## 二、本地零依赖启动（无 Docker）
 

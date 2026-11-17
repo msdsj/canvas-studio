@@ -5,7 +5,6 @@
 # 停止：再次双击会自动切换为停止
 #
 # 访问：http://localhost:27180
-# 账号：admin@canvas.studio / Admin@12345
 
 cd "$(dirname "$0")" || exit 1
 ROOT="$(pwd)"
@@ -37,10 +36,9 @@ echo ""
 # 检查依赖
 if [ ! -d "$ROOT/backend/.venv" ] || [ ! -d "$ROOT/frontend/node_modules" ]; then
   echo "${YEL}首次运行，正在安装依赖（可能需要几分钟）...${RST}"
-  /usr/bin/sed -i '' -e 's|^HTTP_PROXY=.*|HTTP_PROXY=http://127.0.0.1:7890|' -e 's|^HTTPS_PROXY=.*|HTTPS_PROXY=http://127.0.0.1:7890|' "$ROOT/backend/.env" 2>/dev/null
   mkdir -p "$ROOT/backend/data/storage"
   "$ROOT/backend/.venv/bin/python" -m app.migrations.run >/dev/null 2>&1
-  ( cd "$ROOT/frontend" && PATH="/Users/meishiduoshuijiao/.nvm/versions/node/v26.10.0/bin:$PATH" npm install --no-audit --no-fund >/dev/null 2>&1 )
+  ( cd "$ROOT/frontend" && npm install --no-audit --no-fund >/dev/null 2>&1 )
 fi
 
 # 确保上游容器在运行（生图必需）
@@ -67,7 +65,7 @@ sleep 2
 echo "${GRN}✓${RST} 后端      http://localhost:27181"
 
 # 启动前端
-( cd "$ROOT/frontend" && env -u NODE_OPTIONS -u PYTHONPATH PATH="/Users/meishiduoshuijiao/.nvm/versions/node/v26.10.0/bin:$PATH" npm run dev -- --port 27180 --host 127.0.0.1 >"$LOG_DIR/fe.log" 2>&1 & )
+( cd "$ROOT/frontend" && env -u NODE_OPTIONS -u PYTHONPATH npm run dev -- --port 27180 --host 127.0.0.1 >"$LOG_DIR/fe.log" 2>&1 & )
 sleep 5
 echo "${GRN}✓${RST} 前端      http://localhost:27180"
 
@@ -79,7 +77,6 @@ else
   echo "${YEL}后端还在启动，稍等几秒再刷新页面${RST}"
 fi
 echo ""
-echo "  ${BOLD}账号${RST}  admin@canvas.studio / Admin@12345"
 echo "  ${DIM}日志  $LOG_DIR/{gw,be,fe}.log${RST}"
 echo ""
 
